@@ -454,6 +454,39 @@ export function autonomousTurnSignal(message: unknown): AutonomousTurnSignal | n
   }
 }
 
+/** The `byType` key of Codex's own background shells (Claude's are `task_type`s such as `local_bash`). */
+export const CODEX_SHELL_TASK_TYPE = 'shell'
+
+/**
+ * What one live Codex tool-call report says about a shell command: `live` while it is pending or
+ * running, `settled` once it completed, failed or its terminal exited, null when it says nothing
+ * about a shell. `known` is whether the call is already followed, because ACP updates are patches
+ * and a later one may omit the `kind` that identified the call. A call opened without a status is
+ * pending, as ACP defines it.
+ *
+ * Best guess, by design: codex-acp reports a backgrounded command to AIR clients only, which
+ * Toucan deliberately is not, so a shell still open when its turn ends is assumed to be one. A call
+ * left open for another reason (an interrupted turn, a cancelled permission) is counted too, and
+ * stays counted until a late update settles it or the session ends - a false positive costs one
+ * extra confirmation, a false negative would kill the work without a word.
+ * @internal exported for tests
+ */
+export function codexShellReport(
+  update: {
+    sessionUpdate?: string
+    kind?: string | null
+    status?: string | null
+    _meta?: { [key: string]: unknown } | null
+  },
+  known: boolean
+): 'live' | 'settled' | null {
+  const meta = update._meta
+  if (!known && update.kind !== 'execute' && !meta?.terminal_info) return null
+  if (update.status === 'completed' || update.status === 'failed' || meta?.terminal_exit) return 'settled'
+  if (update.status === 'pending' || update.status === 'in_progress') return 'live'
+  return update.sessionUpdate === 'tool_call' && !update.status ? 'live' : null
+}
+
 /**
  * How many background tasks a forwarded `background_tasks_changed` reports live - backgrounded
  * shells and subagents alike - or null for any other message. The level has REPLACE semantics, so
@@ -607,6 +640,13 @@ interface RunningAgent {
   backgroundTasks: number
   /** The same level by `task_type`, kept for `AcpSessionManager.backgroundWork` (see `backgroundTaskTypes`). */
   backgroundTaskTypes: Record<string, number>
+  /**
+   * Codex only (see `codexShellReport`): the shell tool calls still open in the turn in flight, and
+   * the ones a finished turn left running. The second set is the Codex background-task count - the
+   * adapter reports async tasks to JetBrains AIR clients alone, so this is Toucan's own best guess.
+   */
+  openShellCalls: Set<string>
+  backgroundShellCalls: Set<string>
   stopping: boolean
   /**
    * Set when `create` itself failed and stopped the session. The adapter dying mid-handshake
@@ -1254,8 +1294,9 @@ export interface AcpSessionManager {
   /**
    * The live sessions that have background tasks running right now - the ones closing Toucan or
    * restarting for an update would silently kill. Sessions with none are omitted, so `.length` is
-   * "how many". Every task type counts (`byType` is keyed by the SDK's `task_type`); Codex reports
-   * none and never appears. Live state only: nothing here survives a restart of Toucan.
+   * "how many". Every task type counts (`byType` is keyed by the SDK's `task_type`); a Codex
+   * session's count is Toucan's own best guess (`CODEX_SHELL_TASK_TYPE`, see `codexShellReport`).
+   * Live state only: nothing here survives a restart of Toucan.
    */
   backgroundWork(): BackgroundWork[]
   /**
@@ -1410,6 +1451,55 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
   const clearBackgroundTasks = (running: RunningAgent): void => {
     running.backgroundTasks = 0
     running.backgroundTaskTypes = {}
+    running.openShellCalls.clear()
+    running.backgroundShellCalls.clear()
+  }
+
+  const publishShellCount = (running: RunningAgent): void => {
+    const count = running.backgroundShellCalls.size
+    setBackgroundTasks(running, count > 0 ? { [CODEX_SHELL_TASK_TYPE]: count } : {})
+  }
+
+  /**
+   * Follows one live Codex shell call (see `codexShellReport`). While a turn is in flight it only
+   * opens the call; the turn's end decides whether it was backgrounded (`settleCodexShells`). A
+   * call that reports live with no turn in flight is already past that moment - a late update for a
+   * call the adapter released - so it counts at once. Never fed replay: a transcript only says what
+   * a command once did, and a restored session starts at 0.
+   */
+  const trackCodexShell = (
+    running: RunningAgent,
+    update: Parameters<typeof codexShellReport>[0] & { toolCallId: string }
+  ): void => {
+    if (running.request.provider !== 'codex' || running.replayEvents) return
+    const id = update.toolCallId
+    const report = codexShellReport(update, running.openShellCalls.has(id) || running.backgroundShellCalls.has(id))
+    if (report === 'settled') {
+      running.openShellCalls.delete(id)
+      if (running.backgroundShellCalls.delete(id)) publishShellCount(running)
+    } else if (report === 'live' && !running.backgroundShellCalls.has(id)) {
+      if (running.busy) {
+        running.openShellCalls.add(id)
+      } else {
+        running.backgroundShellCalls.add(id)
+        publishShellCount(running)
+      }
+    }
+  }
+
+  /**
+   * A Codex turn's boundary decides what its open shells were: a completed turn left them running in
+   * the background, a cancelled one stopped them, and a failed one is unknowable - those are not
+   * counted, but whatever was already counted stays. Runs before the boundary is published, so a
+   * `turn_complete` names the work it left behind like Claude's does.
+   */
+  const settleCodexShells = (running: RunningAgent, event: AgentEvent): void => {
+    if (running.request.provider !== 'codex') return
+    if (event.type !== 'turn_complete' && event.type !== 'turn_failed' && event.type !== 'turn_cancelled') return
+    if (event.type === 'turn_complete') for (const id of running.openShellCalls) running.backgroundShellCalls.add(id)
+    running.openShellCalls.clear()
+    if (event.type === 'turn_cancelled') running.backgroundShellCalls.clear()
+    publishShellCount(running)
   }
 
   /**
@@ -1872,7 +1962,10 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         running.authMethods
       )
       if (turn.authRequired) running.authRequired = true
-      for (const event of turn.events) sendBoundary(running, event)
+      for (const event of turn.events) {
+        settleCodexShells(running, event)
+        sendBoundary(running, event)
+      }
       return turn.result
     } finally {
       running.busy = false
@@ -2084,6 +2177,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
             // no index is wired, taking the session's own write attribution down with it.
             const written = recordWrittenLocations(running, update)
             if (written.length) running.sessionOutcomes?.recordWrites(written)
+            trackCodexShell(running, update)
             send(running, { type: 'activity', activity: activityFromUpdate(update) })
           } else if (update.sessionUpdate === 'plan') {
             send(running, { type: 'plan', entries: update.entries })
@@ -2213,6 +2307,8 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         busy: false,
         backgroundTasks: 0,
         backgroundTaskTypes: {},
+        openShellCalls: new Set(),
+        backgroundShellCalls: new Set(),
         stopping: false,
         authRequired: false,
         opening: true,
