@@ -1504,11 +1504,15 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
 
   /**
    * Publishes a turn boundary, a completed one naming the background work still running past it:
-   * that work's result comes with a later, notification-driven turn.
+   * that work's result comes with a later, notification-driven turn. Codex's boundary never says so:
+   * nothing wakes a Codex agent when its background process exits, so a consumer that holds a peer's
+   * question open for "the boundary that cycle reaches" would wait forever. Its count travels on the
+   * live status event alone.
    */
   const sendBoundary = (running: RunningAgent, event: AgentEvent): void => {
     const { backgroundTasks } = running
-    send(running, event.type === 'turn_complete' && backgroundTasks > 0 ? { ...event, backgroundTasks } : event)
+    const carries = event.type === 'turn_complete' && backgroundTasks > 0 && running.request.provider !== 'codex'
+    send(running, carries ? { ...event, backgroundTasks } : event)
   }
 
   const adapterPath = (provider: AgentCreateRequest['provider']): string =>

@@ -57,6 +57,9 @@ const done = (request, stopReason = 'end_turn') => send({ jsonrpc: '2.0', id: re
   } else if (text === 'fail') {
     shell('x', 'in_progress')
     send({ jsonrpc: '2.0', id: request.id, error: { code: -32603, message: 'boom' } })
+  } else if (text === 'die') {
+    done(request)
+    setTimeout(() => process.exit(1), 30)
   } else if (text === 'late') {
     // The adapter released the call when the last turn ended; a late report carries every field.
     done(request)
@@ -108,10 +111,10 @@ test('a shell still open when the turn ends is a background task until its compl
     assert.deepEqual(manager.backgroundWork(), [{ id: 'node-1', tasks: 1, byType: { [CODEX_SHELL_TASK_TYPE]: 1 } }])
     assert.equal(broker.snapshot('node-1')?.backgroundTasks, 1)
     assert.equal(broker.snapshot('node-1')?.status, 'ready')
-    assert.equal(
-      events.find((event) => event.type === 'turn_complete' && event.backgroundTasks === 1) !== undefined,
-      true
-    )
+    // No wake follows a Codex background process, so the boundary does not promise one (a peer's
+    // question would otherwise stay open for it); the count rides the live status alone.
+    const boundary = events.find((event) => event.type === 'turn_complete')
+    assert.ok(boundary && boundary.type === 'turn_complete' && boundary.backgroundTasks === undefined)
 
     // Its completion, in a turn that is not even about it: Idle again.
     await manager.prompt('node-1', 'finish')
@@ -124,16 +127,13 @@ test('a shell still open when the turn ends is a background task until its compl
 })
 
 test('the count publishes once per change, whatever the number of reports', async () => {
-  const { appPath, manager, counts, settled } = open()
+  const { appPath, manager, counts } = open()
   try {
     await manager.create({ id: 'node-1', provider: 'codex', cwd: appPath }, owner)
     await manager.prompt('node-1', 'two')
     assert.deepEqual(manager.backgroundWork(), [{ id: 'node-1', tasks: 2, byType: { [CODEX_SHELL_TASK_TYPE]: 2 } }])
     // A second turn that settles nothing leaves the count, and the stream, alone.
     await manager.prompt('node-1', 'nothing')
-    assert.deepEqual(counts(), [2])
-    await manager.prompt('node-1', 'exit')
-    await until(settled(2))
     assert.deepEqual(counts(), [2])
   } finally {
     manager.killAll()
@@ -181,7 +181,6 @@ test('late reports for released calls never open a turn, and a live one between 
   try {
     await manager.create({ id: 'node-1', provider: 'codex', cwd: appPath }, owner)
     await manager.prompt('node-1', 'background')
-    const before = events.length
     await manager.prompt('node-1', 'late')
     const afterPrompt = events.length
 
@@ -192,7 +191,6 @@ test('late reports for released calls never open a turn, and a live one between 
     assert.equal(broker.snapshot('node-1')?.status, 'ready')
     const lateStatuses = events.slice(afterPrompt).flatMap((event) => (event.type === 'status' ? [event.status] : []))
     assert.deepEqual(lateStatuses, ['ready'])
-    assert.ok(before < afterPrompt)
   } finally {
     manager.killAll()
   }
@@ -231,6 +229,19 @@ test('stopping the session drops the count, and a new adapter starts at zero', a
     assert.deepEqual(manager.backgroundWork(), [])
     await manager.prompt('node-1', 'nothing')
     assert.deepEqual(manager.backgroundWork(), [])
+  } finally {
+    manager.killAll()
+  }
+})
+
+test('an adapter that exits takes its counted shells with it', async () => {
+  const { appPath, manager } = open()
+  try {
+    await manager.create({ id: 'node-1', provider: 'codex', cwd: appPath }, owner)
+    await manager.prompt('node-1', 'background')
+    assert.equal(manager.backgroundWork().length, 1)
+    await manager.prompt('node-1', 'die')
+    await until(() => (manager.backgroundWork().length === 0 ? true : undefined))
   } finally {
     manager.killAll()
   }
