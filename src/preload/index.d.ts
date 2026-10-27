@@ -20,6 +20,7 @@ import type { OrchestratorApi } from '../shared/ticket-session-spawn'
 import type { CommandGuardSettingsApi } from '../shared/command-guard-settings'
 import type { OrchestrationSettingsApi } from '../shared/orchestration-settings'
 import type { SessionMessagingApi } from '../shared/session-messaging'
+import type { PluginsApi } from '../shared/plugins'
 
 /**
  * Only the `Window` augmentation lives here. Every `*Api` contract is a shared type that
@@ -51,5 +52,6 @@ declare global {
     appUpdateApi: AppUpdateApi
     voiceModelApi: VoiceModelApi
     dictationCleanupApi: DictationCleanupApi
+    pluginsApi: PluginsApi
   }
 }

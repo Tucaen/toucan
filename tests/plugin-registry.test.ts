@@ -225,3 +225,90 @@ test('a Codex translation problem costs that part of the plugin, never the plugi
   assert.ok(session.notices[2]?.includes('"browser"') && session.notices[2].includes('skills'))
   assert.ok(session.notices[3]?.includes('"third"') && session.notices[3].includes('"shared"'))
 })
+
+test("a plugin's contributions show what it would run, and mark what reaches Claude only", async () => {
+  const registry = createPluginRegistry({ userDataPath: scratch('user-data') })
+  const manifest = {
+    name: 'godot-runtime',
+    version: '1.0.0',
+    description: 'Runs Godot scenes headless.',
+    hooks: {
+      hooks: { Stop: [{ hooks: [{ type: 'command', command: 'node ${CLAUDE_PLUGIN_ROOT}/scripts/stop.mjs' }] }] }
+    }
+  }
+  const root = pluginFolder(manifest, {
+    'skills/run-scene/SKILL.md': '---\nname: run-scene\ndescription: "Runs a scene headless."\n---\n\nBody.\n',
+    'skills/run-scene/scripts/capture.mjs': '',
+    'skills/notes.md': 'Not a skill: no folder, no SKILL.md.',
+    'scripts/run.mjs': '',
+    'scripts/lib/util.mjs': '',
+    '.mcp.json': JSON.stringify({
+      mcpServers: {
+        godot: { command: '${CLAUDE_PLUGIN_ROOT}/bin/server', args: ['--headless'] },
+        events: { type: 'sse', url: 'http://127.0.0.1:1/sse' }
+      }
+    }),
+    'hooks/hooks.json': JSON.stringify({
+      hooks: {
+        PostToolUse: [
+          { matcher: 'Write|Edit', hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/format.sh' }] }
+        ]
+      }
+    })
+  })
+  await registry.add(root)
+
+  assert.deepEqual(await registry.contributions('godot-runtime'), {
+    ok: true,
+    contributions: {
+      id: 'godot-runtime',
+      root,
+      manifest: { name: 'godot-runtime', version: '1.0.0', description: 'Runs Godot scenes headless.' },
+      skills: [
+        {
+          name: 'run-scene',
+          description: 'Runs a scene headless.',
+          path: join(root, 'skills', 'run-scene', 'SKILL.md')
+        }
+      ],
+      scripts: ['scripts/lib/util.mjs', 'scripts/run.mjs', 'skills/run-scene/scripts/capture.mjs'],
+      mcpServers: [
+        {
+          name: 'godot',
+          transport: 'stdio',
+          command: `${root}/bin/server`,
+          args: ['--headless'],
+          env: {},
+          providers: ['claude', 'codex']
+        },
+        { name: 'events', transport: 'sse', url: 'http://127.0.0.1:1/sse', headers: {}, providers: ['claude'] }
+      ],
+      hooks: [
+        {
+          event: 'PostToolUse',
+          matcher: 'Write|Edit',
+          type: 'command',
+          command: `${root}/scripts/format.sh`,
+          providers: ['claude']
+        },
+        { event: 'Stop', type: 'command', command: `node ${root}/scripts/stop.mjs`, providers: ['claude'] }
+      ],
+      problems: []
+    }
+  })
+  assert.deepEqual(await registry.contributions('never-added'), {
+    ok: false,
+    error: 'No plugin named "never-added" is registered.'
+  })
+})
+
+test('contributions of a plugin with unreadable parts name the problem instead of looking smaller', async () => {
+  const registry = createPluginRegistry({ userDataPath: scratch('user-data') })
+  const root = pluginFolder({ name: 'browser', version: '1.0.0' }, { '.mcp.json': '{ broken' })
+  await registry.add(root)
+  const result = await registry.contributions('browser')
+  assert.ok(result.ok)
+  assert.deepEqual(result.contributions.mcpServers, [])
+  assert.equal(result.contributions.problems.length, 1)
+  assert.ok(result.contributions.problems[0]?.includes('.mcp.json'))
+})

@@ -41,6 +41,8 @@ import { loadOrchestrationPacingConfig } from './orchestration-pacing-config'
 import { commandGuardFiles } from './command-guard'
 import { createCommandGuardSettingsStore } from './command-guard-settings-store'
 import { registerCommandGuardSettingsIpc } from './command-guard-settings-ipc'
+import { createPluginRegistry } from './plugin-registry'
+import { registerPluginIpc } from './plugin-ipc'
 import { registerOrchestrationSettingsIpc } from './orchestration-settings-ipc'
 import { createJevRouter } from './jev-router'
 import { createOrchestrationWaker } from './orchestration-wake'
@@ -723,6 +725,9 @@ void app.whenReady().then(async () => {
     log: mainLog('command guard')
   })
   registerCommandGuardSettingsIpc(ipcMain, commandGuardStore)
+  // Plugins (#55): which plugins each project enabled, asked by every session as it opens.
+  const plugins = createPluginRegistry({ userDataPath: app.getPath('userData'), log: mainLog('plugins') })
+  registerPluginIpc(ipcMain, plugins)
   const agentManager = createAcpSessionManager({
     appPath: app.getAppPath(),
     commandGuard: commandGuardStore,
@@ -740,7 +745,8 @@ void app.whenReady().then(async () => {
     decisionProviderInstalled,
     orchestrator: orchestratorEndpoint,
     messaging: messagingEndpoint,
-    projectPathFor: checkoutPathFor
+    projectPathFor: checkoutPathFor,
+    plugins
   })
   agentEvents.observe((id, event) => {
     orchestrationController.observe(id, event)

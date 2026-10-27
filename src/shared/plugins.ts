@@ -8,6 +8,7 @@
  * renderer, which shows their verdicts.
  */
 
+import type { AgentProvider } from './agent-provider'
 import { isAbsolutePath } from './paths'
 import { isRecord } from './record'
 
@@ -174,6 +175,95 @@ export function pluginMcpServers(config: unknown, root: string): { servers: Plug
     }
   }
   return { servers, problems }
+}
+
+/** One hook a plugin registers with Claude, its plugin root filled in. Codex is never given hooks. */
+export interface PluginHook {
+  /** The Claude hook event, like `PreToolUse` or `Stop`. */
+  event: string
+  matcher?: string
+  /** `command` runs a shell command; Claude has hook types that run none. */
+  type: string
+  command?: string
+}
+
+/**
+ * A plugin's hook configuration (`hooks/hooks.json`, or `hooks` inline in `plugin.json`) read the
+ * way Claude reads it: `{ hooks: { <event>: [{ matcher?, hooks: [{ type, command? }] }] } }`, or the
+ * event map itself. Read so the trust step can show every command a plugin would run.
+ */
+export function pluginHooks(config: unknown, root: string): { hooks: PluginHook[]; problems: string[] } {
+  if (!isRecord(config)) return { hooks: [], problems: ['The hooks configuration must hold a JSON object.'] }
+  const events = isRecord(config.hooks) ? config.hooks : config
+  const hooks: PluginHook[] = []
+  const problems: string[] = []
+  for (const [event, groups] of Object.entries(events)) {
+    // `hooks.json` may carry a `description` beside its events; only a list is an event.
+    if (!Array.isArray(groups)) continue
+    for (const group of groups) {
+      if (!isRecord(group) || !Array.isArray(group.hooks)) {
+        problems.push(`A "${event}" hook entry lists no hooks.`)
+        continue
+      }
+      const matcher = typeof group.matcher === 'string' && group.matcher ? group.matcher : undefined
+      for (const hook of group.hooks) {
+        if (!isRecord(hook) || typeof hook.type !== 'string') {
+          problems.push(`A "${event}" hook names no type.`)
+          continue
+        }
+        hooks.push({
+          event,
+          ...(matcher ? { matcher } : {}),
+          type: hook.type,
+          ...(typeof hook.command === 'string' ? { command: withRoot(hook.command, root) } : {})
+        })
+      }
+    }
+  }
+  return { hooks, problems }
+}
+
+export interface PluginSkill {
+  name: string
+  description?: string
+  /** The skill's `SKILL.md`. */
+  path: string
+}
+
+/**
+ * What a plugin contributes, for the trust step before it is enabled: a plugin runs code with the
+ * user's rights, so this lists every part that runs or steers an agent. `providers` says who gets a
+ * part where the two differ: hooks reach Claude only, and Codex cannot connect to an SSE server.
+ */
+export interface PluginContributions {
+  id: string
+  root: string
+  manifest: PluginManifest
+  skills: PluginSkill[]
+  /** Files in a `scripts` folder of the plugin or of one of its skills, relative to the root. */
+  scripts: string[]
+  mcpServers: Array<PluginMcpServer & { providers: AgentProvider[] }>
+  hooks: Array<PluginHook & { providers: AgentProvider[] }>
+  /** What could not be read, so a broken part shows as broken rather than as absent. */
+  problems: string[]
+}
+
+export type PluginContributionsResult = { ok: true; contributions: PluginContributions } | { ok: false; error: string }
+
+/**
+ * The renderer's side of the registry (the plugins dialog, #56). Every change applies to sessions
+ * created afterwards: a running session keeps the plugins it launched with.
+ */
+export interface PluginsApi {
+  /** Every registered plugin; with a project, whether that project enabled each. */
+  list(projectPath?: string): Promise<PluginSummary[]>
+  /** Registers a plugin folder by its absolute path. */
+  add(path: string): Promise<PluginAddResult>
+  remove(id: string): Promise<PluginChangeResult>
+  /** Enables a plugin for a project's main checkout; its worktrees inherit it. */
+  enable(projectPath: string, id: string): Promise<PluginChangeResult>
+  disable(projectPath: string, id: string): Promise<PluginChangeResult>
+  contributions(id: string): Promise<PluginContributionsResult>
 }
 
 /**

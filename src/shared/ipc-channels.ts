@@ -135,6 +135,16 @@ export const COMMAND_GUARD_SETTINGS_CHANNELS = {
   save: 'command-guard-settings:save'
 } as const
 
+/** The plugin registry (#55): plugins, their per-project enablement, and what each contributes. */
+export const PLUGIN_CHANNELS = {
+  list: 'plugins:list',
+  add: 'plugins:add',
+  remove: 'plugins:remove',
+  enable: 'plugins:enable',
+  disable: 'plugins:disable',
+  contributions: 'plugins:contributions'
+} as const
+
 export const TICKET_CHANNELS = {
   list: 'tickets:list',
   setStatus: 'tickets:set-status',

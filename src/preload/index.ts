@@ -23,9 +23,11 @@ import type { OrchestratorApi, TicketSessionCanvasRequest } from '../shared/tick
 import type { CommandGuardSettingsApi } from '../shared/command-guard-settings'
 import type { OrchestrationSettingsApi } from '../shared/orchestration-settings'
 import type { SessionMessagingApi, SessionMessagingEvent } from '../shared/session-messaging'
+import type { PluginsApi } from '../shared/plugins'
 import {
   DICTATION_CLEANUP_CHANNELS,
   COMMAND_GUARD_SETTINGS_CHANNELS,
+  PLUGIN_CHANNELS,
   ORCHESTRATION_SETTINGS_CHANNELS,
   ORCHESTRATOR_CHANNELS,
   SESSION_MESSAGING_CHANNELS
@@ -267,6 +269,16 @@ const sessionMessagingApi: SessionMessagingApi = {
   onEvent: (listener) => subscribe(SESSION_MESSAGING_CHANNELS.event, (event: SessionMessagingEvent) => listener(event))
 }
 contextBridge.exposeInMainWorld('sessionMessagingApi', sessionMessagingApi)
+
+const pluginsApi: PluginsApi = {
+  list: (projectPath) => ipcRenderer.invoke(PLUGIN_CHANNELS.list, projectPath),
+  add: (path) => ipcRenderer.invoke(PLUGIN_CHANNELS.add, path),
+  remove: (id) => ipcRenderer.invoke(PLUGIN_CHANNELS.remove, id),
+  enable: (projectPath, id) => ipcRenderer.invoke(PLUGIN_CHANNELS.enable, projectPath, id),
+  disable: (projectPath, id) => ipcRenderer.invoke(PLUGIN_CHANNELS.disable, projectPath, id),
+  contributions: (id) => ipcRenderer.invoke(PLUGIN_CHANNELS.contributions, id)
+}
+contextBridge.exposeInMainWorld('pluginsApi', pluginsApi)
 
 const githubIssuesApi: TicketGithubApi = {
   availability: (projectPath) => ipcRenderer.invoke(GITHUB_ISSUES_CHANNELS.availability, projectPath),

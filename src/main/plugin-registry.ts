@@ -1,21 +1,26 @@
-import { lstat, mkdir, readFile, realpath, stat, symlink, unlink } from 'node:fs/promises'
-import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { lstat, mkdir, readdir, readFile, realpath, stat, symlink, unlink } from 'node:fs/promises'
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import type { AgentProvider } from '../shared/agent-provider'
+import { lenientFrontmatter } from '../shared/frontmatter'
 import { pathIdentity } from '../shared/paths'
 import {
   PLUGIN_MANIFEST_SEGMENTS,
   emptyPluginRegistry,
   parsePluginRegistry,
+  pluginHooks,
   pluginMcpServers,
   validatePluginManifest,
   type PluginAddResult,
   type PluginChangeResult,
+  type PluginContributions,
+  type PluginContributionsResult,
   type PluginManifest,
   type PluginMcpServer,
   type PluginRegistryState,
+  type PluginSkill,
   type PluginSummary
 } from '../shared/plugins'
-import { PROJECT_SKILLS_DIRECTORY } from '../shared/project-skills'
+import { PROJECT_SKILLS_DIRECTORY, SKILL_DEFINITION_FILE } from '../shared/project-skills'
 import { isRecord } from '../shared/record'
 import { errorMessage } from '../shared/text'
 import { createDurableJsonStore } from './durable-json-store'
@@ -62,6 +67,8 @@ export interface PluginRegistry {
   remove(id: string): Promise<PluginChangeResult>
   enable(projectPath: string, id: string): Promise<PluginChangeResult>
   disable(projectPath: string, id: string): Promise<PluginChangeResult>
+  /** What the plugin's folder contributes right now, for the trust step before enabling it. */
+  contributions(id: string): Promise<PluginContributionsResult>
   /**
    * The plugins a session in `projectPath` (the main checkout - the caller resolves a worktree to
    * it) carries. Never rejects: a plugin that cannot be used is skipped with a notice, and a registry
@@ -151,8 +158,8 @@ async function readPluginFolder(root: string): Promise<PluginFolder> {
 
 /**
  * One kind of component configuration as Claude finds it: the default file (`.mcp.json`,
- * `hooks/hooks.json`) plus whatever the manifest field adds - an inline object, or one or more
- * paths relative to the root. Custom paths supplement the default, as they do for Claude.
+ * `hooks/hooks.json`) first, then whatever the manifest field adds - an inline object, or one or
+ * more paths relative to the root. Custom paths supplement the default, as they do for Claude.
  */
 async function componentConfigs(
   root: string,
@@ -161,20 +168,73 @@ async function componentConfigs(
 ): Promise<{ configs: unknown[]; problems: string[] }> {
   const configs: unknown[] = []
   const problems: string[] = []
-  const paths = [join(root, defaultFile)]
-  if (typeof declared === 'string') paths.push(resolve(root, declared))
-  else if (Array.isArray(declared))
-    paths.push(
-      ...declared.filter((path): path is string => typeof path === 'string').map((path) => resolve(root, path))
-    )
-  else if (isRecord(declared)) configs.push(declared)
-  for (const [index, path] of paths.entries()) {
-    const read = await readJson(path)
-    if (read.ok) configs.push(read.value)
-    // Only the default file may be absent; a path the manifest names is expected to exist.
-    else if (!(read.missing && index === 0)) problems.push(read.error)
+  const read = new Set<string>()
+  const readConfig = async (path: string, optional: boolean): Promise<void> => {
+    if (read.has(pathIdentity(path))) return
+    read.add(pathIdentity(path))
+    const result = await readJson(path)
+    if (result.ok) configs.push(result.value)
+    else if (!(optional && result.missing)) problems.push(result.error)
   }
+  // Only the default file may be absent; a path the manifest names is expected to exist.
+  await readConfig(join(root, defaultFile), true)
+  if (isRecord(declared)) configs.push(declared)
+  const paths = typeof declared === 'string' ? [declared] : Array.isArray(declared) ? declared : []
+  for (const path of paths) if (typeof path === 'string') await readConfig(resolve(root, path), false)
   return { configs, problems }
+}
+
+/** One pair of quotes YAML allows around a frontmatter value, which the flat reader keeps. */
+function unquoted(value: string | undefined): string | undefined {
+  const quoted = value && /^(["'])(.*)\1$/s.exec(value)
+  return quoted ? quoted[2] : value || undefined
+}
+
+/** Every `skills/<name>/SKILL.md`, named by its frontmatter as Claude names it, else by its folder. */
+async function readSkills(root: string): Promise<PluginSkill[]> {
+  const directory = join(root, 'skills')
+  const entries = await readdir(directory, { withFileTypes: true }).catch(() => [])
+  const skills: PluginSkill[] = []
+  for (const entry of entries.filter((candidate) => candidate.isDirectory()).sort(byName)) {
+    const path = join(directory, entry.name, SKILL_DEFINITION_FILE)
+    const text = await readFile(path, 'utf8').catch(() => undefined)
+    if (text === undefined) continue
+    const { fields } = lenientFrontmatter(text)
+    const description = unquoted(fields.get('description'))
+    skills.push({ name: unquoted(fields.get('name')) ?? entry.name, ...(description ? { description } : {}), path })
+  }
+  return skills
+}
+
+function byName(left: { name: string }, right: { name: string }): number {
+  return left.name < right.name ? -1 : left.name > right.name ? 1 : 0
+}
+
+/** More than this many script files are reported as a problem rather than listed in full. */
+const SCRIPT_LIMIT = 500
+
+/**
+ * Files under the plugin's `scripts/` and each skill's `scripts/`, relative to the root with
+ * forward slashes. Links are not followed: a script is what the plugin itself ships.
+ */
+async function readScripts(root: string, skills: readonly PluginSkill[], problems: string[]): Promise<string[]> {
+  const scripts: string[] = []
+  const walk = async (directory: string, relative: string): Promise<void> => {
+    const entries = await readdir(directory, { withFileTypes: true }).catch(() => [])
+    for (const entry of entries.sort(byName)) {
+      if (scripts.length > SCRIPT_LIMIT) return
+      if (entry.isDirectory()) await walk(join(directory, entry.name), `${relative}/${entry.name}`)
+      else if (entry.isFile()) scripts.push(`${relative}/${entry.name}`)
+    }
+  }
+  await walk(join(root, 'scripts'), 'scripts')
+  for (const folder of new Set(skills.map((skill) => basename(dirname(skill.path)))))
+    await walk(join(root, 'skills', folder, 'scripts'), `skills/${folder}/scripts`)
+  if (scripts.length > SCRIPT_LIMIT) {
+    problems.push(`The plugin ships more than ${SCRIPT_LIMIT} script files; only the first ${SCRIPT_LIMIT} are listed.`)
+    return scripts.sort().slice(0, SCRIPT_LIMIT)
+  }
+  return scripts.sort()
 }
 
 export function createPluginRegistry(options: PluginRegistryOptions): PluginRegistry {
@@ -357,6 +417,38 @@ export function createPluginRegistry(options: PluginRegistryOptions): PluginRegi
           result: { ok: true }
         }
       })
+    },
+    async contributions(id) {
+      const state = await store.load()
+      const entry = own(state.plugins, id)
+      if (!entry) return { ok: false, error: `No plugin named "${id}" is registered.` }
+      const read = await readRegistered(id, entry.path)
+      if (!read.raw || !read.summary.manifest)
+        return { ok: false, error: read.summary.problem ?? `Plugin "${id}" cannot be read.` }
+      const root = entry.path
+      const problems: string[] = []
+      const mcp = await componentConfigs(root, '.mcp.json', read.raw.mcpServers)
+      const hookConfigs = await componentConfigs(root, join('hooks', 'hooks.json'), read.raw.hooks)
+      problems.push(...mcp.problems, ...hookConfigs.problems)
+      const mcpServers: PluginContributions['mcpServers'] = mcp.configs.flatMap((config) => {
+        const parsed = pluginMcpServers(config, root)
+        problems.push(...parsed.problems)
+        return parsed.servers.map((server) => ({
+          ...server,
+          providers: server.transport === 'sse' ? ['claude'] : ['claude', 'codex']
+        }))
+      })
+      const hooks: PluginContributions['hooks'] = hookConfigs.configs.flatMap((config) => {
+        const parsed = pluginHooks(config, root)
+        problems.push(...parsed.problems)
+        return parsed.hooks.map((hook) => ({ ...hook, providers: ['claude'] }))
+      })
+      const skills = await readSkills(root)
+      const scripts = await readScripts(root, skills, problems)
+      return {
+        ok: true,
+        contributions: { id, root, manifest: read.summary.manifest, skills, scripts, mcpServers, hooks, problems }
+      }
     },
     async forSession({ provider, projectPath }) {
       try {
