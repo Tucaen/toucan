@@ -7,7 +7,10 @@ import { PLUGIN_CHANNELS } from '../src/shared/ipc-channels'
 // #55: the plugins dialog's side of main. The registry decides; this narrows what crosses the
 // boundary and refuses a malformed call before it reaches the registry.
 
-function boundary(projectPathFor?: (path: string) => Promise<string | undefined>): {
+function boundary(
+  projectPathFor?: (path: string) => Promise<string | undefined>,
+  pickFolder?: (sender: unknown) => Promise<string | null>
+): {
   call: (channel: string, ...args: unknown[]) => Promise<unknown>
   calls: unknown[][]
 } {
@@ -30,7 +33,8 @@ function boundary(projectPathFor?: (path: string) => Promise<string | undefined>
   registerPluginIpc(
     { handle: (channel, listener) => void handlers.set(channel, (...args) => listener({ sender: {} }, ...args)) },
     registry,
-    projectPathFor
+    projectPathFor,
+    pickFolder
   )
   return { call: async (channel, ...args) => handlers.get(channel)!(...args), calls }
 }
@@ -82,4 +86,15 @@ test('a malformed call is refused before it reaches the registry', async () => {
   ] as const)
     await assert.rejects(call(channel, ...args), undefined, `${channel} ${JSON.stringify(args)}`)
   assert.deepEqual(calls, [])
+})
+
+test('the folder picker answers with the chosen path, or null when none is wired or the user cancels', async () => {
+  const picks: unknown[] = []
+  const { call } = boundary(undefined, (owner) => {
+    picks.push(owner)
+    return Promise.resolve('D:\plugins\godot')
+  })
+  assert.equal(await call(PLUGIN_CHANNELS.pick), 'D:\plugins\godot')
+  assert.equal(picks.length, 1)
+  assert.equal(await boundary().call(PLUGIN_CHANNELS.pick), null)
 })

@@ -18,7 +18,9 @@ function textOrThrow(value: unknown, what: string): string {
 export function registerPluginIpc(
   ipc: IpcRegistrar,
   registry: Pick<PluginRegistry, 'list' | 'add' | 'remove' | 'enable' | 'disable' | 'contributions'>,
-  projectPathFor: (path: string) => Promise<string | undefined> = () => Promise.resolve(undefined)
+  projectPathFor: (path: string) => Promise<string | undefined> = () => Promise.resolve(undefined),
+  /** Shows the OS folder picker owned by the asking window; null when the user cancels. */
+  pickFolder: (sender: unknown) => Promise<string | null> = () => Promise.resolve(null)
 ): void {
   const project = async (value: unknown): Promise<string> => {
     const path = textOrThrow(value, 'A project path')
@@ -27,6 +29,7 @@ export function registerPluginIpc(
   ipc.handle(PLUGIN_CHANNELS.list, async (_event, projectPath) =>
     registry.list(projectPath === undefined ? undefined : await project(projectPath))
   )
+  ipc.handle(PLUGIN_CHANNELS.pick, (event) => pickFolder(event.sender))
   ipc.handle(PLUGIN_CHANNELS.add, (_event, path) => registry.add(textOrThrow(path, 'A plugin folder')))
   ipc.handle(PLUGIN_CHANNELS.remove, (_event, id) => registry.remove(textOrThrow(id, 'A plugin id')))
   ipc.handle(PLUGIN_CHANNELS.enable, async (_event, projectPath, id) =>

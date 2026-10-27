@@ -138,6 +138,7 @@ export const COMMAND_GUARD_SETTINGS_CHANNELS = {
 /** The plugin registry (#55): plugins, their per-project enablement, and what each contributes. */
 export const PLUGIN_CHANNELS = {
   list: 'plugins:list',
+  pick: 'plugins:pick',
   add: 'plugins:add',
   remove: 'plugins:remove',
   enable: 'plugins:enable',

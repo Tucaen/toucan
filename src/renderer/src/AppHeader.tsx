@@ -1,4 +1,4 @@
-import { Route, Settings, ShieldCheck, Smartphone } from 'lucide-react'
+import { Puzzle, Route, Settings, ShieldCheck, Smartphone } from 'lucide-react'
 import type { RemoteAccessState } from '../../shared/remote-access'
 import type { WorkspaceProject } from '../../shared/workspace'
 import { AppUpdateChip } from './AppUpdateChip'
@@ -36,6 +36,7 @@ export interface AppHeaderProps {
   onOpenAdapterManagement: () => void
   onOpenOrchestrationSettings: () => void
   onOpenCommandGuardSettings: () => void
+  onOpenPlugins: () => void
   onOpenRemoteAccess: () => void
 }
 
@@ -60,6 +61,7 @@ export function AppHeader({
   onOpenAdapterManagement,
   onOpenOrchestrationSettings,
   onOpenCommandGuardSettings,
+  onOpenPlugins,
   onOpenRemoteAccess
 }: AppHeaderProps): JSX.Element {
   return (
@@ -194,6 +196,18 @@ export function AppHeader({
           }}
         >
           <ShieldCheck aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="header-remote-access"
+          title="Plugins"
+          aria-label="Plugins"
+          onClick={(event) => {
+            event.stopPropagation()
+            onOpenPlugins()
+          }}
+        >
+          <Puzzle aria-hidden="true" />
         </button>
         <button
           type="button"

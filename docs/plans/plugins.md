@@ -2,7 +2,7 @@
 title: Plugins plan
 created: 2026-10-27
 updated: 2026-10-27
-status: in progress - slice 1 (#55) landed
+status: in progress - slices 1 (#55) and 2 (#56) landed
 ---
 
 # Plugins: optional agent capabilities, enabled per project

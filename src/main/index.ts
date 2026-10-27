@@ -727,7 +727,12 @@ void app.whenReady().then(async () => {
   registerCommandGuardSettingsIpc(ipcMain, commandGuardStore)
   // Plugins (#55): which plugins each project enabled, asked by every session as it opens.
   const plugins = createPluginRegistry({ userDataPath: app.getPath('userData'), log: mainLog('plugins') })
-  registerPluginIpc(ipcMain, plugins, checkoutPathFor)
+  registerPluginIpc(ipcMain, plugins, checkoutPathFor, async (sender) => {
+    const owner = BrowserWindow.fromWebContents(sender as Electron.WebContents)
+    const options: Electron.OpenDialogOptions = { title: 'Add plugin folder', properties: ['openDirectory'] }
+    const result = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options)
+    return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0]
+  })
   const agentManager = createAcpSessionManager({
     appPath: app.getAppPath(),
     commandGuard: commandGuardStore,

@@ -4974,6 +4974,56 @@ button.worktree-agent-unread:focus-visible {
   font-size: 12px;
 }
 
+.dialog.plugins-dialog {
+  width: min(720px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+}
+
+.plugin-note {
+  color: var(--neutral-300);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.plugin-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plugin-row {
+  padding: 10px;
+  border: 1px solid var(--neutral-750);
+  border-radius: 8px;
+}
+
+.plugin-row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.plugin-badge {
+  padding: 1px 7px;
+  border: 1px solid var(--neutral-750);
+  border-radius: 999px;
+  font-size: 11px;
+}
+
+.plugin-contributions-section ul {
+  margin: 2px 0 8px;
+  padding-left: 18px;
+  font-size: 12px;
+}
+
+.plugin-trust {
+  margin-top: 8px;
+}
+
 .orchestration-settings-tabs {
   display: flex;
   gap: 6px;

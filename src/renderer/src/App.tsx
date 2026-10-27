@@ -110,6 +110,7 @@ import { useAppUpdate } from './use-app-update'
 import { RemoteAccessDialog } from './RemoteAccessDialog'
 import { AdapterManagementDialog } from './AdapterManagementDialog'
 import { CommandGuardSettingsDialog } from './CommandGuardSettingsDialog'
+import { PluginsDialog } from './PluginsDialog'
 import { CommandGuardGloballyOffContext } from './command-guard-context'
 import { OrchestrationSettingsDialog } from './OrchestrationSettingsDialog'
 import { useRemoteAccess } from './use-remote-access'
@@ -1799,6 +1800,7 @@ function Canvas(): JSX.Element {
   const [adapterManagementOpen, setAdapterManagementOpen] = useState(false)
   const [orchestrationSettingsOpen, setOrchestrationSettingsOpen] = useState(false)
   const [commandGuardSettingsOpen, setCommandGuardSettingsOpen] = useState(false)
+  const [pluginsOpen, setPluginsOpen] = useState(false)
   // Read once at startup and then kept by the dialog that edits it, so the composer menus agree
   // with the global switch without each chat node asking main.
   const [commandGuardGloballyOff, setCommandGuardGloballyOff] = useState(false)
@@ -1829,6 +1831,10 @@ function Canvas(): JSX.Element {
   const openCommandGuardSettings = useCallback((): void => {
     setMenu(null)
     setCommandGuardSettingsOpen(true)
+  }, [])
+  const openPlugins = useCallback((): void => {
+    setMenu(null)
+    setPluginsOpen(true)
   }, [])
   const openRemoteAccess = useCallback((): void => {
     setMenu(null)
@@ -2269,6 +2275,7 @@ function Canvas(): JSX.Element {
     adapterManagement: adapterManagementOpen,
     orchestrationSettings: orchestrationSettingsOpen,
     commandGuardSettings: commandGuardSettingsOpen,
+    plugins: pluginsOpen,
     projectSettings: setupProjectId !== null,
     projectMenu: projectMenu !== null
   })
@@ -2923,6 +2930,7 @@ function Canvas(): JSX.Element {
                 onOpenAdapterManagement={openAdapterManagement}
                 onOpenOrchestrationSettings={openOrchestrationSettings}
                 onOpenCommandGuardSettings={openCommandGuardSettings}
+                onOpenPlugins={openPlugins}
                 onOpenRemoteAccess={openRemoteAccess}
               />
 
@@ -3164,6 +3172,13 @@ function Canvas(): JSX.Element {
                 <CommandGuardSettingsDialog
                   onSaved={(preferences) => setCommandGuardGloballyOff(!preferences.enabled)}
                   onClose={() => setCommandGuardSettingsOpen(false)}
+                />
+              )}
+
+              {pluginsOpen && (
+                <PluginsDialog
+                  {...(activeProject ? { project: { name: activeProject.name, path: activeProject.path } } : {})}
+                  onClose={() => setPluginsOpen(false)}
                 />
               )}
 

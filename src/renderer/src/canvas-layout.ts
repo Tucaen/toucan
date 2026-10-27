@@ -26,6 +26,7 @@ export interface CanvasOverlays {
   adapterManagement: boolean
   orchestrationSettings: boolean
   commandGuardSettings: boolean
+  plugins: boolean
   projectSettings: boolean
   projectMenu: boolean
 }

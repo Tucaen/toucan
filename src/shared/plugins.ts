@@ -292,6 +292,8 @@ export type PluginContributionsResult = { ok: true; contributions: PluginContrib
 export interface PluginsApi {
   /** Every registered plugin; with a project, whether that project enabled each. */
   list(projectPath?: string): Promise<PluginSummary[]>
+  /** Shows the OS folder picker; the chosen absolute path, or null when the user cancels. */
+  pickFolder(): Promise<string | null>
   /** Registers a plugin folder by its absolute path. */
   add(path: string): Promise<PluginAddResult>
   remove(id: string): Promise<PluginChangeResult>

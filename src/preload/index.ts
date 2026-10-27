@@ -272,6 +272,7 @@ contextBridge.exposeInMainWorld('sessionMessagingApi', sessionMessagingApi)
 
 const pluginsApi: PluginsApi = {
   list: (projectPath) => ipcRenderer.invoke(PLUGIN_CHANNELS.list, projectPath),
+  pickFolder: () => ipcRenderer.invoke(PLUGIN_CHANNELS.pick),
   add: (path) => ipcRenderer.invoke(PLUGIN_CHANNELS.add, path),
   remove: (id) => ipcRenderer.invoke(PLUGIN_CHANNELS.remove, id),
   enable: (projectPath, id) => ipcRenderer.invoke(PLUGIN_CHANNELS.enable, projectPath, id),
