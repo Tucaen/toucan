@@ -5,7 +5,7 @@
  */
 
 import type { LineEnding } from './line-endings'
-import type { WorkspaceSnapSlice } from './workspace'
+import type { WorkspaceSnapSlice } from './snap-slice'
 
 export type FileViewMode = 'rendered' | 'raw'
 

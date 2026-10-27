@@ -8,7 +8,7 @@
 import type { GitBranchListResult, GitBranchState, GitCheckoutRequest, GitCheckoutResult } from './git-branch'
 import type { GitDiffRequest, GitDiffSummary, GitFileDiff, GitFileDiffRequest } from './git-diff'
 import { pathIdentity } from './paths'
-import type { WorkspaceSnapSlice } from './workspace'
+import type { WorkspaceSnapSlice } from './snap-slice'
 
 export interface WorkspaceWorktree {
   id: string

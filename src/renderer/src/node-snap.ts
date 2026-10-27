@@ -123,28 +123,51 @@ export function nodeAtGeometry<T extends Node>(node: T, geometry: NodeGeometry):
 }
 
 /**
- * The slice a node is arranged in, for persistence: a half or a quarter, which is an arrangement
- * and is saved exactly as it renders. A maximised node is saved at its restore geometry (see
- * `nodeBeforeTemporaryFit`), so it has no slice to come back to and yields undefined.
+ * The slice a node is snapped or maximised in, for persistence. A maximised node is saved at its
+ * restore geometry (`nodeBeforeTemporaryFit`), so its slice is what brings the maximise back after
+ * a restart. Where a node returns to when undone is not kept: after a restart that is where the
+ * node was restored.
  */
 export function persistedSnapSlice(snaps: SnapStates, nodeId: string): SnapSlice | undefined {
   const snap = snaps[nodeId]
-  return snap && !isMaximised(snap) ? { h: snap.h, v: snap.v } : undefined
+  return snap ? { h: snap.h, v: snap.v } : undefined
 }
 
 /**
  * Snap state for nodes restored from a saved workspace. Nothing remembers what geometry they had
- * before they were snapped, so a later restore returns each to where it sits now. Maximised slices
- * and nodes without geometry are ignored: neither can be shown as an arranged node.
+ * before they were snapped, so a later restore returns each to where it sits now - for a node saved
+ * maximised, the geometry it was saved at. Nodes without geometry are ignored: none can be shown as
+ * an arranged node.
  */
 export function hydrateSnaps(nodes: readonly Node[], slices: Readonly<Record<string, SnapSlice>>): SnapStates {
   const snaps: Record<string, SnapState> = {}
   for (const node of nodes) {
     const slice = slices[node.id]
-    const geometry = slice && !isMaximised(slice) ? renderedNodeGeometry(node) : null
+    const geometry = slice ? renderedNodeGeometry(node) : null
     if (slice && geometry) snaps[node.id] = { h: slice.h, v: slice.v, restoreGeometry: geometry }
   }
   return snaps
+}
+
+/**
+ * Puts the maximised nodes among restored ones back to filling their canvas: they were saved at
+ * their restore geometry, so only the header's fitted flag and the geometry itself are missing.
+ * `regionOf` is the usable region of a node's canvas, null while it has no room yet - the node is
+ * then only flagged, and the next reflow of that canvas fits it.
+ */
+export function nodesWithMaximisedFits<T extends Node>(
+  nodes: T[],
+  snaps: SnapStates,
+  regionOf: (node: T) => NodeGeometry | null,
+  gap: number
+): T[] {
+  return nodes.map((node) => {
+    const snap = snaps[node.id]
+    if (!snap || !isMaximised(snap)) return node
+    const region = regionOf(node)
+    const flagged = nodeWithFitFlag(node, true)
+    return region ? nodeAtGeometry(flagged, sliceGeometry(region, snap, gap)) : flagged
+  })
 }
 
 /**

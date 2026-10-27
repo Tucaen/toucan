@@ -18,6 +18,7 @@ import type { RoutineDelegationPreference } from './routine-delegation'
 import type { ScheduledMessage } from './scheduled-message'
 import type { DictationCleanupPreference } from './dictation-cleanup'
 import type { TerminalKind, TerminalLiveness } from './terminal'
+import type { WorkspaceSnapSlice } from './snap-slice'
 
 export const RECENTLY_CLOSED_SESSION_LIMIT = 10
 
@@ -95,18 +96,6 @@ export interface ProjectGroup {
 export interface ConversationLineage {
   nodeId: string
   conversationId: string
-}
-
-/** Which part of its canvas an Alt+Arrow snap put a node in; the same shape as the renderer's `SnapSlice`. */
-export interface WorkspaceSnapSlice {
-  h: 'full' | 'left' | 'right'
-  v: 'full' | 'top' | 'bottom'
-}
-
-export function isWorkspaceSnapSlice(value: unknown): value is WorkspaceSnapSlice {
-  if (!value || typeof value !== 'object') return false
-  const { h, v } = value as Partial<WorkspaceSnapSlice>
-  return (h === 'full' || h === 'left' || h === 'right') && (v === 'full' || v === 'top' || v === 'bottom')
 }
 
 export interface WorkspaceTerminalNode {

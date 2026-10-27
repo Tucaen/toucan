@@ -13,7 +13,6 @@ import { isRoutineDelegationPreference } from '../shared/routine-delegation'
 import { isDictationCleanupPreference } from '../shared/dictation-cleanup'
 import {
   isComposerSendKey,
-  isWorkspaceSnapSlice,
   nodeFocusMode,
   RECENTLY_CLOSED_SESSION_LIMIT,
   type CanvasNodeStateField,
@@ -25,6 +24,7 @@ import {
 } from '../shared/workspace'
 import { errorMessage } from '../shared/text'
 import { normalizeWorkspaceWorktrees } from '../shared/worktree-identity'
+import { isWorkspaceSnapSlice } from '../shared/snap-slice'
 import { isAgentProvider } from '../shared/agent-provider'
 import { isChatNodeRole } from '../shared/orchestration'
 import { isOrchestratorLink } from '../shared/ticket-session-spawn'

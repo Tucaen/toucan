@@ -5,6 +5,7 @@ import {
   canvasRegion,
   isMaximised,
   hydrateSnaps,
+  nodesWithMaximisedFits,
   releaseSnaps,
   reflowSnappedNodesWithin,
   restoreSnappedNode,
@@ -66,10 +67,11 @@ export interface NodeSnapController<T extends Node> {
   state(): SnapStates
   /**
    * Adopts the slices a saved workspace recorded for the nodes it restored, replacing whatever was
-   * snapped before; the caller sets `nodes` itself. Without it a restart forgets every arrangement
-   * and a sidebar jump centres a node that is sitting in its half.
+   * snapped before, and returns the nodes to set: a node saved maximised
+   * fills its canvas again. Without it a restart forgets every arrangement and a sidebar jump
+   * centres a node that is sitting in its slice.
    */
-  hydrate(nodes: readonly T[], slices: Readonly<Record<string, SnapSlice>>): void
+  hydrate(nodes: T[], slices: Readonly<Record<string, SnapSlice>>): T[]
 }
 
 /**
@@ -226,10 +228,14 @@ export function useNodeSnap<T extends Node>({
 
   const state = useCallback((): SnapStates => snaps.current, [])
 
-  const hydrate = useCallback((nodes: readonly T[], slices: Readonly<Record<string, SnapSlice>>): void => {
-    snaps.current = hydrateSnaps(nodes, slices)
-    dragOrigins.current.clear()
-  }, [])
+  const hydrate = useCallback(
+    (nodes: T[], slices: Readonly<Record<string, SnapSlice>>): T[] => {
+      snaps.current = hydrateSnaps(nodes, slices)
+      dragOrigins.current.clear()
+      return nodesWithMaximisedFits(nodes, snaps.current, (node) => regionOf(canvasOf(node)), NODE_FIT_INSET)
+    },
+    [canvasOf, regionOf]
+  )
 
   useEffect(() => {
     const canvas = canvasRef.current

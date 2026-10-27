@@ -7,6 +7,7 @@ import {
   hydrateSnaps,
   nextSnapSlice,
   nodeBeforeTemporaryFit,
+  nodesWithMaximisedFits,
   persistedSnapSlice,
   reflowSnappedNodes,
   reflowSnappedNodesWithin,
@@ -372,11 +373,27 @@ test('a restored slice survives a restart: the sidebar jump keeps the node in it
   equal(centred.x === shown.x, false)
 })
 
-test('a maximised node has no persisted slice and a hydrated one is never maximised', () => {
+test('a maximised node persists its slice and is hydrated maximised, returning to its saved geometry', () => {
   const [a, b] = nodes()
   const full = snapNode([a, b], {}, 'a', 'up', region, 16)
-  equal(persistedSnapSlice(full.snaps, 'a'), undefined)
-  deepEqual(hydrateSnaps(full.nodes, { a: MAXIMISED }), {})
+  deepEqual(persistedSnapSlice(full.snaps, 'a'), MAXIMISED)
+
+  // Saved at the geometry it will return to; restarted, only that geometry and the slice are known.
+  const saved = nodeBeforeTemporaryFit(full.nodes[0], full.snaps)
+  const hydrated = hydrateSnaps([saved, b], { a: MAXIMISED })
+  deepEqual(hydrated.a.restoreGeometry, { position: a.position, width: 300, height: 200 })
+  const refitted = nodesWithMaximisedFits([saved, b], hydrated, () => region, 16)
+  deepEqual(refitted[0].style, { width: region.width, height: region.height })
+  deepEqual(refitted[0].position, region.position)
+  equal(refitted[0].data.fittedToCanvas, true)
+  equal(refitted[1], b)
+  // No room on the canvas yet: flagged, left for the next reflow.
+  const waiting = nodesWithMaximisedFits([saved], hydrated, () => null, 16)
+  deepEqual(waiting[0].position, a.position)
+  equal(waiting[0].data.fittedToCanvas, true)
+
+  const shown = viewportShowingNode(refitted[0], hydrated.a, canvas, viewport, 16)!
+  equal(shown.x + refitted[0].position.x, 16)
   deepEqual(hydrateSnaps(full.nodes, { missing: { h: 'left', v: 'full' } }), {})
 })
 

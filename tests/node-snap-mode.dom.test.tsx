@@ -3,7 +3,12 @@ import type { Node, Viewport } from '@xyflow/react'
 import { useRef, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { tileNodes } from '../src/renderer/src/canvas-layout'
-import { NODE_FIT_INSET, persistedSnapSlice, viewportShowingNode } from '../src/renderer/src/node-snap'
+import {
+  NODE_FIT_INSET,
+  nodeBeforeTemporaryFit,
+  persistedSnapSlice,
+  viewportShowingNode
+} from '../src/renderer/src/node-snap'
 import { useNodeSnap, type NodeSnapController } from '../src/renderer/src/use-node-snap'
 
 type TestNode = Node<{ fittedToCanvas?: boolean; canvas?: string }>
@@ -287,10 +292,7 @@ describe('canvas snap mode', () => {
     // A restart: the controller forgets everything, then the saved slice is hydrated with the nodes.
     act(() => controller.release())
     expect(controller.state()).toEqual({})
-    act(() => {
-      controller.hydrate([slicedNode, nodes[1]], { a: saved! })
-      writeNodes([slicedNode, nodes[1]])
-    })
+    act(() => writeNodes(controller.hydrate([slicedNode, nodes[1]], { a: saved! })))
     expect(controller.state().a).toMatchObject({ h: 'right', v: 'full' })
 
     const shown = viewportShowingNode(slicedNode, controller.state().a, rect.current, viewport, NODE_FIT_INSET)!
@@ -302,6 +304,36 @@ describe('canvas snap mode', () => {
       ])
     )
     expect(persistedSnapSlice(controller.state(), 'a')).toBeUndefined()
+  })
+
+  test('a node maximised before a restart is maximised again and the jump shows it filling the canvas', () => {
+    const original = nodes[0]
+    fit('a')
+    const savedSlice = persistedSnapSlice(controller.state(), 'a')
+    expect(savedSlice).toEqual({ h: 'full', v: 'full' })
+    // Persisted at the geometry it returns to, which is all a restart has.
+    const saved = nodeBeforeTemporaryFit(nodes[0], controller.state())
+    expect(saved.position).toEqual(original.position)
+
+    act(() => controller.release())
+    act(() => writeNodes([saved, nodes[1]]))
+    act(() => writeNodes(controller.hydrate([saved, nodes[1]], { a: savedSlice! })))
+
+    expect(geometryOf(nodes[0])).toEqual({
+      position: { x: 16, y: 16 },
+      style: { width: 968, height: 668 },
+      fitted: true
+    })
+    const shown = viewportShowingNode(nodes[0], controller.state().a, rect.current, viewport, NODE_FIT_INSET)!
+    expect(shown.x + nodes[0].position.x).toBe(NODE_FIT_INSET)
+    expect(shown.y + nodes[0].position.y).toBe(NODE_FIT_INSET)
+
+    // The restore action still works, returning the node to the geometry it was saved at.
+    act(() => {
+      controller.restore('a')
+    })
+    expect(nodes[0].position).toEqual(original.position)
+    expect(nodes[0].data.fittedToCanvas).toBe(false)
   })
 })
 

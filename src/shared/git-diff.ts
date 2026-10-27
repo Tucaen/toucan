@@ -6,7 +6,7 @@
  * and hands the output here, so what a shape means is decided exactly once.
  */
 
-import type { WorkspaceSnapSlice } from './workspace'
+import type { WorkspaceSnapSlice } from './snap-slice'
 
 /** How a diff node persists: which checkout it reviews and where it sits, never any git output. */
 export interface WorkspaceDiffNode {

@@ -7,10 +7,10 @@ import type {
   AgentPermissionModes,
   CanvasNodeStateField,
   ConversationLineage,
-  WorkspaceSnapSlice,
   WorkspaceState,
   WorkspaceTerminalNode
 } from '../../shared/workspace'
+import type { WorkspaceSnapSlice } from '../../shared/snap-slice'
 import { nodeFocusMode, RECENTLY_CLOSED_SESSION_LIMIT, type WorkspaceProject } from '../../shared/workspace'
 import { defaultFileViewMode, type FileViewMode, type WorkspaceFileNode } from '../../shared/file-view'
 import type { WorkspaceDiffNode } from '../../shared/git-diff'
@@ -585,7 +585,7 @@ export interface RestoredCanvasWorkspace {
   statuses: Record<string, TerminalNodeStatus>
   nextSessionNumber: number
   activeProjectId: string
-  /** The Alt+Arrow slice each restored node was saved in, by node id; absent for a node that was not snapped. */
+  /** The slice each restored node was saved snapped or maximised in, by node id; absent for a node that was not. */
   snapSlices: Record<string, WorkspaceSnapSlice>
 }
 
@@ -1332,8 +1332,9 @@ export const CANVAS_NODE_KINDS: readonly CanvasNodeKindEntry[] = [
  *
  * `beforeSave` runs first on each node, which is how a node maximised into fit mode is persisted
  * at the geometry it will return to rather than filling the canvas. `snapSliceOf` names the
- * Alt+Arrow slice a node is arranged in, written onto its record for every kind alike so a restart
- * can bring the arrangement back; a node it names nothing for gets no field.
+ * slice a node is snapped or maximised in, written onto its record
+ * for every kind alike so a restart can bring the arrangement back; a node it names nothing for
+ * gets no field.
  */
 export function serializeCanvasNodes(
   nodes: readonly CanvasNode[],
@@ -1351,8 +1352,10 @@ export function serializeCanvasNodes(
     const records = nodes
       .filter((node) => kind.is(node))
       .map((node) => {
-        const slice = snapSliceOf(node.id)
-        return { ...(kind.serialize(beforeSave(node)) as object), ...(slice ? { snapSlice: slice } : {}) }
+        return {
+          ...(kind.serialize(beforeSave(node)) as object),
+          ...(snapSliceOf(node.id) ? { snapSlice: snapSliceOf(node.id) } : {})
+        }
       })
     if (records.length > 0 || kind.alwaysPersisted) snapshot[kind.field] = records
   }

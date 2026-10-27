@@ -1725,8 +1725,8 @@ function Canvas(): JSX.Element {
 
       setProjects(saved.projects)
       setProjectGroups(saved.projectGroups ?? [])
-      nodeFit.hydrate(restored.nodes, restored.snapSlices)
-      setNodes(restored.nodes)
+      const restoredNodes = nodeFit.hydrate(restored.nodes, restored.snapSlices)
+      setNodes(restoredNodes)
       setNodeStatuses(restored.statuses)
       nextSessionNumber.current = restored.nextSessionNumber
       setActiveProjectId(restored.activeProjectId)
