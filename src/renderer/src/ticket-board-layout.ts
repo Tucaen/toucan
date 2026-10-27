@@ -95,8 +95,8 @@ export interface TicketBoardShortcutKey {
 export type TicketBoardKeyAction = 'toggle-panel' | 'none'
 
 /**
- * Ctrl+Shift+K toggles the board from anywhere, including from inside a text field: it moves no caret and steals no typing, so there is nothing for an
- * editing context to protect.
+ * Ctrl+Shift+K toggles the board from anywhere, including from inside a text field: it moves no
+ * caret and steals no typing, so there is nothing for an editing context to protect.
  */
 export function ticketBoardKeyAction(event: TicketBoardShortcutKey): TicketBoardKeyAction {
   if (event.altKey || event.metaKey || !event.ctrlKey || !event.shiftKey) return 'none'

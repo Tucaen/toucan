@@ -10,7 +10,7 @@ import { useMenuNavigation, useOutsidePointerClose } from './menu-keyboard'
  * ancestors, with the shared keyboard contract - focus moves to the selected option on open,
  * arrows and Home/End rove, Escape closes and returns focus to the trigger, and focus leaving
  * both trigger and menu closes it. `SelectorPicker` (the composer pickers) is a thin
- * skin over this; a second popup listbox should be too.
+ * skin over this; any other popup listbox should be too.
  */
 
 export interface ListboxPickerOption {

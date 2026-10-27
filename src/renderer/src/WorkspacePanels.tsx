@@ -27,8 +27,9 @@ export interface WorkspacePanelsProps {
 /**
  * The docked panel, rendered as a sibling of `.canvas-region` inside `.workspace-shell` -
  * docked, never overlaid, so opening it only narrows React Flow's box. Once mounted it stays
- * mounted and merely hides, which is what preserves selection, search and scroll across a close. Their geometry lives in `useWorkspacePanels`; this component only
- * feeds each panel the workspace data it projects.
+ * mounted and merely hides, which is what preserves selection, search and scroll across a close.
+ * Its geometry lives in `useWorkspacePanels`; this component only feeds it the workspace data it
+ * projects.
  */
 export function WorkspacePanels({
   panels,

@@ -6,13 +6,13 @@
  * Windows path, a comma separated list) decode the raw string themselves, so this module stays
  * pure and dependency-free.
  *
- * It offers each operation in two strengths, because its collections disagree about what a
- * file is. A session outcome is a record Toucan wrote, so `parseFrontmatter` and
- * `rewriteFrontmatter` reject a block they cannot account for rather than guess at it. A ticket
- * file is a notepad anyone may have typed, so `lenientFrontmatter` and `upsertFrontmatter` take
- * what they can read, copy through what they cannot, and write a block where there is none. The
- * strictness is the *caller's* decision, which is why it is two pairs of functions and not a
- * flag: a module that had to be told each time would eventually be told wrong.
+ * It offers its operations in two strengths, because its collections disagree about what a
+ * file is. A session outcome is a record Toucan wrote, so `parseFrontmatter` rejects a block it
+ * cannot account for rather than guess at it. A ticket file is a notepad anyone may have typed,
+ * so `lenientFrontmatter` and `upsertFrontmatter` take what they can read, copy through what they
+ * cannot, and write a block where there is none. The strictness is the *caller's* decision, which
+ * is why it is separate functions and not a flag: a module that had to be told each time would
+ * eventually be told wrong.
  *
  * Lenient is not unconditional, and the one condition is a *write* one: reading never fails, but
  * a write that would strand a field the file already carries is refused rather than performed
@@ -118,21 +118,7 @@ export function parseFrontmatter(markdown: string, label = 'Document'): Frontmat
   return { ok: true, fields: block.fields, body: block.lines.slice(block.closing + 1).join('\n') }
 }
 
-/**
- * Returns `markdown` with each named field set, or removed when its update is `undefined`. Fields
- * that already exist keep their position; new ones are appended just above the closing delimiter.
- * The body is copied through untouched, so a rewrite never reflows or reinterprets prose.
- *
- * Throws when there is no frontmatter to rewrite: inventing a block would fabricate a record shape
- * the caller never validated.
- */
-export function rewriteFrontmatter(markdown: string, updates: Record<string, string | undefined>): string {
-  const block = readBlock(markdown, 'Document')
-  if ('message' in block) throw new Error(block.message)
-  return rewriteBlock(block, updates)
-}
-
-/** Shared by the strict and the lenient writer, so one rewrite decides how a block is edited. */
+/** The one place a block is edited, so a rewrite decides in one spot how fields keep their position. */
 function rewriteBlock(block: Delimited, updates: Record<string, string | undefined>): string {
   const remaining = new Map(Object.entries(updates))
   const replaced = new Set<string>()
@@ -201,7 +187,7 @@ function strandedField(lines: string[]): string | undefined {
 }
 
 /**
- * Like `rewriteFrontmatter`, but a document with no block gets one written above the text it
+ * Sets or removes fields, and a document with no block gets one written above the text it
  * already had, and a block this module could not parse strictly is edited anyway - lines it
  * cannot read are copied through untouched. For collections whose files are notepads first and
  * records second (tickets): refusing to write would make the board unable to move a card the

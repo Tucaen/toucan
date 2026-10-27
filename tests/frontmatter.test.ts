@@ -1,10 +1,9 @@
-import { deepEqual, equal, match, throws } from 'node:assert/strict'
+import { deepEqual, equal, match } from 'node:assert/strict'
 import { test } from 'vitest'
 import {
   frontmatterForDisplay,
   lenientFrontmatter,
   parseFrontmatter,
-  rewriteFrontmatter,
   upsertFrontmatter
 } from '../src/shared/frontmatter'
 
@@ -62,33 +61,6 @@ test('a duplicate field is an error rather than a silent last-wins', () => {
   equal(result.ok, false)
   if (result.ok) return
   equal(result.message.includes('title'), true)
-})
-
-test('rewriting a field leaves the body byte-for-byte intact', () => {
-  const body = '\nBody with --- inside it,\nand a trailing blank line.\n\n'
-  const rewritten = rewriteFrontmatter(`---\nstatus: open\nupdated: 2026-09-01\n---${body}`, {
-    status: 'done',
-    updated: '2026-09-04'
-  })
-  equal(rewritten, `---\nstatus: done\nupdated: 2026-09-04\n---${body}`)
-})
-
-test('rewriting keeps existing field order and appends only genuinely new fields', () => {
-  equal(
-    rewriteFrontmatter('---\ntitle: A\nstatus: open\n---\nBody\n', { status: 'done', blocked_by: 'other' }),
-    '---\ntitle: A\nstatus: done\nblocked_by: other\n---\nBody\n'
-  )
-})
-
-test('an undefined update removes the field, and removing an absent field is a no-op', () => {
-  equal(
-    rewriteFrontmatter('---\ntitle: A\nblocked_by: other\n---\nBody\n', { blocked_by: undefined, absent: undefined }),
-    '---\ntitle: A\n---\nBody\n'
-  )
-})
-
-test('rewriting a document that has no frontmatter refuses rather than inventing one', () => {
-  throws(() => rewriteFrontmatter('# No frontmatter\n', { status: 'done' }), /frontmatter/i)
 })
 
 test('the label defaults to a neutral word, so a caller need not supply one', () => {

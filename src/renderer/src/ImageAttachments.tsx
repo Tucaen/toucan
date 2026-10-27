@@ -117,8 +117,8 @@ function SaveImageButton(props: { image: AgentImageAttachment; label: string; po
  * a provider put its own copy is provider-private, so a prose path is not something to depend on
  * (issue #174). The bytes go to main, which writes them wherever the user's save dialog points.
  *
- * Keys are handled on the container, not on `window`, and focus is moved into it on open: a portal's events still bubble through the React tree,
- * so a chat node's own Escape (dismiss a completion menu, cancel a turn) would otherwise fire
+ * Keys are handled on the container, not on `window`, and focus is moved into it on open: a
+ * portal's events still bubble through the React tree, so a chat node's own Escape (dismiss a completion menu, cancel a turn) would otherwise fire
  * alongside this one, and only `stopPropagation` on the way up can stop it.
  * @internal exported for tests
  */
