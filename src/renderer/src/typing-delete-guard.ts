@@ -10,6 +10,10 @@
  * of the last keydown this swallowed, so a held key stays one gesture) is dropped before React
  * Flow, which listens on `document`, sees it. A press that starts after a pause, or after a
  * pointer press elsewhere, is an intentional delete and passes through untouched.
+ *
+ * Since #2 Backspace can no longer remove a chat at all (`chat-backspace-shield.ts`), so this is
+ * what still covers Delete - a held forward-delete in a composer that vanishes closes the chat the
+ * same way - and Backspace for the other node kinds, which keep both keys.
  */
 
 /**

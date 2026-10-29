@@ -118,6 +118,7 @@ import type { RemoteChatSpawnRequest, RemoteChatSpawnResult } from '../../shared
 import type { OrchestratorLink, TicketSessionCanvasRequest } from '../../shared/ticket-session-spawn'
 import { useTicketSessionSpawns, type TicketSessionStart } from './use-ticket-session-spawns'
 import { ticketCleanupNodes } from './ticket-cleanup'
+import { backspaceChatShield } from './chat-backspace-shield'
 import { installTypingDeleteGuard } from './typing-delete-guard'
 import ConversationHistoryDialog from './ConversationHistoryDialog'
 import { ModalDialog } from './ModalDialog'
@@ -2281,7 +2282,9 @@ function Canvas(): JSX.Element {
     projectMenu: projectMenu !== null
   })
 
-  // The canvas's delete key must not read the tail of typing as a delete (see the module).
+  // The canvas's delete key must not read the tail of typing as a delete, and Backspace must never
+  // remove a chat (see the two modules).
+  useEffect(() => backspaceChatShield.install(), [])
   useEffect(() => installTypingDeleteGuard(), [])
 
   useEffect(() => {
@@ -3054,6 +3057,7 @@ function Canvas(): JSX.Element {
                                 defaultViewport={{ x: 0, y: 0, zoom: 1 }}
                                 colorMode="dark"
                                 deleteKeyCode={['Backspace', 'Delete']}
+                                onBeforeDelete={backspaceChatShield.beforeDelete}
                               >
                                 <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} color="#303744" />
                               </ReactFlow>

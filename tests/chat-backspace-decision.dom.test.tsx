@@ -8,8 +8,9 @@ import { DEFAULT_PROJECT, renderApp, savedWorkspace } from './dom/app-harness'
  * Issue #1 through the real `App`: the captain is typing in a chat's composer, holds Backspace
  * over a typo, and the agent raises a structured decision. The panel replaces the composer, so the
  * focused textarea leaves the document and the remaining Backspace keydowns land on the body -
- * where the canvas's delete key (`deleteKeyCode`) used to close the selected chat. Intentional
- * deletes - no typing before them, or a pause after it - must still close the chat.
+ * where the canvas's delete key (`deleteKeyCode`) used to close the selected chat. Since #2 only
+ * Delete closes a chat (tests/chat-backspace-never.dom.test.tsx), so intentional deletes here are
+ * Delete presses - no typing before them, or a pause after it.
  */
 
 const NODE_ID = 'chat-1'
@@ -94,7 +95,7 @@ describe('Backspace while a decision panel appears (#1)', () => {
     expect(chatNode()).not.toBeNull()
   })
 
-  test('a Backspace press that begins after a pause is the ordinary delete key', async () => {
+  test('a Delete press that begins after a pause is the ordinary delete key', async () => {
     const textarea = await mountSelectedChat()
     fireEvent.keyDown(textarea, { key: 'Backspace', code: 'Backspace' })
     await act(async () => {
@@ -103,7 +104,7 @@ describe('Backspace while a decision panel appears (#1)', () => {
     await screen.findByText('Read-only first?')
 
     vi.advanceTimersByTime(5_000)
-    fireEvent.keyDown(document.body, { key: 'Backspace', code: 'Backspace' })
+    fireEvent.keyDown(document.body, { key: 'Delete', code: 'Delete' })
 
     await waitFor(() => expect(chatNode()).toBeNull())
   })
