@@ -1,4 +1,4 @@
-import { classifyMarkdownLink, opensInSystemViewer } from '../../shared/local-file-link'
+import { classifyMarkdownLink, fileUrlOf, opensInSystemViewer } from '../../shared/local-file-link'
 
 /**
  * What clicking a link in rendered prose does, and what the link says it will do. One decision
@@ -28,4 +28,36 @@ export function markdownLinkAction(href: string | undefined, canOpenFileNode: bo
   if (opensInSystemViewer(path)) return { kind: 'system-viewer', path, title: `Open ${path}` }
   if (canOpenFileNode) return { kind: 'file-node', path, title: `Open ${path} as a node on the canvas` }
   return { kind: 'reveal', path, title: `Reveal ${path} in the file manager` }
+}
+
+export interface LinkCopyChoice {
+  label: string
+  /** The exact text that lands on the clipboard. */
+  text: string
+}
+
+/**
+ * What a link's context menu offers to copy. A link that cannot be opened - a file outside the
+ * workspace, a relative path with no base - is still worth having as text, so every link with a
+ * target offers it, including the inert ones: the raw target is all an inert link has.
+ */
+export function linkCopyChoices(action: MarkdownLinkAction, href: string | undefined): LinkCopyChoice[] {
+  if (action.kind === 'browser') return [{ label: 'Copy link', text: action.url }]
+  if (action.kind === 'none') {
+    // mdast percent-encodes every destination; a relative path reads better as it was written.
+    const raw = href?.trim()
+    return raw ? [{ label: 'Copy link target', text: readable(raw) }] : []
+  }
+  return [
+    { label: 'Copy path', text: action.path },
+    { label: 'Copy as file URL', text: fileUrlOf(action.path) }
+  ]
+}
+
+function readable(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
 }

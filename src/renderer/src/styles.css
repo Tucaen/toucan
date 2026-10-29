@@ -5356,6 +5356,17 @@ button.worktree-agent-unread:focus-visible {
 }
 
 /* Why a local link did not open, beside the link that failed rather than somewhere else. */
+/* A link's target can be a long path; the menu shows its start and lets the copy carry the rest. */
+.link-context-menu {
+  width: 320px;
+}
+
+.link-context-menu-target {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .markdown-link-error {
   margin-left: 6px;
   color: #f0a58a;

@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'vitest'
-import { markdownLinkAction } from '../src/renderer/src/markdown-link-action'
+import { linkCopyChoices, markdownLinkAction } from '../src/renderer/src/markdown-link-action'
 
 /*
  * What a rendered link does and what it says it will do come from one decision, so a link can
@@ -48,4 +48,18 @@ test('a link that names nothing openable has no action at all', () => {
   for (const href of [undefined, '', 'docs/plan.md', '#top', 'javascript:alert(1)']) {
     assert.deepEqual(markdownLinkAction(href, true), { kind: 'none' }, String(href))
   }
+})
+
+test('every link with a target offers to copy it, whether or not it can be opened', () => {
+  const copy = (href: string): string[][] =>
+    linkCopyChoices(markdownLinkAction(href, true), href).map(({ label, text }) => [label, text])
+
+  assert.deepEqual(copy('https://example.com/a?b=1'), [['Copy link', 'https://example.com/a?b=1']])
+  assert.deepEqual(copy('</D:/My Game/shot.png>'), [
+    ['Copy path', 'D:\\My Game\\shot.png'],
+    ['Copy as file URL', 'file:///D:/My%20Game/shot.png']
+  ])
+  // A relative link has no base to open against, but its text is still worth having.
+  assert.deepEqual(copy('ui3-shots/hideout%20icons.png'), [['Copy link target', 'ui3-shots/hideout icons.png']])
+  assert.deepEqual(linkCopyChoices({ kind: 'none' }, undefined), [])
 })

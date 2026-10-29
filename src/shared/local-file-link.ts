@@ -142,3 +142,19 @@ export function opensInSystemViewer(path: string): boolean {
   const extension = /\.([^.\\/]+)$/.exec(path)?.[1]
   return extension !== undefined && SYSTEM_VIEWER_EXTENSIONS.has(extension.toLowerCase())
 }
+
+/**
+ * `path` as a `file:` URL, for pasting somewhere that wants a URL rather than a path. Each segment
+ * is percent-encoded on its own, so a `#` or `?` in a name stays part of the name; a UNC path keeps
+ * its host in the authority, the way `classifyMarkdownLink` reads one back.
+ */
+export function fileUrlOf(path: string): string {
+  const segments = (value: string): string => value.split(/[\\/]/).map(encodeURIComponent).join('/')
+  if (path.startsWith('\\\\')) {
+    const [host = '', ...rest] = path.slice(2).split(/[\\/]/)
+    return `file://${host}/${segments(rest.join('/'))}`
+  }
+  const drive = /^([A-Za-z]:)[\\/]?([\s\S]*)$/.exec(path)
+  if (drive) return `file:///${drive[1]}/${segments(drive[2] ?? '')}`
+  return `file://${segments(path)}`
+}

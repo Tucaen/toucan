@@ -114,7 +114,7 @@ import { createVoiceTranscriber } from './voice-transcription'
 import { loadWhisperEngine, VOICE_MODEL_MISSING_MESSAGE } from './whisper-engine'
 import { createSessionOutcomeIndexer } from './session-outcome-indexer'
 import { createSessionOutcomeStore } from './session-outcome-store'
-import { worktreePathKey } from '../shared/worktree'
+import { worktreeContainerDirectory, worktreePathKey } from '../shared/worktree'
 import { createTerminalShell } from './terminal-shell'
 import { createAdapterManager } from './adapter-manager'
 import { createAdapterInstaller } from './adapter-installer'
@@ -375,11 +375,14 @@ void app.whenReady().then(async () => {
   // and one removed a moment ago is not - fail closed.
   // Worktrees main created itself count too: the snapshot naming them is saved on a debounce, and
   // a worktree's first chat launches before that save lands (see `registerWorktreeIpc`).
+  // So does each project's `<project>-worktrees` folder: agents in a worktree put shared artifacts
+  // there, and a worktree created outside Toucan (`git worktree add`) usually lands there as well.
   const createdWorktreeRoots = new Set<string>()
   const workspaceRoots = async (): Promise<string[]> => {
     const state = (await workspace.load()).state
     return [
       ...(state?.projects.map(({ path }) => path) ?? []),
+      ...(state?.projects.map(({ path }) => worktreeContainerDirectory(path)) ?? []),
       ...(state?.worktrees.map(({ path }) => path) ?? []),
       ...createdWorktreeRoots
     ]

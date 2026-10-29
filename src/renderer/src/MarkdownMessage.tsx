@@ -1,9 +1,10 @@
-import { memo, useContext, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { remarkHardBreaks } from '../../shared/markdown-hard-breaks'
 import type { Element as HastElement, Nodes as HastNodes, RootContent } from 'hast'
-import { markdownLinkAction } from './markdown-link-action'
+import LinkContextMenu from './LinkContextMenu'
+import { linkCopyChoices, markdownLinkAction } from './markdown-link-action'
 import { OpenFileContext } from './open-file-context'
 import { highlightedCode } from './syntax-highlight'
 
@@ -136,8 +137,31 @@ function MarkdownLink(props: { href?: string; children?: React.ReactNode }): JSX
   const openFileNode = useContext(OpenFileContext)
   const action = markdownLinkAction(props.href, openFileNode !== null)
   const [problem, setProblem] = useState<string>()
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number }>()
+  const closeMenu = useCallback(() => setMenuAt(undefined), [])
 
-  if (action.kind === 'none') return <span className="markdown-inert-link">{props.children}</span>
+  // Right-click copies what the link names, whether or not it can be opened from here.
+  const copyChoices = linkCopyChoices(action, props.href)
+  const onContextMenu = (event: React.MouseEvent): void => {
+    if (copyChoices.length === 0) return
+    event.preventDefault()
+    event.stopPropagation()
+    setMenuAt({ x: event.clientX, y: event.clientY })
+  }
+  const menu = menuAt && (
+    <LinkContextMenu x={menuAt.x} y={menuAt.y} choices={copyChoices} onCopy={copyToClipboard} onClose={closeMenu} />
+  )
+
+  if (action.kind === 'none') {
+    return (
+      <>
+        <span className="markdown-inert-link" onContextMenu={onContextMenu}>
+          {props.children}
+        </span>
+        {menu}
+      </>
+    )
+  }
 
   const bridge = window.shellApi
   const open = (): void => {
@@ -185,9 +209,11 @@ function MarkdownLink(props: { href?: string; children?: React.ReactNode }): JSX
           event.preventDefault()
           open()
         }}
+        onContextMenu={onContextMenu}
       >
         {props.children}
       </a>
+      {menu}
       {problem && (
         <span className="markdown-link-error" role="note">
           {problem}

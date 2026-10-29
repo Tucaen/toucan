@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'vitest'
-import { classifyMarkdownLink, opensInSystemViewer } from '../src/shared/local-file-link'
+import { classifyMarkdownLink, opensInSystemViewer, fileUrlOf } from '../src/shared/local-file-link'
 
 /*
  * Covers issue #175: a Markdown link to a local artifact - the shape an agent writes for a
@@ -88,4 +88,18 @@ test('only inert media Toucan cannot render itself is handed to the system viewe
   for (const path of ['a.svg', 'a.md', 'a.ts', 'a.js', 'a.json', 'a.bat', 'a.cmd', 'a.exe', 'a.ps1', 'a', 'a.pngx']) {
     assert.equal(opensInSystemViewer(path), false, path)
   }
+})
+
+test('a path copies as the file URL the classifier reads back as the same path', () => {
+  for (const path of [
+    'D:\\Godot\\Projects\\Extraction Looter-worktrees\\ui3-shots\\hideout.png',
+    'D:\\a #1\\b?.png',
+    '\\\\server\\share\\shots\\x y.png',
+    '/home/dev/a b.png'
+  ]) {
+    const url = fileUrlOf(path)
+    assert.ok(url.startsWith('file://'), url)
+    assert.deepEqual(classifyMarkdownLink(url), { kind: 'file', path }, url)
+  }
+  assert.equal(fileUrlOf('D:\\a b\\c.png'), 'file:///D:/a%20b/c.png')
 })

@@ -182,14 +182,23 @@ export function worktreeDirectorySlug(branch: string): string {
 }
 
 /**
+ * The one folder beside a checkout that holds all of its worktrees, `<project>-worktrees`. Agents
+ * working in one of those worktrees also leave artifacts in the folder itself (review screenshots
+ * shared between worktrees, say), so it is part of the project's workspace, not just a parent.
+ */
+export function worktreeContainerDirectory(projectPath: string): string {
+  const { parent, name, separator } = splitPath(projectPath)
+  const container = `${name}-worktrees`
+  return parent ? [parent, container].join(separator) : container
+}
+
+/**
  * Worktrees live beside the checkout, never inside it: a worktree nested under the project
  * would show up in the project's own file listings, searches, and agent context.
  */
 export function deriveWorktreeDirectory(projectPath: string, branch: string): string {
-  const { parent, name, separator } = splitPath(projectPath)
-  const slug = worktreeDirectorySlug(branch)
-  const container = `${name}-worktrees`
-  return parent ? [parent, container, slug].join(separator) : [container, slug].join(separator)
+  const container = worktreeContainerDirectory(projectPath)
+  return [container, worktreeDirectorySlug(branch)].join(splitPath(projectPath).separator)
 }
 
 const INVALID_BRANCH_PATTERN = /[\s~^:?*[\\]|\.\.|@\{/

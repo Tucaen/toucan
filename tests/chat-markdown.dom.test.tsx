@@ -242,6 +242,36 @@ describe('local artifact links', () => {
   })
 })
 
+describe('link context menu', () => {
+  test('right-clicking a file link offers its path and file URL, and copies the one picked', () => {
+    const shell = stubShellApi()
+    render(<MarkdownMessage text="[shot](</D:/Outside/shot.png>)" />)
+
+    fireEvent.contextMenu(screen.getByRole('link', { name: 'shot' }))
+    const menu = screen.getByRole('menu', { name: 'Link options' })
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent)
+    ).toEqual(['Copy pathD:\\Outside\\shot.png', 'Copy as file URLfile:///D:/Outside/shot.png'])
+
+    fireEvent.click(within(menu).getByRole('menuitem', { name: /Copy path/ }))
+    expect(shell.copyText).toHaveBeenCalledWith('D:\\Outside\\shot.png')
+    expect(shell.openLocalFile).not.toHaveBeenCalled()
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  test('a web link copies its URL', () => {
+    const shell = stubShellApi()
+    render(<MarkdownMessage text="[docs](https://example.com/docs)" />)
+
+    fireEvent.contextMenu(screen.getByRole('link', { name: 'docs' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /Copy link/ }))
+    expect(shell.copyText).toHaveBeenCalledWith('https://example.com/docs')
+    expect(shell.openExternal).not.toHaveBeenCalled()
+  })
+})
+
 describe('hand-typed message rendering', () => {
   test('keeps the newlines a person typed as line breaks', () => {
     const { container } = render(<MarkdownMessage authored text={'first line\nsecond line\n\nnew paragraph'} />)

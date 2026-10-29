@@ -4,6 +4,7 @@ import {
   branchNameProblem,
   deriveWorktreeDirectory,
   isForcibleBlocker,
+  worktreeContainerDirectory,
   worktreeDirectorySlug
 } from '../src/shared/worktree'
 import { describeForcedRemovalCost, planWorktreeRemoval } from '../src/renderer/src/worktree-removal'
@@ -105,4 +106,12 @@ test('the forced-removal warning never claims commits are at risk', () => {
   const commitsOnly = describeForcedRemovalCost([{ kind: 'unpublished-commits', commits: 3 }])
   assert.doesNotMatch(commitsOnly, /deletes/)
   assert.match(commitsOnly, /only the working directory is removed/)
+})
+
+test("a project's worktree container is the folder every derived worktree sits in", () => {
+  assert.equal(worktreeContainerDirectory('D:\\Godot\\Extraction Looter\\'), 'D:\\Godot\\Extraction Looter-worktrees')
+  assert.equal(worktreeContainerDirectory('/home/dev/toucan'), '/home/dev/toucan-worktrees')
+  assert.ok(
+    deriveWorktreeDirectory('/home/dev/toucan', 'x').startsWith(`${worktreeContainerDirectory('/home/dev/toucan')}/`)
+  )
 })
