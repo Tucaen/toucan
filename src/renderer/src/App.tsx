@@ -118,6 +118,7 @@ import type { RemoteChatSpawnRequest, RemoteChatSpawnResult } from '../../shared
 import type { OrchestratorLink, TicketSessionCanvasRequest } from '../../shared/ticket-session-spawn'
 import { useTicketSessionSpawns, type TicketSessionStart } from './use-ticket-session-spawns'
 import { ticketCleanupNodes } from './ticket-cleanup'
+import { installTypingDeleteGuard } from './typing-delete-guard'
 import ConversationHistoryDialog from './ConversationHistoryDialog'
 import { ModalDialog } from './ModalDialog'
 import FileNode from './FileNode'
@@ -2279,6 +2280,9 @@ function Canvas(): JSX.Element {
     projectSettings: setupProjectId !== null,
     projectMenu: projectMenu !== null
   })
+
+  // The canvas's delete key must not read the tail of typing as a delete (see the module).
+  useEffect(() => installTypingDeleteGuard(), [])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
