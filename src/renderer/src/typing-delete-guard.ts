@@ -12,7 +12,10 @@
  * pointer press elsewhere, is an intentional delete and passes through untouched.
  */
 
-/** Longer than a key-repeat gap or a quick re-press, shorter than a deliberate reach for Delete. */
+/**
+ * Longer than a key-repeat gap or a quick re-press, shorter than a deliberate reach for Delete.
+ * @internal exported for tests
+ */
 export const TYPING_TAIL_MS = 1200
 
 const DELETE_KEYS = new Set(['Backspace', 'Delete'])
@@ -30,6 +33,7 @@ export interface TypingDeleteGuard {
   pointerPressed(): void
 }
 
+/** @internal exported for tests */
 export function createTypingDeleteGuard(now: () => number = Date.now): TypingDeleteGuard {
   let lastTypingAt: number | null = null
   return {
