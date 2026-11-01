@@ -74,6 +74,7 @@ export function groupChatsByProject(snapshot: RemoteWorkspaceSnapshot): ChatGrou
  * A chat only nests when the orchestrator it names is in the list, so a stale link leaves it
  * top-level and nothing is ever hidden. Order is the snapshot's (canvas order) throughout;
  * worktrees appear in the order their first chat does.
+ * @internal exported for tests
  */
 export function nestTicketSessions(chats: readonly RemoteChatSummary[]): ChatRow[] {
   const ids = new Set(chats.map((chat) => chat.id))
