@@ -69,6 +69,7 @@ import {
   routeRequiresPairing
 } from './remote-routes'
 import type { RemoteAccessStore } from './remote-access-store'
+import type { RemoteFileRead } from './remote-file-reader'
 import type { VoiceTranscriber } from '../voice-transcription'
 
 /**
@@ -164,6 +165,12 @@ export interface RemoteAccessServerOptions {
    * has no recognizer of its own. Absent, the route says the host does not transcribe.
    */
   transcriber?: Pick<VoiceTranscriber, 'transcribe'>
+  /**
+   * Reads one local image a chat linked to, for `GET /api/file`. The reader owns every rule about
+   * *which* files - absolute, an image, inside the workspace, under the size bound - so this module
+   * only gates the token and writes the verdict. Absent, the route says the host serves no files.
+   */
+  files?: (path: string) => Promise<RemoteFileRead>
   addresses?: () => RemoteAccessAddress[]
   now?: () => number
   /**
@@ -390,6 +397,20 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
     })
   }
 
+  /** `GET /api/file`. Every rule about the path is the reader's; see `remote-file-reader.ts`. */
+  const sendFile = async (request: IncomingMessage, response: ServerResponse, path: string): Promise<void> => {
+    const read = options.files
+      ? await options.files(path)
+      : { ok: false as const, status: 503, message: 'This host does not serve files.' }
+    if (!read.ok) {
+      send(request, response, read.status, JSON.stringify({ error: read.message }), {
+        'content-type': 'application/json; charset=utf-8'
+      })
+      return
+    }
+    send(request, response, 200, read.data, { 'content-type': read.contentType })
+  }
+
   const handle = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     const route = resolveRemoteRoute(request.method, request.url)
     if (routeRequiresPairing(route) && !authorized(request.headers)) {
@@ -434,6 +455,9 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
         return
       case 'transcribe':
         await transcribe(request, response)
+        return
+      case 'file':
+        await sendFile(request, response, route.path)
         return
       case 'preflight':
         // The CORS headers themselves are added by `send`; what is left to say here is that the

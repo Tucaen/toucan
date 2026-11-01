@@ -7,6 +7,8 @@ import { afterEach, describe, test } from 'vitest'
 import { WebSocket } from 'ws'
 import { createAgentEventBroker, type AgentEventBroker } from '../src/main/agent-event-broker'
 import { createRemoteAccessStore, type RemoteAccessStore } from '../src/main/remote/remote-access-store'
+import type { RemoteFileRead } from '../src/main/remote/remote-file-reader'
+import { remoteFileRequestPath } from '../src/shared/remote-file'
 import {
   createRemoteAccessServer,
   type RemoteAccessServer,
@@ -94,6 +96,7 @@ function harness(
     models?: () => AgentModelCatalogue
     usage?: () => ProviderUsageReport | Promise<ProviderUsageReport>
     transcriber?: { transcribe: (audio: Float32Array) => Promise<RemoteTranscriptionResult> }
+    files?: (path: string) => Promise<RemoteFileRead>
     heartbeatMs?: number
     addresses?: RemoteAccessAddress[]
   } = {}
@@ -119,6 +122,7 @@ function harness(
     ...(options.models ? { models: options.models } : {}),
     ...(options.usage ? { usage: options.usage } : {}),
     ...(options.transcriber ? { transcriber: options.transcriber } : {}),
+    ...(options.files ? { files: options.files } : {}),
     ...(options.heartbeatMs === undefined ? {} : { heartbeatMs: options.heartbeatMs })
   })
   running.push(server)
@@ -2161,5 +2165,65 @@ describe('paged transcripts on a chat socket', () => {
     chats.publish('chat-1', assistantChunk('a1', 'still here'))
     assert.equal((await socket.next()).type, 'event')
     socket.close()
+  })
+})
+
+/**
+ * A tapped image link: the token gates it like every API route, the reader's verdict is written as
+ * it stands, and the bytes go out uncompressed, uncached and unsniffable.
+ */
+describe('serving a linked image over HTTP', () => {
+  async function listening(files?: (path: string) => Promise<RemoteFileRead>): Promise<Harness & { asked: string[] }> {
+    const asked: string[] = []
+    const created = harness(
+      files
+        ? {
+            files: async (path) => {
+              asked.push(path)
+              return files(path)
+            }
+          }
+        : {}
+    )
+    await created.server.applySettings({ enabled: true, port: await freePort() })
+    return Object.assign(created, { asked })
+  }
+
+  test('an unpaired caller is refused before the reader is asked', async () => {
+    const created = await listening(async () => ({ ok: true, data: Buffer.from('x'), contentType: 'image/png' }))
+    const response = await created.get(remoteFileRequestPath('D:/p/a.png'), 'not-the-token')
+    assert.equal(response.status, 401)
+    assert.deepEqual(created.asked, [])
+  })
+
+  test('a served image carries its type, no-store and nosniff', async () => {
+    const created = await listening(async () => ({
+      ok: true,
+      data: Buffer.alloc(4096, 1),
+      contentType: 'image/png'
+    }))
+    const response = await fetch(`http://127.0.0.1:${created.port()}${remoteFileRequestPath('D:/p/a b.png')}`, {
+      headers: { authorization: `Bearer ${created.store.read().token}`, 'accept-encoding': 'br, gzip' }
+    })
+    assert.equal(response.status, 200)
+    assert.deepEqual(created.asked, ['D:/p/a b.png'])
+    assert.equal(response.headers.get('content-type'), 'image/png')
+    assert.equal(response.headers.get('cache-control'), 'no-store')
+    assert.equal(response.headers.get('x-content-type-options'), 'nosniff')
+    assert.equal(response.headers.get('content-encoding'), null)
+    assert.equal((await response.arrayBuffer()).byteLength, 4096)
+  })
+
+  test("the reader's refusal is passed on in its own words", async () => {
+    const created = await listening(async () => ({ ok: false, status: 403, message: 'outside' }))
+    const response = await created.get(remoteFileRequestPath('D:/x.png'), created.store.read().token)
+    assert.equal(response.status, 403)
+    assert.deepEqual(JSON.parse(response.body), { error: 'outside' })
+  })
+
+  test('a host without a reader serves no files', async () => {
+    const created = await listening()
+    const response = await created.get(remoteFileRequestPath('D:/x.png'), created.store.read().token)
+    assert.equal(response.status, 503)
   })
 })

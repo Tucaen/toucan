@@ -2,6 +2,7 @@ import { parseAgentModelCatalogue, type AgentModelCatalogue } from '../../src/sh
 import type { RemoteWorkspaceSnapshot } from '../../src/shared/remote-access'
 import type { ProviderUsageReport } from '../../src/shared/agent'
 import type { RemoteChatSpawnRequest } from '../../src/shared/remote-spawn'
+import { remoteFileRequestPath } from '../../src/shared/remote-file'
 import { parseProviderUsageReport } from '../../src/shared/remote-usage'
 import { parseRemoteTranscriptionReply, REMOTE_VOICE_CONTENT_TYPE } from '../../src/shared/remote-voice'
 import {
@@ -285,6 +286,32 @@ export async function transcribeRecording(
   const reply = parseRemoteTranscriptionReply(await readJsonBody(response))
   if (!reply) return { ok: false, kind: 'unreachable', message: `Host replied ${response.status}` }
   return reply.ok ? { ok: true, value: reply.text } : { ok: false, kind: 'unreachable', message: reply.message }
+}
+
+/**
+ * The bytes of one local image a chat linked to, fetched from the host that holds it. Fetched
+ * rather than set as an `<img src>`, because the token must travel as a header and an image
+ * request cannot carry one. A refusal carries the host's own wording - outside the workspace, gone,
+ * too large - since each is something the reader can make sense of.
+ */
+export async function fetchLocalImage(
+  host: HostEndpoint,
+  path: string,
+  signal?: AbortSignal
+): Promise<RemoteResult<Blob>> {
+  const sent = await send(remoteFileRequestPath(path), host, signal ? { signal } : {})
+  if (!sent.ok) return sent
+  const response = sent.value
+  if (!response.ok) {
+    const payload = await readJsonBody(response)
+    const reported = typeof payload?.error === 'string' ? payload.error : null
+    return { ok: false, kind: 'unreachable', message: reported ?? `Host replied ${response.status}` }
+  }
+  try {
+    return { ok: true, value: await response.blob() }
+  } catch (error) {
+    return { ok: false, kind: 'unreachable', message: error instanceof Error ? error.message : 'Unreadable reply' }
+  }
 }
 
 /** A body that is not JSON is not a reason to lose the status; the caller falls back to it. */

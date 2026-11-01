@@ -1,4 +1,5 @@
 import { normalize, sep } from 'node:path'
+import { REMOTE_FILE_ROUTE } from '../../shared/remote-file'
 
 /**
  * What a remote request is, decided before anything touches the filesystem or the workspace.
@@ -31,6 +32,11 @@ export type RemoteRoute =
   | { kind: 'usage' }
   /** A phone's recording, to be transcribed by the desktop's speech model and handed back as text. */
   | { kind: 'transcribe' }
+  /**
+   * One local image a chat linked to, named by its absolute path in the `path` query parameter.
+   * Empty when the parameter is missing; the handler refuses that like any other unusable path.
+   */
+  | { kind: 'file'; path: string }
   | { kind: 'client'; pathname: string }
   /**
    * A CORS preflight. Never authorized, and it cannot be: a browser sends the preflight *without*
@@ -76,6 +82,10 @@ export function resolveRemoteRoute(method: string | undefined, target: string | 
   if (pathname === '/api/transcribe') {
     return method === 'POST' ? { kind: 'transcribe' } : { kind: 'method-not-allowed', allow: 'POST' }
   }
+  if (pathname === REMOTE_FILE_ROUTE) {
+    if (method !== 'GET' && method !== 'HEAD') return { kind: 'method-not-allowed', allow: 'GET, HEAD' }
+    return { kind: 'file', path: requestSearchParam(target, 'path') }
+  }
   if (pathname.startsWith('/api/')) return { kind: 'not-found' }
   if (method !== 'GET' && method !== 'HEAD') return { kind: 'method-not-allowed', allow: 'GET, HEAD' }
   return { kind: 'client', pathname }
@@ -89,7 +99,8 @@ export function routeRequiresPairing(route: RemoteRoute): boolean {
     route.kind === 'create-chat' ||
     route.kind === 'models' ||
     route.kind === 'usage' ||
-    route.kind === 'transcribe'
+    route.kind === 'transcribe' ||
+    route.kind === 'file'
   )
 }
 
@@ -156,7 +167,9 @@ export const REMOTE_SHELL_SECURITY_HEADERS: Record<string, string> = {
     "default-src 'self'",
     "script-src 'self'",
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data:",
+    // `blob:` is the tapped image a chat linked to: fetched with the token, so it cannot be a plain
+    // `src`, and shown from an object URL only this page could have minted.
+    "img-src 'self' data: blob:",
     'connect-src * ws: wss:',
     "base-uri 'none'",
     "object-src 'none'",
@@ -180,6 +193,14 @@ export function resolveRemoteSocketRoute(target: string | undefined): RemoteSock
   if (pathname === null) return { kind: 'not-found' }
   const match = /^\/api\/chats\/([^/]+)$/.exec(pathname)
   return match ? { kind: 'chat', chatId: match[1] } : { kind: 'not-found' }
+}
+
+function requestSearchParam(target: string | undefined, name: string): string {
+  try {
+    return new URL(target ?? '', 'http://remote.invalid').searchParams.get(name) ?? ''
+  } catch {
+    return ''
+  }
 }
 
 function requestPathname(target: string | undefined): string | null {

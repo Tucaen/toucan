@@ -537,6 +537,83 @@ body {
   border: 1px solid var(--line);
 }
 
+.bubble a {
+  color: var(--accent);
+}
+
+/* A local image link: tapping fetches it from the desktop, so it reads as a link, not a button. */
+.image-link {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-align: inherit;
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.inert-link {
+  overflow-wrap: anywhere;
+}
+
+.image-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  background: rgb(0 0 0 / 92%);
+}
+
+.image-viewer-bar {
+  position: absolute;
+  top: env(safe-area-inset-top);
+  right: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+}
+
+.image-viewer-title {
+  flex: 1;
+  overflow: hidden;
+  color: var(--ink-dim);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.image-viewer-action {
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--raised);
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.image-viewer-image {
+  max-width: 100%;
+  max-height: calc(100% - 64px);
+  object-fit: contain;
+}
+
+.image-viewer-note {
+  max-width: 80%;
+  color: var(--ink-dim);
+  text-align: center;
+}
+
 .reasoning {
   margin: 0;
   align-self: flex-start;

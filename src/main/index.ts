@@ -110,6 +110,7 @@ import { createSafeStorageVault } from './remote/token-vault'
 import { forwardRemoteStateChanges, registerRemoteIpc } from './remote/remote-ipc'
 import { createRemoteCanvasRequests, type RemoteCanvasRequests } from './remote/canvas-requests'
 import { createRemoteAccessServer, type RemoteAccessServer } from './remote/remote-server'
+import { createRemoteFileReader } from './remote/remote-file-reader'
 import { createVoiceTranscriber } from './voice-transcription'
 import { loadWhisperEngine, VOICE_MODEL_MISSING_MESSAGE } from './whisper-engine'
 import { createSessionOutcomeIndexer } from './session-outcome-indexer'
@@ -1034,7 +1035,10 @@ void app.whenReady().then(async () => {
     // `PROVIDER_USAGE_TTL_MS` and is the host's to set. A paired client cannot raise it by asking
     // more often, which is the property a network surface needs.
     usage: () => providerUsage.read(),
-    transcriber: voiceTranscriber
+    transcriber: voiceTranscriber,
+    // A tapped image link reads through the same containment rule as a file node, so a phone can
+    // see exactly the files the desktop's own canvas could open, and no others.
+    files: createRemoteFileReader({ contains: containment.contains })
   })
   // Off unless the user turned it on and the setting survived a restart; `start` only ever binds
   // what the stored settings already asked for.

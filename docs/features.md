@@ -63,7 +63,8 @@ The full tour of what Toucan does today. The [README](../README.md) has the shor
   read its transcript live, send a message, and answer what the agent is waiting on - tool
   permissions and structured questions alike. Answering is race-safe: whether you answer on
   the phone or on the desktop, exactly one answer reaches the agent and the other client's
-  card resolves. Start a new chat for a project from the phone, and keep several PCs in one
+  card resolves. Tap an image an agent linked to by its absolute path and the phone fetches it
+  from the desktop and shows it full-screen. Start a new chat for a project from the phone, and keep several PCs in one
   installed app, switching between them. The chat list also shows how much of each provider's
   plan is left and when each window resets - waiting out a limit is something you do away from
   the desk - and a conversation shows its own context fill, cost and nearest limit. Put

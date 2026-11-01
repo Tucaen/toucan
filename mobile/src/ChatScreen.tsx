@@ -1,7 +1,4 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import { remarkHardBreaks } from '../../src/shared/markdown-hard-breaks'
 import type {
   AgentDecisionQuestion,
   AgentDecisionResponseContent,
@@ -51,6 +48,7 @@ import {
   submitDecisionProblem
 } from './decision-answers'
 import ChatKindBadge from './ChatKindBadge'
+import ChatMarkdown from './ChatMarkdown'
 import type { SavedHost } from './hosts'
 import MobileVoiceInput from './MobileVoiceInput'
 import { fetchWorkspace, rememberFocusMode, storedFocusMode } from './remote-client'
@@ -240,7 +238,7 @@ export default function ChatScreen({
       <div ref={transcriptRef} className="transcript" data-stale={connection.phase === 'reconnecting' || undefined}>
         <HistoryLoader connection={connection} />
         {items.map((item) => (
-          <TranscriptItem key={item.key} item={item} connection={connection} />
+          <TranscriptItem key={item.key} item={item} connection={connection} host={host} />
         ))}
         {connection.phase === 'live' && items.length === 0 && (
           <p className="empty">Nothing in this conversation yet.</p>
@@ -759,7 +757,15 @@ function ActivityCard({
   )
 }
 
-function TranscriptItem({ item, connection }: { item: ChatViewItem; connection: ChatConnection }): JSX.Element {
+function TranscriptItem({
+  item,
+  connection,
+  host
+}: {
+  item: ChatViewItem
+  connection: ChatConnection
+  host: SavedHost
+}): JSX.Element {
   if (item.type === 'reasoning') {
     return (
       <p className="reasoning" data-item-key={item.key} data-streaming={item.streaming || undefined}>
@@ -778,7 +784,7 @@ function TranscriptItem({ item, connection }: { item: ChatViewItem; connection: 
   if (item.role === 'user') {
     return (
       <div className="bubble user" data-item-key={item.key}>
-        <Markdown remarkPlugins={[remarkGfm, remarkHardBreaks]}>{item.text}</Markdown>
+        <ChatMarkdown host={host} text={item.text} authored />
       </div>
     )
   }
@@ -789,7 +795,7 @@ function TranscriptItem({ item, connection }: { item: ChatViewItem; connection: 
       data-provisional={!item.final || undefined}
       data-streaming={item.streaming || undefined}
     >
-      <Markdown remarkPlugins={[remarkGfm]}>{item.text}</Markdown>
+      <ChatMarkdown host={host} text={item.text} />
     </div>
   )
 }
