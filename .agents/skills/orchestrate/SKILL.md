@@ -87,6 +87,8 @@ Place a ticket by the first rule that fits, from `status`, `plan show` and what 
 
 Your final answer is the **review list**, with a commit or worktree for every ticket mentioned. Start it with the ticket-state table.
 
+Write every file you reference, interim or final, and above all screenshots and other images, as an absolute path: the phone companion fetches a linked file from the desktop by its absolute path and cannot resolve a relative one. After a merge, point at the file in the project checkout, because cleanup removes the worktree.
+
 - Low-confidence routes, escalations, orchestrator-routed tickets and model fallbacks.
 - Unresolved blocking review findings and any skipped or deleted tests, including the reason.
 - Open questions and pending permission prompts requiring the human.
