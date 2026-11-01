@@ -12,8 +12,10 @@ import {
   chatStatusLabel,
   countActiveChats,
   groupChatsByProject,
+  type ChatRow,
   isAwaitingDesktop
 } from './chat-list'
+import { ChevronDown, GitBranch, Network } from 'lucide-react'
 import ChatKindBadge from './ChatKindBadge'
 import ChatScreen from './ChatScreen'
 import {
@@ -556,35 +558,87 @@ function ChatListScreen({
             {group.unread > 0 && <span className="project-unread">{group.unread}</span>}
           </h2>
           <ul>
-            {group.chats.map((chat) => (
-              <li key={chat.id}>
-                <button
-                  type="button"
-                  className="chat"
-                  data-status={chat.status}
-                  // A stalled chat has to be findable at a glance, so it carries its own state
-                  // rather than only a count that looks like every other unread badge.
-                  data-needs-approval={chatNeedsApproval(chat) || undefined}
-                  onClick={() => onOpenChat(chat)}
-                >
-                  <ChatKindBadge kind={chat.kind} />
-                  <span className="chat-copy">
-                    <strong>{chat.title}</strong>
-                    <small>{chatNeedsApproval(chat) ? 'Needs approval' : chatStatusLabel(chat.status)}</small>
-                  </span>
-                  {chat.attention && (
-                    <span className="chat-attention" data-kind={chat.attention}>
-                      {attentionLabel(chat.attention)}
-                    </span>
-                  )}
-                  {chat.unread > 0 && <span className="chat-unread">{chat.unread}</span>}
-                </button>
-              </li>
+            {group.rows.map((row) => (
+              <ChatRowItem key={row.chat.id} row={row} onOpenChat={onOpenChat} />
             ))}
           </ul>
         </section>
       ))}
     </main>
+  )
+}
+
+/**
+ * One chat in the list. An orchestrator with ticket sessions gets a fold toggle and carries them
+ * beneath it, grouped by worktree branch exactly as the desktop sidebar nests them; it starts
+ * open and the fold is session-local, as there.
+ */
+function ChatRowItem({ row, onOpenChat }: { row: ChatRow; onOpenChat(chat: RemoteChatSummary): void }): JSX.Element {
+  const { chat, ticketWorktrees } = row
+  const [folded, setFolded] = useState(false)
+  const nested = ticketWorktrees.length > 0
+  const button = (
+    <button
+      type="button"
+      className="chat"
+      data-status={chat.status}
+      data-orchestrator={chat.orchestrator || undefined}
+      // A stalled chat has to be findable at a glance, so it carries its own state
+      // rather than only a count that looks like every other unread badge.
+      data-needs-approval={chatNeedsApproval(chat) || undefined}
+      onClick={() => onOpenChat(chat)}
+    >
+      <ChatKindBadge kind={chat.kind} />
+      <span className="chat-copy">
+        <strong>
+          {chat.orchestrator && <Network aria-label="Orchestrator" className="chat-orchestrator-badge" />}
+          {chat.title}
+        </strong>
+        <small>{chatNeedsApproval(chat) ? 'Needs approval' : chatStatusLabel(chat.status)}</small>
+      </span>
+      {chat.attention && (
+        <span className="chat-attention" data-kind={chat.attention}>
+          {attentionLabel(chat.attention)}
+        </span>
+      )}
+      {chat.unread > 0 && <span className="chat-unread">{chat.unread}</span>}
+    </button>
+  )
+  if (!nested) return <li>{button}</li>
+  return (
+    <li>
+      <div className="chat-orchestrator-row">
+        <button
+          type="button"
+          className="chat-fold"
+          aria-expanded={!folded}
+          aria-label={folded ? `Show ${chat.title} worktrees` : `Hide ${chat.title} worktrees`}
+          onClick={() => setFolded(!folded)}
+        >
+          <ChevronDown aria-hidden="true" data-folded={folded || undefined} />
+        </button>
+        {button}
+      </div>
+      {!folded && (
+        <div className="ticket-worktrees">
+          {ticketWorktrees.map((worktree) => (
+            <section className="ticket-worktree" key={worktree.branch}>
+              <h3>
+                <GitBranch aria-hidden="true" />
+                {worktree.branch}
+                {worktree.unread > 0 && <span className="chat-unread">{worktree.unread}</span>}
+                <span className="ticket-worktree-count">{worktree.chats.length}</span>
+              </h3>
+              <ul>
+                {worktree.chats.map((ticket) => (
+                  <ChatRowItem key={ticket.chat.id} row={ticket} onOpenChat={onOpenChat} />
+                ))}
+              </ul>
+            </section>
+          ))}
+        </div>
+      )}
+    </li>
   )
 }
 

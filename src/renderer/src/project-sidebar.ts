@@ -5,6 +5,10 @@
  * derives which project the sidebar follows from the canvas selection (`projectOfSelection`).
  */
 import { ORCHESTRATOR_ROLE } from '../../shared/orchestration'
+import {
+  ticketWorktreeOwners as sharedTicketWorktreeOwners,
+  type OwnershipNode
+} from '../../shared/ticket-worktree-owners'
 import type { TerminalKind, TerminalLiveness } from '../../shared/terminal'
 import {
   isChatCanvasNode,
@@ -75,44 +79,26 @@ export function projectOfSelection(nodes: readonly CanvasNode[]): string | undef
 }
 
 /**
- * Which orchestrator owns each worktree: the one named by `orchestratedBy` on a ticket session
- * that runs in it, which Toucan writes when it spawns the session and persists with the node. The
- * first such session in canvas order whose link is accepted decides when sessions disagree. The link only counts when its
- * orchestrator is a live orchestrator node of the same project, and never when honoring it would
- * make a worktree a descendant of itself (an orchestrator inside its own ticket worktree, or two
- * orchestrators each living in the other's); a refused link leaves that worktree top-level, so
- * nothing is ever hidden. Returns worktree id -> owning orchestrator's node id.
+ * Which orchestrator owns each worktree, for the canvas nodes; the rule itself is shared with the
+ * phone's chat list (`shared/ticket-worktree-owners.ts`). Returns worktree id -> orchestrator node id.
  */
 export function ticketWorktreeOwners(nodes: readonly CanvasNode[]): Map<string, string> {
-  const orchestrators = new Map<string, { projectId: string; worktreeId: string | undefined }>()
+  const ownership: OwnershipNode[] = []
   for (const node of nodes) {
-    if (isChatCanvasNode(node) && node.data.role === ORCHESTRATOR_ROLE) {
-      orchestrators.set(node.id, { projectId: node.data.projectId, worktreeId: node.data.worktreeId })
+    if (isChatCanvasNode(node)) {
+      ownership.push({
+        kind: 'chat',
+        id: node.id,
+        projectId: node.data.projectId,
+        worktreeId: node.data.worktreeId,
+        role: node.data.role,
+        orchestratedBy: node.data.orchestratedBy
+      })
+    } else if (isWorktreeCanvasNode(node)) {
+      ownership.push({ kind: 'worktree', worktreeId: node.data.worktreeId, projectId: node.data.projectId })
     }
   }
-  const worktreeProjects = new Map<string, string>()
-  for (const node of nodes) {
-    if (isWorktreeCanvasNode(node)) worktreeProjects.set(node.data.worktreeId, node.data.projectId)
-  }
-  const owners = new Map<string, string>()
-  const hostOf = (worktreeId: string): string | undefined => {
-    const owner = owners.get(worktreeId)
-    return owner === undefined ? undefined : orchestrators.get(owner)?.worktreeId
-  }
-  for (const node of nodes) {
-    if (!isChatCanvasNode(node) || !node.data.worktreeId || !node.data.orchestratedBy) continue
-    const ticketWorktree = node.data.worktreeId
-    if (owners.has(ticketWorktree)) continue
-    const owner = orchestrators.get(node.data.orchestratedBy.nodeId)
-    if (!owner || owner.projectId !== worktreeProjects.get(ticketWorktree)) continue
-    // Walk up the worktrees the owner is nested in; meeting the ticket worktree is a loop.
-    let loops = false
-    for (let host = owner.worktreeId; host !== undefined && !loops; host = hostOf(host)) {
-      loops = host === ticketWorktree
-    }
-    if (!loops) owners.set(ticketWorktree, node.data.orchestratedBy.nodeId)
-  }
-  return owners
+  return sharedTicketWorktreeOwners(ownership)
 }
 
 /**

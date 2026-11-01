@@ -26,7 +26,13 @@ import {
 } from '../src/main/remote/remote-routes'
 import { describeHostAddresses, isTailscaleAddress } from '../src/main/remote/host-addresses'
 import { createSafeStorageVault, PLAINTEXT_TOKEN_VAULT } from '../src/main/remote/token-vault'
-import { chatNeedsApproval, countActiveChats, groupChatsByProject, isAwaitingDesktop } from '../mobile/src/chat-list'
+import {
+  chatNeedsApproval,
+  countActiveChats,
+  groupChatsByProject,
+  isAwaitingDesktop,
+  nestTicketSessions
+} from '../mobile/src/chat-list'
 
 /**
  * The decisions behind remote access, away from any socket: what a phone is allowed to see, what
@@ -91,6 +97,44 @@ describe('workspace projection', () => {
       ]
     )
     assert.deepEqual(projection.projects, [{ id: 'toucan', name: 'Toucan', color: '#71a9ff' }])
+  })
+
+  test('marks orchestrators and links ticket sessions to the orchestrator that owns their worktree', () => {
+    const projection = deriveRemoteWorkspaceProjection(
+      source({
+        worktrees: [
+          { id: 'wt-1', projectId: 'toucan', branch: 'ticket/1' },
+          { id: 'wt-2', projectId: 'toucan', branch: 'ticket/2' }
+        ],
+        nodes: [
+          node({ id: 'orch', kind: 'claude', role: 'orchestrator' }),
+          node({
+            id: 't1',
+            kind: 'codex',
+            worktreeId: 'wt-1',
+            orchestratedBy: { nodeId: 'orch', conversationId: 'c' }
+          }),
+          // Same worktree, no link of its own: it still sits under the owner of the worktree.
+          node({ id: 't1b', kind: 'claude', worktreeId: 'wt-1' }),
+          node({
+            id: 't2',
+            kind: 'claude',
+            worktreeId: 'wt-2',
+            orchestratedBy: { nodeId: 'orch', conversationId: 'c' }
+          }),
+          node({ id: 'plain', kind: 'claude' })
+        ]
+      }),
+      {}
+    )
+    const byId = Object.fromEntries(projection.chats.map((chat) => [chat.id, chat]))
+    assert.equal(byId.orch.orchestrator, true)
+    assert.equal(byId.orch.orchestratorId, undefined)
+    assert.deepEqual([byId.t1.orchestratorId, byId.t1.worktree], ['orch', 'ticket/1'])
+    assert.deepEqual([byId.t1b.orchestratorId, byId.t1b.worktree], ['orch', 'ticket/1'])
+    assert.deepEqual([byId.t2.orchestratorId, byId.t2.worktree], ['orch', 'ticket/2'])
+    assert.equal('orchestrator' in byId.plain, false)
+    assert.equal('orchestratorId' in byId.plain, false)
   })
 
   test('carries the unread count and the most blocking unread kind', () => {
@@ -444,6 +488,79 @@ describe('host addresses', () => {
         { kind: 'tailscale', host: '100.90.80.70' },
         { kind: 'local', host: '192.168.1.5' }
       ]
+    )
+  })
+})
+
+describe('ticket sessions nested under an orchestrator', () => {
+  const chat = (id: string, extra: Partial<RemoteChatSummary> = {}): RemoteChatSummary => ({
+    id,
+    kind: 'claude',
+    title: id,
+    projectId: 'toucan',
+    status: 'idle',
+    unread: 0,
+    ...extra
+  })
+
+  test('nests tickets by worktree beneath the orchestrator and leaves ordinary chats top-level', () => {
+    const rows = nestTicketSessions([
+      chat('plain'),
+      chat('orch', { orchestrator: true }),
+      chat('a1', { orchestratorId: 'orch', worktree: 'ticket/1', unread: 2 }),
+      chat('b', { orchestratorId: 'orch', worktree: 'ticket/2' }),
+      chat('a2', { orchestratorId: 'orch', worktree: 'ticket/1', unread: 1 })
+    ])
+    assert.deepEqual(
+      rows.map((row) => row.chat.id),
+      ['plain', 'orch']
+    )
+    assert.deepEqual(rows[0].ticketWorktrees, [])
+    const worktrees = rows[1].ticketWorktrees
+    assert.deepEqual(
+      worktrees.map((worktree) => [worktree.branch, worktree.chats.map((row) => row.chat.id), worktree.unread]),
+      [
+        ['ticket/1', ['a1', 'a2'], 3],
+        ['ticket/2', ['b'], 0]
+      ]
+    )
+  })
+
+  test('an orchestrator that is itself a ticket session carries its own tickets', () => {
+    const rows = nestTicketSessions([
+      chat('outer', { orchestrator: true }),
+      chat('inner', { orchestrator: true, orchestratorId: 'outer', worktree: 'ticket/1' }),
+      chat('leaf', { orchestratorId: 'inner', worktree: 'ticket/2' })
+    ])
+    assert.equal(rows.length, 1)
+    const inner = rows[0].ticketWorktrees[0].chats[0]
+    assert.equal(inner.chat.id, 'inner')
+    assert.equal(inner.ticketWorktrees[0].chats[0].chat.id, 'leaf')
+  })
+
+  test('a link to an orchestrator that is not listed leaves the chat top-level', () => {
+    const rows = nestTicketSessions([chat('lost', { orchestratorId: 'gone', worktree: 'ticket/1' })])
+    assert.deepEqual(
+      rows.map((row) => row.chat.id),
+      ['lost']
+    )
+  })
+
+  test('groupChatsByProject keeps every chat in `chats` and renders only the top-level ones as rows', () => {
+    const chats = [
+      chat('orch', { orchestrator: true }),
+      chat('t', { orchestratorId: 'orch', worktree: 'x', unread: 1 })
+    ]
+    const [group] = groupChatsByProject({
+      updatedAt: 1,
+      projects: [{ id: 'toucan', name: 'Toucan', color: '#fff' }],
+      chats
+    })
+    assert.equal(group.chats.length, 2)
+    assert.equal(group.unread, 1)
+    assert.deepEqual(
+      group.rows.map((row) => row.chat.id),
+      ['orch']
     )
   })
 })

@@ -18,6 +18,8 @@ import { dominantUnreadKind, unreadAttentionByNode, type AttentionKind, type Att
 import type { TerminalNodeStatus } from './terminal'
 import type { WorkspaceState } from './workspace'
 import type { AgentProvider } from './agent-provider'
+import { ORCHESTRATOR_ROLE } from './orchestration'
+import { ticketWorktreeOwners, type OwnershipNode } from './ticket-worktree-owners'
 
 /**
  * Well above the ephemeral range and unassigned by IANA, so it rarely collides on a dev machine.
@@ -147,6 +149,15 @@ export interface RemoteChatSummary {
   unread: number
   /** The most blocking unread condition, so a phone with one badge shows the right one. */
   attention?: AttentionKind
+  /** An orchestrator's chat, so the phone marks it the way the desktop sidebar does. */
+  orchestrator?: true
+  /**
+   * The orchestrator that owns the worktree this chat runs in (see `ticketWorktreeOwners`), written
+   * only on a ticket session the desktop lists beneath that orchestrator. The phone nests it there.
+   */
+  orchestratorId?: string
+  /** The branch of the worktree a nested chat runs in; the desktop lists the chat under that branch. */
+  worktree?: string
 }
 
 export interface RemoteProjectSummary {
@@ -178,6 +189,8 @@ export const EMPTY_REMOTE_WORKSPACE_SNAPSHOT: RemoteWorkspaceSnapshot = {
 
 /** The canvas state this projection needs. Narrow on purpose, so tests can build one by hand. */
 export type RemoteWorkspaceSource = Pick<WorkspaceState, 'projects' | 'nodes'> & {
+  /** Needed to nest ticket sessions under their orchestrator; absent reads as no worktrees. */
+  worktrees?: Pick<WorkspaceState['worktrees'][number], 'id' | 'projectId' | 'branch'>[]
   attention?: AttentionState
 }
 
@@ -193,6 +206,26 @@ export function deriveRemoteWorkspaceProjection(
   const attention: AttentionState = source.attention ?? []
   const unreadByNode = unreadAttentionByNode(attention)
   const knownProjects = new Set(source.projects.map((project) => project.id))
+  const worktrees = source.worktrees ?? []
+  const ownership: OwnershipNode[] = [
+    ...source.nodes
+      .filter((node) => node.kind !== 'terminal')
+      .map((node): OwnershipNode => ({
+        kind: 'chat',
+        id: node.id,
+        projectId: node.projectId,
+        worktreeId: node.worktreeId,
+        role: node.role,
+        orchestratedBy: node.orchestratedBy
+      })),
+    ...worktrees.map((worktree): OwnershipNode => ({
+      kind: 'worktree',
+      worktreeId: worktree.id,
+      projectId: worktree.projectId
+    }))
+  ]
+  const owners = ticketWorktreeOwners(ownership)
+  const branches = new Map(worktrees.map((worktree) => [worktree.id, worktree.branch]))
 
   return {
     projects: source.projects.map(({ id, name, color }) => ({ id, name, color })),
@@ -201,6 +234,7 @@ export function deriveRemoteWorkspaceProjection(
       .map((node) => {
         const kind = node.kind as RemoteChatKind
         const dominant = dominantUnreadKind(attention, node.id)
+        const owner = node.worktreeId === undefined ? undefined : owners.get(node.worktreeId)
         return {
           id: node.id,
           kind,
@@ -210,7 +244,11 @@ export function deriveRemoteWorkspaceProjection(
           // session is coming up when nothing has launched it is the one lie that costs trust.
           status: statuses[node.id] ?? 'dormant',
           unread: unreadByNode[node.id] ?? 0,
-          ...(dominant ? { attention: dominant } : {})
+          ...(dominant ? { attention: dominant } : {}),
+          ...(node.role === ORCHESTRATOR_ROLE ? { orchestrator: true as const } : {}),
+          ...(owner !== undefined && node.worktreeId !== undefined
+            ? { orchestratorId: owner, worktree: branches.get(node.worktreeId) ?? node.worktreeId }
+            : {})
         }
       })
   }

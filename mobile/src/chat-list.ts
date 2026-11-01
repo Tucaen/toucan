@@ -7,9 +7,29 @@ import type { TerminalNodeStatus } from '../../src/shared/terminal'
  * knows about React, so the grouping, the labels and the staleness rule can be tested directly.
  */
 
+/** The chats of one ticket worktree, listed under the orchestrator that owns it. */
+export interface TicketWorktreeGroup {
+  /** The worktree's branch, which is the row the desktop shows between an orchestrator and its sessions. */
+  branch: string
+  chats: ChatRow[]
+  unread: number
+}
+
+/**
+ * One top-level row of a project: a chat, and when it is an orchestrator, the ticket worktrees it
+ * owns. Mirrors the desktop sidebar, where those are nested beneath the orchestrator's row.
+ */
+export interface ChatRow {
+  chat: RemoteChatSummary
+  ticketWorktrees: TicketWorktreeGroup[]
+}
+
 export interface ChatGroup {
   project: RemoteProjectSummary
+  /** Every chat of the project, nested ones included; counts and lookups read this. */
   chats: RemoteChatSummary[]
+  /** What the list renders: the chats no orchestrator owns, each carrying its own ticket sessions. */
+  rows: ChatRow[]
   /** Unread across the group, so a collapsed project still shows that something wants attention. */
   unread: number
   /** Chats in this project that are parked on a request, which is a stronger claim than unread. */
@@ -40,11 +60,50 @@ export function groupChatsByProject(snapshot: RemoteWorkspaceSnapshot): ChatGrou
       return {
         project,
         chats,
+        rows: nestTicketSessions(chats),
         unread: chats.reduce((total, chat) => total + chat.unread, 0),
         approvals: chats.filter(chatNeedsApproval).length
       }
     })
     .filter((group) => group.chats.length > 0)
+}
+
+/**
+ * Top-level rows with ticket sessions folded under their orchestrator, as the desktop sidebar
+ * does, and recursively: an orchestrator that is itself a ticket session carries its own tickets.
+ * A chat only nests when the orchestrator it names is in the list, so a stale link leaves it
+ * top-level and nothing is ever hidden. Order is the snapshot's (canvas order) throughout;
+ * worktrees appear in the order their first chat does.
+ */
+export function nestTicketSessions(chats: readonly RemoteChatSummary[]): ChatRow[] {
+  const ids = new Set(chats.map((chat) => chat.id))
+  const ownerOf = (chat: RemoteChatSummary): string | undefined =>
+    chat.orchestratorId !== undefined && chat.orchestratorId !== chat.id && ids.has(chat.orchestratorId)
+      ? chat.orchestratorId
+      : undefined
+  const ticketsOf = new Map<string, RemoteChatSummary[]>()
+  for (const chat of chats) {
+    const owner = ownerOf(chat)
+    if (owner !== undefined) ticketsOf.set(owner, [...(ticketsOf.get(owner) ?? []), chat])
+  }
+  // `path` guards against a link cycle the host should never send; a chat on its own path is cut.
+  const build = (chat: RemoteChatSummary, path: ReadonlySet<string>): ChatRow => {
+    const inner = new Set(path).add(chat.id)
+    const ticketWorktrees: TicketWorktreeGroup[] = []
+    for (const ticket of ticketsOf.get(chat.id) ?? []) {
+      if (inner.has(ticket.id)) continue
+      const branch = ticket.worktree ?? ''
+      let group = ticketWorktrees.find((candidate) => candidate.branch === branch)
+      if (!group) {
+        group = { branch, chats: [], unread: 0 }
+        ticketWorktrees.push(group)
+      }
+      group.chats.push(build(ticket, inner))
+      group.unread += ticket.unread
+    }
+    return { chat, ticketWorktrees }
+  }
+  return chats.filter((chat) => ownerOf(chat) === undefined).map((chat) => build(chat, new Set()))
 }
 
 /** Sessions doing something, for the header summary. Mirrors the desktop's own status chips. */
