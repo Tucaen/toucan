@@ -465,11 +465,16 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
         const entries = parseWorktreeList(listed.stdout)
         // An empty/malformed successful response is not evidence of absence. lstat preserves
         // broken .git links and permission failures; neither permits forgetting a checkout.
-        const registered = new Set(entries.map((entry) => worktreePathKey(entry.path)))
+        // Git still lists a checkout deleted behind its back, until a prune; `prunable` is its own
+        // verdict that the folder is gone, so such an entry is neither available nor rediscovered.
+        const live = entries.filter((entry) => !entry.prunable)
+        const gone = new Set(entries.filter((entry) => entry.prunable).map((entry) => worktreePathKey(entry.path)))
+        const registered = new Set(live.map((entry) => worktreePathKey(entry.path)))
         const stalePaths =
           entries.length === 0
             ? []
             : request.known.filter((path) => {
+                if (gone.has(worktreePathKey(path))) return true
                 if (registered.has(worktreePathKey(path))) return false
                 try {
                   lstatSync(join(normalizeWorktreePath(path), '.git'))
@@ -481,7 +486,7 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
 
         return {
           stalePaths,
-          availablePaths: entries.map((entry) => entry.path),
+          availablePaths: live.map((entry) => entry.path),
           worktrees: discoverWorktrees(
             entries,
             request.known.map((path) => ({ path })),

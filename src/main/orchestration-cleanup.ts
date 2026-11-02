@@ -30,6 +30,9 @@ export interface OrchestrationCleanup {
   answeredRefusal(record: OrchestrationRecord, ticket: OrchestrationTicket): Promise<string | undefined>
 }
 
+/** How long a folder a process still holds gets to be let go: about 21 minutes in all. */
+export const FOLDER_RETRY_DELAYS_MS: readonly number[] = [15_000, 60_000, 5 * 60_000, 15 * 60_000]
+
 /** Evidence-gated cleanup: a record's merged or answered flag alone never authorizes deleting a branch. */
 export function createOrchestrationCleanup(options: {
   runGit: GitRunner
@@ -39,9 +42,10 @@ export function createOrchestrationCleanup(options: {
   /**
    * Cleans a ticket again after only its folder could not be deleted. A process still holds such
    * a folder - typically a tool shell or an install the retired session started, which outlives
-   * the agent - and lets go when it exits. One attempt per delay; absent, a later sweep retries.
+   * the agent - and lets go when it exits. One attempt per delay, `FOLDER_RETRY_DELAYS_MS` unless
+   * given; absent, a later sweep is the retry.
    */
-  folderRetry?: { delaysMs: readonly number[]; schedule(retry: () => Promise<void>, ms: number): void }
+  folderRetry?: { schedule(retry: () => Promise<void>, ms: number): void; delaysMs?: readonly number[] }
   log?(message: string): void
 }): OrchestrationCleanup {
   const gitIn =
@@ -60,15 +64,15 @@ export function createOrchestrationCleanup(options: {
     worktreePath: string,
     attempt: number
   ): boolean => {
-    const retry = options.folderRetry
     const key = pathIdentity(worktreePath)
     if (pendingRetries.has(key)) return true
-    if (!retry || attempt >= retry.delaysMs.length) return false
+    const delays = options.folderRetry?.delaysMs ?? FOLDER_RETRY_DELAYS_MS
+    if (!options.folderRetry || attempt >= delays.length) return false
     pendingRetries.add(key)
-    retry.schedule(async () => {
+    options.folderRetry.schedule(async () => {
       pendingRetries.delete(key)
       try {
-        const result = await sweep(record, ticketId, attempt + 1)
+        const result = await sweep(record, ticketId, attempt)
         const reason = result.retained[0]?.reason
         options.log?.(
           reason === undefined
@@ -78,15 +82,15 @@ export function createOrchestrationCleanup(options: {
       } catch (error) {
         options.log?.(`ticket ${ticketId}: worktree folder retry failed: ${errorMessage(error)}`)
       }
-    }, retry.delaysMs[attempt])
+    }, delays[attempt])
     return true
   }
 
-  /** `attempt` is the folder retry this sweep schedules: 0 starts a series, a retry continues it. */
+  /** `retry` is the index of the folder retry this sweep is; a sweep anyone asked for has none. */
   const sweep = async (
     record: OrchestrationRecord,
     ticketId: string | undefined,
-    attempt = 0
+    retry?: number
   ): Promise<OrchestrationCleanupResult> => {
     const removed: CleanupEntry[] = []
     const retained: CleanupEntry[] = []
@@ -113,8 +117,17 @@ export function createOrchestrationCleanup(options: {
         const current = await git(['symbolic-ref', '--quiet', '--short', 'HEAD'])
         if (current !== record.targetBranch)
           throw new Error('the orchestrator checkout is no longer on the target branch')
-        const listed = parseWorktreeList(await git(['worktree', 'list', '--porcelain']))
-        const worktree = listed.find((item) => pathIdentity(item.path) === pathIdentity(worktreePath))
+        const registration = async () =>
+          parseWorktreeList(await git(['worktree', 'list', '--porcelain'])).find(
+            (item) => pathIdentity(item.path) === pathIdentity(worktreePath)
+          )
+        let worktree = await registration()
+        // A checkout deleted behind Git's back stays registered, its branch checked out, until a
+        // prune - which drops only registrations whose checkout is gone, so it costs no work.
+        if (worktree?.prunable) {
+          await git(['worktree', 'prune'])
+          worktree = await registration()
+        }
         if (worktree && (worktree.isMain || worktree.branch !== branch)) throw new Error('worktree identity changed')
         // A recorded folder git no longer lists is what a half-failed `worktree remove` leaves;
         // it is finished below once its contents are proved to be nothing but published files.
@@ -122,6 +135,10 @@ export function createOrchestrationCleanup(options: {
         const ref = `refs/heads/${branch}`
         const refs = await git(['for-each-ref', '--format=%(refname)', ref])
         const hasBranch = refs.split(/\r?\n/).includes(ref)
+        // A retry only ever finishes a leftover; a registered worktree or branch of the ticket's
+        // name is a later spawn reusing it, which the retry's captured record knows nothing about.
+        if (retry !== undefined && (worktree || hasBranch))
+          throw new Error('the ticket worktree or branch exists again; the folder retry stopped')
         const published: string[] = []
         if (hasBranch) {
           const head = await git(['rev-parse', '--verify', ref])
@@ -191,7 +208,7 @@ export function createOrchestrationCleanup(options: {
         // some process, leaves the ticket chat and its canvas group nothing to guard.
         const removedFromCanvas = await options.canvas({ projectPath: record.projectPath, session, phase: 'remove' })
         if (folderFailure) {
-          const retrying = scheduleFolderRetry(record, ticket.id, worktreePath, attempt)
+          const retrying = scheduleFolderRetry(record, ticket.id, worktreePath, retry === undefined ? 0 : retry + 1)
           throw new Error(
             [
               hasBranch && `branch ${branch} deleted`,

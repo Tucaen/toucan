@@ -231,6 +231,8 @@ export interface WorktreeListEntry {
   branch: string
   head: string
   isMain: boolean
+  /** Git's own verdict that the checkout is gone - its folder or `.git` file was deleted - though still registered. */
+  prunable?: true
 }
 
 /**
@@ -282,7 +284,8 @@ export function worktreePathKey(value: string): string {
  * adds: a worktree Toucan does not know about becomes a node, while a record whose directory
  * has vanished is left alone for the evidence-gated teardown to handle. `baseRef` cannot be
  * recovered from git's worktree list, so discovered worktrees inherit the repository's
- * default branch - enough for teardown to ask "is this merged back?".
+ * default branch - enough for teardown to ask "is this merged back?". A prunable entry is a
+ * checkout already gone, never a new one.
  */
 export function discoverWorktrees(
   listed: readonly WorktreeListEntry[],
@@ -294,7 +297,7 @@ export function discoverWorktrees(
   return listed
     .filter((entry) => {
       const key = worktreePathKey(entry.path)
-      if (entry.isMain || !entry.branch || recorded.has(key)) return false
+      if (entry.isMain || entry.prunable || !entry.branch || recorded.has(key)) return false
       recorded.add(key)
       return true
     })
@@ -337,7 +340,8 @@ export function parseWorktreeList(porcelain: string): WorktreeListEntry[] {
         path: current.path,
         branch: current.branch ?? '',
         head: current.head ?? '',
-        isMain: entries.length === 0
+        isMain: entries.length === 0,
+        ...(current.prunable ? { prunable: true as const } : {})
       })
     }
     current = {}
@@ -353,6 +357,7 @@ export function parseWorktreeList(porcelain: string): WorktreeListEntry[] {
     if (key === 'worktree') current.path = value
     if (key === 'HEAD') current.head = value
     if (key === 'branch') current.branch = value.replace(/^refs\/heads\//, '')
+    if (key === 'prunable') current.prunable = true
   }
   flush()
 

@@ -137,3 +137,22 @@ test('a listing with no worktrees beyond the checkout discovers nothing', () => 
   const entries = parseWorktreeList([`worktree ${PROJECT}`, 'HEAD abc123', 'branch refs/heads/main', ''].join('\n'))
   assert.deepEqual(discoverWorktrees(entries, [], 'main'), [])
 })
+
+test('a worktree whose folder is gone is marked prunable and never rediscovered', () => {
+  const entries = parseWorktreeList(
+    [
+      `worktree ${PROJECT}`,
+      'HEAD abc123',
+      'branch refs/heads/main',
+      '',
+      `worktree ${FEATURE}`,
+      'HEAD def456',
+      'branch refs/heads/feat/login',
+      'prunable gitdir file points to non-existent location',
+      ''
+    ].join('\n')
+  )
+  assert.equal(entries[0].prunable, undefined)
+  assert.equal(entries[1].prunable, true)
+  assert.deepEqual(discoverWorktrees(entries, [], 'main'), [])
+})

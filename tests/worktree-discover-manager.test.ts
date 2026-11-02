@@ -97,3 +97,18 @@ test('a repository git cannot list reports nothing rather than failing the calle
   assert.deepEqual(result.worktrees, [])
   assert.match(result.message ?? '', /not a git repository/)
 })
+
+test('a known worktree git still lists but reports prunable is stale, not available', async () => {
+  const prunable = porcelain.replace(
+    'branch refs/heads/feat/login\n',
+    'branch refs/heads/feat/login\nprunable gitdir file points to non-existent location\n'
+  )
+  const result = await managerFor(commonDirWithClaims([]), prunable).discover({
+    projectPath: PROJECT,
+    known: [FEATURE]
+  })
+
+  assert.deepEqual(result.stalePaths, [FEATURE])
+  assert.deepEqual(result.availablePaths, [PROJECT])
+  assert.deepEqual(result.worktrees, [])
+})
