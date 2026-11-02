@@ -212,7 +212,7 @@ It never answers a tool-permission prompt. While a ticket session waits on one, 
 
 ## merge
 
-`merge --ticket <id> --tested <commit>` lands one tested ticket and prints `{ ok: true, ticket, commit, upstream, cleanup }`. `--tested` is the hash (7 to 64 hex digits) the ticket session's full test suite passed on.
+`merge --ticket <id> --tested <commit>` lands one tested ticket and prints `{ ok: true, ticket, commit, upstream, cleanup }`. `--tested` is the hash (7 to 64 hex digits) of the ticket branch HEAD you verified: by the ticket session's targeted tests, an affected subset or the full suite, as the risk-based rule in the skill decided. It is not a claim that the full suite passed.
 
 Toucan refuses unless the ticket is `pending` or `unmerged`, every blocker is settled and its session has settled with nothing pending. It then requires a clean ticket worktree, a clean target checkout on `targetBranch`, `--tested` equal to the ticket branch HEAD, that HEAD containing the target tip, and an upstream for the target. It runs `git merge --ff-only`, pushes the target to that upstream, records `mergeStatus: merged` and runs `cleanup --ticket <id>`, whose `{ removed, retained }` is `cleanup`. It never forces and never creates a merge commit.
 

@@ -152,7 +152,9 @@ shows real working state, and this carries over to other providers unchanged.
   when there is none.
 - Per ticket, one at a time, in dependency order: the orchestrator rebases a settled ticket
   branch onto the target when it lags (aborting on a conflict), the ticket's own session runs
-  the full test suite in its worktree - once, having deferred it from its final report - then the orchestrator runs
+  what the orchestrator's risk call asks for runs in its worktree (the full test suite or an affected subset,
+  once, having been deferred from its final report; nothing more for a change that cannot plausibly break a
+  test, since CI runs the full suite anyway) - then the orchestrator runs
   `git merge --ff-only` in its checkout and pushes. A rejected push means fetch, then the ticket
   session rebases and re-tests, then retry. No PRs. The orchestrator never implements or runs a
   suite itself: its turns stay short so wakes and the human's messages do not queue behind them.

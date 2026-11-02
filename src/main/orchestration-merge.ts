@@ -84,12 +84,12 @@ export function createOrchestrationMerge(options: {
       if (testedCommit !== head)
         throw new Refusal(
           'check',
-          `the tested commit ${testedCommit} is not ${branch}'s HEAD ${head}; have the session run the full suite on its HEAD`
+          `the tested commit ${testedCommit} is not ${branch}'s HEAD ${head}; verify its HEAD and pass that commit`
         )
       if (!(await probe(['merge-base', '--is-ancestor', `refs/heads/${target}`, head])))
         throw new Refusal(
           'check',
-          `${branch} does not contain the ${target} tip; rebase it onto ${target} and have the session run the full suite again`
+          `${branch} does not contain the ${target} tip; rebase it onto ${target} and verify the rebased HEAD again`
         )
       const remote = await git(['config', '--get', `branch.${target}.remote`]).catch(() => '')
       const remoteRef = await git(['config', '--get', `branch.${target}.merge`]).catch(() => '')

@@ -264,6 +264,16 @@ test('the orchestrator instruction keeps implementation and heavy work out of it
   assert.match(instruction, /test suite/i)
 })
 
+test('the orchestrator instruction makes the pre-merge test run a risk-based decision, not a reflex', () => {
+  const instruction = orchestratorInstruction({ cliPath: 'cli.mjs', skillPath: 'SKILL.md' })
+  assert.match(instruction, /decide from the risk of the change/i)
+  assert.match(instruction, /skip the full suite for a change that cannot plausibly break a test/i)
+  assert.match(instruction, /CI runs it anyway/i)
+  assert.match(instruction, /affected subset only when the risk is real/i)
+  assert.match(instruction, /failed run still blocks the merge/i)
+  assert.doesNotMatch(instruction, /the pre-merge test run,/i)
+})
+
 test('the orchestrator instruction forbids researching the code itself and delegates even a question', () => {
   const instruction = orchestratorInstruction({ cliPath: 'cli.mjs', skillPath: 'SKILL.md' })
   assert.match(instruction, /delegate immediately/i)
@@ -605,10 +615,12 @@ test('a ticket session is titled by its ticket and prompted with the skill, the 
   assert.match(contract, /merge/i)
   assert.match(contract, /final report/i)
   assert.match(contract, /win over/i)
-  // The full suite runs once, right before the merge: the session defers it from its final report,
-  // runs it on request and names the commit that passed; a rebase conflict comes back to it.
+  // The full suite is the orchestrator's risk-based call, made right before the merge: the session
+  // defers it from its final report, runs what it is asked for and names the commit tested; a
+  // rebase conflict comes back to it.
   assert.match(contract, /do not run the project's full test suite before your final report/i)
-  assert.match(contract, /asks, run the full test suite/i)
+  assert.match(contract, /decides from the risk of the change/i)
+  assert.match(contract, /asks, run the full test suite or the tests it names/i)
   assert.match(contract, /rebase this branch onto the target/i)
   assert.match(contract, /commit you tested/i)
 

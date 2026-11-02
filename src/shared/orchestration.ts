@@ -954,8 +954,8 @@ export function ticketContract(worktree: { path: string; branch: string }, scrat
     `- Commit your work to its branch, ${worktree.branch}.`,
     "- When the ticket only asks a question, answer it from the code: change and commit nothing, skip the skill's implementation steps, and make the answer, with the files and lines it rests on, your final report.",
     '- Never push, never merge, and never open a pull request: the orchestrator merges this branch. Pushing is refused by a hook anyway.',
-    "- Do not run the project's full test suite before your final report; run the tests that cover your change. The orchestrator rebases this branch onto the target right before the merge and then asks you for the full suite, so it runs once, on what is merged.",
-    '- When the orchestrator asks, run the full test suite here and report the commit you tested with its result. When it hands you a rebase conflict, rebase this branch onto the target, resolve it, then run the full suite and report the same way. The orchestrator only fast-forwards what you verified.',
+    "- Do not run the project's full test suite before your final report; run the tests that cover your change. The orchestrator rebases this branch onto the target right before the merge and decides from the risk of the change whether to ask you for the full suite, an affected subset, or nothing more (CI runs the full suite anyway), so a full run happens at most once, on what is merged.",
+    '- When the orchestrator asks, run the full test suite or the tests it names here and report the commit you tested with its result. When it hands you a rebase conflict, rebase this branch onto the target, resolve it, then run what it asks for (the full suite unless it names less) and report the same way. The orchestrator only fast-forwards what it verified.',
     '- End with a final report: commit, verification commands and results, unresolved blocking review findings, skipped or deleted tests with reasons, and open questions.',
     `- ${fileReferenceRule(scratchPath)}`
   ].join('\n')
@@ -971,8 +971,8 @@ export const TICKET_CONTRACT_SUMMARY: { must: readonly string[]; mustNot: readon
   must: [
     'Implement, test, review and commit the ticket in the given worktree, on its branch.',
     'Answer a question-only ticket in the final report, without changing or committing anything.',
-    'Run only the tests covering the change before the final report; run the full test suite on request, right before the merge.',
-    'On request, resolve a rebase conflict with the target, then run the full test suite.',
+    'Run only the tests covering the change before the final report; run the full test suite, or the subset named, on request, right before the merge.',
+    'On request, resolve a rebase conflict with the target, then run the tests asked for (the full test suite unless less is named).',
     'End with a final report: commit, verification commands and results, unresolved review findings and open questions.'
   ],
   mustNot: ['Push.', 'Merge.', 'Open a pull request.', 'Leave the worktree.']
@@ -1007,9 +1007,10 @@ export function orchestratorInstruction(paths: { cliPath: string; skillPath: str
     'It governs start checks, dependency-aware breakdown, routing, serial tested merges, escalation, tracker write-back, cleanup and the final review list.',
     `Use \`${cli} plan show\` to recover the durable record, and \`${cli} status\` for live ticket state.`,
     'Never implement, edit project files or run a test suite yourself: any change to the project, however small, becomes a ticket, and verification runs in its ticket session.',
+    'Before a merge, decide from the risk of the change how much to verify: skip the full suite for a change that cannot plausibly break a test (prose, comments, copy, assets), since CI runs it anyway, and ask for the full suite or an affected subset only when the risk is real; a failed run still blocks the merge.',
     'Keep your turns short - read state, decide, dispatch - because wakes and the human queue behind a busy turn.',
     'Spawn ticket sessions through Toucan; end your turn when waiting for them. Toucan wakes you on their events.',
-    `Use \`${cli} followup --ticket <id> --text <text>\` for questions, the pre-merge test run, and conflict recovery; it never answers a tool-permission prompt.`,
+    `Use \`${cli} followup --ticket <id> --text <text>\` for questions, a pre-merge test run when the risk calls for one, and conflict recovery; it never answers a tool-permission prompt.`,
     'Those prompts wait for the human and belong on the review list.',
     `Merge a tested ticket with \`${cli} merge --ticket <id> --tested <commit>\`, which fast-forwards, pushes, records and cleans up;`,
     'never merge into or push the target with your own Git.',
@@ -1117,14 +1118,14 @@ export function parseCleanupInput(value: unknown): Outcome<'cleanup', { ticketId
   return { cleanup: { ticketId: value.ticket.trim() } }
 }
 
-/** Validates `merge`'s `--ticket <id> --tested <commit>`: the commit the session's full suite passed on. */
+/** Validates `merge`'s `--ticket <id> --tested <commit>`: the commit the orchestrator verified (targeted tests or the full suite). */
 export function parseMergeInput(value: unknown): Outcome<'merge', { ticketId: string; tested: string }> {
   const args = isRecord(value) ? value : {}
   if (Object.keys(args).some((key) => key !== 'ticket' && key !== 'tested'))
     return refuse('merge takes only --ticket <id> --tested <commit>')
   if (!nonEmptyString(args.ticket)) return refuse('merge needs --ticket <id>')
   if (!nonEmptyString(args.tested) || !/^[0-9a-f]{7,64}$/i.test(args.tested.trim()))
-    return refuse('merge needs --tested <commit>, the hash the full test suite passed on')
+    return refuse('merge needs --tested <commit>, the hash of the ticket branch HEAD you verified')
   return { merge: { ticketId: args.ticket.trim(), tested: args.tested.trim() } }
 }
 
