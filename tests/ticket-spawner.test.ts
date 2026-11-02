@@ -121,6 +121,33 @@ test('a spawn creates the worktree, guards it, runs setup and then starts the ch
   assert.ok(started.prompt.includes('D:\\project-ticket/34'))
 })
 
+test("the ticket prompt names the main checkout's scratch folder, not the worktree's", async () => {
+  const asked: string[] = []
+  const { spawner, canvas } = harness({
+    scratchDirectory: async (projectPath) => {
+      asked.push(projectPath)
+      return { ok: true, path: 'D:\\project\\.toucan-scratch' }
+    }
+  })
+  const result = await spawner.spawn(request)
+  assert.equal(result.ok && result.warnings.length, 0)
+  assert.deepEqual(asked, ['D:\\project'])
+  const [started] = canvas
+  assert.ok(started.prompt.includes('D:\\project\\.toucan-scratch'))
+  assert.ok(started.prompt.includes('file:///D:/project/.toucan-scratch/before.png'))
+  assert.ok(!started.prompt.includes('D:\\project-ticket/34\\.toucan-scratch'))
+})
+
+test('a scratch folder that cannot be prepared is a warning, and the session starts without the sentence', async () => {
+  const { spawner, canvas } = harness({
+    scratchDirectory: async () => ({ ok: false, error: 'could not prepare the scratch folder (x): not a repo' })
+  })
+  const result = await spawner.spawn(request)
+  assert.ok(result.ok)
+  assert.match(result.warnings.join(' '), /scratch folder.*not told where to save/)
+  assert.ok(!canvas[0].prompt.includes('.toucan-scratch'))
+})
+
 test('a retry gets the next free branch name', async () => {
   const { spawner, created } = harness({
     worktrees: {

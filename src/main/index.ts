@@ -66,6 +66,7 @@ import { createOrchestrationMerge } from './orchestration-merge'
 import type { TicketCleanupRequest, TicketCleanupResult } from '../shared/orchestration-cleanup'
 import { createSetupCommandRunner } from './setup-command'
 import { installPushGuard } from './ticket-push-guard'
+import { ensureScratchDirectory } from './scratch-directory'
 import { createTicketSpawner, type TicketSpawner } from './ticket-spawner'
 import { createWindowRequests, type WindowRequests } from './window-requests'
 import { createAgentModelCatalogueStore } from './agent-model-catalogue-store'
@@ -759,6 +760,7 @@ void app.whenReady().then(async () => {
     orchestrator: orchestratorEndpoint,
     messaging: messagingEndpoint,
     projectPathFor: checkoutPathFor,
+    scratchDirectory: (projectPath) => ensureScratchDirectory(projectPath, runGitWithExecFile),
     plugins
   })
   agentEvents.observe((id, event) => {
@@ -933,6 +935,7 @@ void app.whenReady().then(async () => {
     worktrees,
     runGit: runGitWithExecFile,
     installGuard: (path) => installPushGuard(path, runGitWithExecFile),
+    scratchDirectory: (projectPath) => ensureScratchDirectory(projectPath, runGitWithExecFile),
     project: async (projectPath) => {
       const project = (await workspace.load()).state?.projects.find(
         (candidate) => pathIdentity(candidate.path) === pathIdentity(projectPath)

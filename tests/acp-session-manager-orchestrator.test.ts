@@ -135,6 +135,39 @@ test('a Claude orchestrator keeps its grant and instruction while ordinary chats
   }
 })
 
+test('an orchestrator is told its project scratch folder, and no other session is asked for one (#3)', async () => {
+  const appPath = mkdtempSync(join(tmpdir(), 'toucan-acp-orchestrator-scratch-'))
+  const claudeRecord = recordingAdapter(appPath, 'claude-agent-acp')
+  const endpoint = createOrchestratorEndpoint({
+    records: createOrchestrationStore({ directory: join(appPath, 'orchestrations') })
+  })
+  const asked: string[] = []
+  const manager = createAcpSessionManager({
+    appPath,
+    environment: { PATH: process.env.PATH },
+    orchestrator: endpoint,
+    // The main checkout, even though the orchestrator's own cwd is deeper in it.
+    projectPathFor: async () => appPath,
+    scratchDirectory: async (projectPath) => {
+      asked.push(projectPath)
+      return { ok: true, path: join(projectPath, '.toucan-scratch') }
+    }
+  })
+  try {
+    await manager.create({ id: 'orchestrator', provider: 'claude', cwd: appPath, role: 'orchestrator' }, owner)
+    await manager.create({ id: 'plain', provider: 'claude', cwd: appPath }, owner)
+
+    const [orchestratorOpen, plainOpen] = recorded(claudeRecord)
+    const instruction = orchestratorOpen?.params._meta?.systemPrompt?.append ?? ''
+    assert.ok(instruction.includes(`scratch folder ${join(appPath, '.toucan-scratch')}`))
+    assert.ok(!(plainOpen?.params._meta?.systemPrompt?.append ?? '').includes('.toucan-scratch'))
+    assert.deepEqual(asked, [appPath])
+  } finally {
+    manager.killAll()
+    await endpoint.close()
+  }
+})
+
 test('a Codex orchestrator gets its grant and appends the workflow to native session instructions', async () => {
   const appPath = mkdtempSync(join(tmpdir(), 'toucan-codex-orchestrator-'))
   const recordPath = recordingAdapter(appPath, 'codex-acp')

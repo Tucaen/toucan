@@ -7,6 +7,7 @@ import {
   clearOrchestrationPacing,
   deferOrchestration,
   FILE_REFERENCE_RULE,
+  fileReferenceRule,
   SPAWNS_PER_CHECKPOINT,
   TICKET_CONTRACT_HEADING,
   ticketContract,
@@ -289,6 +290,32 @@ test('the example link the rule teaches is one both chat surfaces classify as th
     kind: 'file',
     path: 'C:\\Users\\me\\My Shots\\before.png'
   })
+})
+
+test('with a scratch folder, both prompts say where to save user-facing files and link from there (#3)', () => {
+  const scratch = 'D:\\My Project\\.toucan-scratch'
+  const instruction = orchestratorInstruction({ cliPath: 'cli.mjs', skillPath: 'SKILL.md', scratchPath: scratch })
+  const contract = ticketContract({ path: 'D:\\My Project-ticket-3', branch: 'ticket/3' }, scratch)
+  for (const text of [instruction, contract]) {
+    assert.ok(text.includes(FILE_REFERENCE_RULE))
+    assert.ok(text.includes(`scratch folder ${scratch}`))
+    assert.match(text, /not in your worktree and not in the system temp folder/)
+    assert.match(text, /a worktree is deleted after the merge/)
+    // The example is the real folder, spaces encoded, and the link a session copies opens that file.
+    assert.ok(text.includes('[before.png](file:///D:/My%20Project/.toucan-scratch/before.png)'))
+  }
+  assert.deepEqual(classifyMarkdownLink('file:///D:/My%20Project/.toucan-scratch/before.png'), {
+    kind: 'file',
+    path: `${scratch}\\before.png`
+  })
+})
+
+test('without a scratch folder the prompts carry only the base link rule, and nothing names one', () => {
+  const instruction = orchestratorInstruction({ cliPath: 'cli.mjs', skillPath: 'SKILL.md' })
+  const contract = ticketContract({ path: 'D:\\wt', branch: 'ticket/1' })
+  assert.ok(!instruction.includes('.toucan-scratch'))
+  assert.ok(!contract.includes('.toucan-scratch'))
+  assert.equal(fileReferenceRule(), FILE_REFERENCE_RULE)
 })
 
 // Spawning a ticket session (#34): what `spawn` may ask for, the per-orchestration cap, and the

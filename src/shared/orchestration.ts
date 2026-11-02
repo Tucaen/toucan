@@ -5,7 +5,9 @@ import {
   type OrchestrationPacingReason,
   type OrchestrationUsageFreshness
 } from './orchestration-pacing-types'
+import { fileUrlOf } from './local-file-link'
 import { isRecord } from './record'
+import { SCRATCH_DIRECTORY_NAME } from './scratch-directory'
 
 /**
  * The orchestration record and the rules its writes are held to (#33; plan in
@@ -917,13 +919,32 @@ export const FILE_REFERENCE_RULE =
   'Write every file you reference in chat, above all screenshots and other images, as a Markdown link to its absolute path as a file URL, for example [before.png](file:///C:/Users/me/shots/before.png), with spaces written as %20; never as a bare path or a path in backticks. The link must be absolute: the phone companion fetches the file from the desktop by that path and cannot resolve a relative one.'
 
 /**
+ * `FILE_REFERENCE_RULE` plus, when the project has one, where those files go: the scratch folder in
+ * the main checkout (`shared/scratch-directory.ts`). Toucan opens only files inside a project or
+ * worktree, a file in the system temp folder is refused, and a ticket worktree is deleted after
+ * the merge, so "link it" is only half the instruction - it also has to say where to save it. The
+ * example is built from the real folder, so a session copies a link that opens rather than one it
+ * has to adapt. `scratchPath` is the folder's absolute path in the platform's own form.
+ * @internal exported for tests
+ */
+export function fileReferenceRule(scratchPath?: string): string {
+  if (!scratchPath) return FILE_REFERENCE_RULE
+  const example = `[before.png](${fileUrlOf(scratchPath)}/before.png)`
+  return [
+    FILE_REFERENCE_RULE,
+    `Save every screenshot, image, report or other file meant for the human in the scratch folder ${scratchPath} (${SCRATCH_DIRECTORY_NAME} in the main project checkout, ignored by git), not in your worktree and not in the system temp folder: Toucan opens only files inside a project or worktree, and a worktree is deleted after the merge, so a link into it stops working. Create subfolders there as you like, and link what you saved there, for example ${example}.`
+  ].join(' ')
+}
+
+/**
  * The rules every ticket session is bound by, appended after the implementation skill and the
  * ticket (CONTEXT.md, "Ticket contract"). The no-push rule is also enforced - the worktree's
  * `pre-push` hook refuses every push - but it is stated, so the session does not spend a turn
- * finding that out.
+ * finding that out. `scratchPath` is the main checkout's scratch folder, which the session cannot
+ * derive: it runs in a worktree.
  * @internal exported for tests
  */
-export function ticketContract(worktree: { path: string; branch: string }): string {
+export function ticketContract(worktree: { path: string; branch: string }, scratchPath?: string): string {
   return [
     TICKET_CONTRACT_HEADING,
     '',
@@ -936,7 +957,7 @@ export function ticketContract(worktree: { path: string; branch: string }): stri
     "- Do not run the project's full test suite before your final report; run the tests that cover your change. The orchestrator rebases this branch onto the target right before the merge and then asks you for the full suite, so it runs once, on what is merged.",
     '- When the orchestrator asks, run the full test suite here and report the commit you tested with its result. When it hands you a rebase conflict, rebase this branch onto the target, resolve it, then run the full suite and report the same way. The orchestrator only fast-forwards what you verified.',
     '- End with a final report: commit, verification commands and results, unresolved blocking review findings, skipped or deleted tests with reasons, and open questions.',
-    `- ${FILE_REFERENCE_RULE}`
+    `- ${fileReferenceRule(scratchPath)}`
   ].join('\n')
 }
 
@@ -965,18 +986,19 @@ export const TICKET_CONTRACT_SUMMARY: { must: readonly string[]; mustNot: readon
 export function ticketSessionPrompt(
   ticket: Pick<OrchestrationTicket, 'id' | 'title' | 'body' | 'source'>,
   worktree: { path: string; branch: string },
-  skill: string = DEFAULT_IMPLEMENTATION_SKILL
+  skill: string = DEFAULT_IMPLEMENTATION_SKILL,
+  scratchPath?: string
 ): string {
   const detail = ticket.body?.trim() || (ticket.source ? `Source: ${ticket.source}` : '')
   const request = `${skill} ${ticketSessionTitle(ticket)}${detail ? `\n\n${detail}` : ''}`
-  return `${request}\n\n${ticketContract(worktree)}`
+  return `${request}\n\n${ticketContract(worktree, scratchPath)}`
 }
 
 /**
  * What an orchestrator session carries on its system prompt, appended like the session outcome
  * pointer. The skill owns the procedure; this mandatory pointer puts it in scope before the task.
  */
-export function orchestratorInstruction(paths: { cliPath: string; skillPath: string }): string {
+export function orchestratorInstruction(paths: { cliPath: string; skillPath: string; scratchPath?: string }): string {
   const cli = `node "${paths.cliPath}"`
   return [
     'You are a Toucan orchestrator. The first user message is your task.',
@@ -991,7 +1013,7 @@ export function orchestratorInstruction(paths: { cliPath: string; skillPath: str
     'Those prompts wait for the human and belong on the review list.',
     `Merge a tested ticket with \`${cli} merge --ticket <id> --tested <commit>\`, which fast-forwards, pushes, records and cleans up;`,
     'never merge into or push the target with your own Git.',
-    FILE_REFERENCE_RULE
+    fileReferenceRule(paths.scratchPath)
   ].join(' ')
 }
 

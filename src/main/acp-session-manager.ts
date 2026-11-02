@@ -101,6 +101,7 @@ import {
 import { createPromptWakeGate, type PromptWakeGate } from './prompt-wake-gate'
 import type { TerminalContextMcp } from './terminal-context-mcp'
 import type { OrchestratorEndpoint, OrchestratorGrant } from './orchestrator-endpoint'
+import type { ScratchDirectoryResult } from './scratch-directory'
 import type { MessagingEndpoint, MessagingGrant } from './messaging-endpoint'
 import type { SessionOutcomeIndexer, SessionOutcomeWatch } from './session-outcome-indexer'
 import type { PluginRegistry, SessionPlugin } from './plugin-registry'
@@ -651,6 +652,8 @@ interface RunningAgent {
    * revokes this launch's token and never a relaunch's.
    */
   orchestratorGrant?: OrchestratorGrant
+  /** The scratch folder an orchestrator's instruction names, fixed at launch like its grant (#3). */
+  scratchPath?: string
   /**
    * The session-messaging token this agent was launched with (#2), revoked through this handle like
    * the orchestrator's: a late-exiting old child cannot revoke a relaunch's token.
@@ -1228,6 +1231,12 @@ export interface AcpSessionManagerOptions {
    */
   projectPathFor?: (cwd: string) => Promise<string | undefined>
   /**
+   * The project's scratch folder in its main checkout, prepared on demand (#3). Asked once per
+   * orchestrator launch, for the instruction's save-here sentence; a failure or its absence costs
+   * the sentence, never the launch.
+   */
+  scratchDirectory?: (projectPath: string) => Promise<ScratchDirectoryResult>
+  /**
    * The plugin registry (`plugin-registry.ts`, #55), asked once per creation which plugins the
    * session's project enabled - a creation, like a resume, picks up a change made since. Absent,
    * sessions carry no plugins.
@@ -1245,10 +1254,11 @@ function isOrchestrator(request: AgentCreateRequest): boolean {
  * user's project, where the skill's relative path means nothing.
  * @internal exported for tests
  */
-export function orchestratorInstructionFor(skillsRoot: string): string {
+export function orchestratorInstructionFor(skillsRoot: string, scratchPath?: string): string {
   return orchestratorInstruction({
     cliPath: join(skillsRoot, PROJECT_SKILLS_DIRECTORY, ...ORCHESTRATE_CLI_PATH),
-    skillPath: join(skillsRoot, PROJECT_SKILLS_DIRECTORY, ...ORCHESTRATE_SKILL_PATH)
+    skillPath: join(skillsRoot, PROJECT_SKILLS_DIRECTORY, ...ORCHESTRATE_SKILL_PATH),
+    ...(scratchPath ? { scratchPath } : {})
   })
 }
 
@@ -1797,7 +1807,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           ? withOrchestratorToolLimits(
               withSessionInstruction(
                 messagingConfiguration,
-                orchestratorInstructionFor(toucanSkillsRoot ?? options.appPath)
+                orchestratorInstructionFor(toucanSkillsRoot ?? options.appPath, running.scratchPath)
               )
             )
           : messagingConfiguration
@@ -2209,6 +2219,11 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       const orchestratorGrant = isOrchestrator(request)
         ? await options.orchestrator?.grant(request.id, { provider: request.provider, projectPath: projectDirectory })
         : undefined
+      const scratch =
+        isOrchestrator(request) && options.scratchDirectory
+          ? await options.scratchDirectory(projectDirectory).catch(() => undefined)
+          : undefined
+      const scratchPath = scratch?.ok ? scratch.path : undefined
       const messagingGrant = options.messaging ? await options.messaging.grant(request.id) : undefined
       // The node was closed while its guard preferences or grants were pending: nothing holds the
       // handles to revoke the grants.
@@ -2246,7 +2261,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       const orchestratingEnvironment =
         request.provider === 'codex' && isOrchestrator(request)
           ? withCodexSessionConfig(messagingEnvironment, {
-              developer_instructions: orchestratorInstructionFor(toucanSkillsRoot ?? options.appPath)
+              developer_instructions: orchestratorInstructionFor(toucanSkillsRoot ?? options.appPath, scratchPath)
             })
           : messagingEnvironment
       // Claude's half of the same lines rides `_meta.systemPrompt` with the plugin folders.
@@ -2454,6 +2469,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         ...(delegation ? { routineDelegation: delegation } : {}),
         ...(decisionDelegation ? { decisionDelegation } : {}),
         ...(orchestratorGrant ? { orchestratorGrant } : {}),
+        ...(scratchPath ? { scratchPath } : {}),
         ...(messagingGrant ? { messagingGrant } : {}),
         commandGuard: guardFiles,
         plugins: sessionPlugins.plugins,

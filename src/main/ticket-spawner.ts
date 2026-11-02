@@ -14,6 +14,7 @@ import {
 } from '../shared/ticket-session-spawn'
 import type { AgentProvider } from '../shared/agent-provider'
 import type { GitRunner, WorktreeManager } from './git-worktree'
+import type { ScratchDirectoryResult } from './scratch-directory'
 import type { PushGuardResult } from './ticket-push-guard'
 
 /**
@@ -74,6 +75,11 @@ export interface TicketSpawnerOptions {
   offeredEfforts(provider: AgentProvider, modelId: string): readonly string[] | undefined
   /** A worktree main created, so the chat launching in it is not refused as outside the workspace. */
   onWorktreeCreated(path: string): void
+  /**
+   * The project's scratch folder in its main checkout (#3), ready for files meant for the human.
+   * Absent, or failing, the session simply is not told about one; it never stops the spawn.
+   */
+  scratchDirectory?(projectPath: string): Promise<ScratchDirectoryResult>
 }
 
 /**
@@ -156,6 +162,14 @@ export function createTicketSpawner(options: TicketSpawnerOptions): TicketSpawne
       }
     }
 
+    // The main checkout's folder, not the worktree's: the worktree is removed after the merge.
+    let scratchPath: string | undefined
+    if (options.scratchDirectory) {
+      const scratch = await options.scratchDirectory(request.projectPath)
+      if (scratch.ok) scratchPath = scratch.path
+      else warnings.push(`${scratch.error}; the session was not told where to save files for you`)
+    }
+
     const started = await options.canvas.startTicketSession({
       provider,
       projectId: project.id,
@@ -165,7 +179,7 @@ export function createTicketSpawner(options: TicketSpawnerOptions): TicketSpawne
       effortId: request.effort,
       ...(permissionMode ? { permissionMode } : {}),
       orchestratedBy: { ...request.orchestrator, provider },
-      prompt: ticketSessionPrompt(request.ticket, worktree, request.implementationSkill)
+      prompt: ticketSessionPrompt(request.ticket, worktree, request.implementationSkill, scratchPath)
     })
     if (!started.ok) {
       return { ok: false, error: `${started.message} The worktree stays at ${worktree.path} on ${worktree.branch}.` }
