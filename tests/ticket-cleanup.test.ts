@@ -60,3 +60,22 @@ test('a busy ticket still refuses retirement', () => {
     message: 'The ticket session is busy or waiting for an answer.'
   })
 })
+
+test('a retry removes a vanished worktree group with its retired ticket chat', () => {
+  const stale = [
+    { ...nodes[0], data: { ...nodes[0].data, unavailable: true } },
+    { ...nodes[1], data: { ...nodes[1].data, dormant: true } }
+  ] as CanvasNode[]
+  assert.deepEqual(ticketCleanupNodes(request, stale, {}), { ok: true, suspendId: 'ticket-node' })
+  assert.deepEqual(ticketCleanupNodes({ ...request, phase: 'prepare' }, stale, {}), { ok: true })
+  assert.deepEqual(ticketCleanupNodes({ ...request, phase: 'remove' }, stale, {}), {
+    ok: true,
+    removeIds: ['worktree-node', 'ticket-node']
+  })
+})
+
+test('once the group is gone, a folder retry finds nothing on the canvas to refuse it', () => {
+  for (const phase of ['retire', 'prepare', 'remove'] as const) {
+    assert.deepEqual(ticketCleanupNodes({ ...request, phase }, [], {}), { ok: true, removeIds: [] })
+  }
+})
