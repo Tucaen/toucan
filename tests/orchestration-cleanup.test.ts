@@ -1,4 +1,5 @@
 import { strict as assert } from 'node:assert'
+import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -357,7 +358,10 @@ test(
       canvas: async () => ({ ok: true })
     })
     const result = await cleanup.run(record, '1')
-    assert.match(result.retained[0].reason!, /branch ticket\/1 deleted; worktree folder retained: .*Filename too long/)
+    assert.match(
+      result.retained[0].reason!,
+      /branch ticket\/1 deleted; ticket chat and canvas group removed; worktree folder retained: .*Filename too long/
+    )
     assert.equal(await git(['branch', '--list', 'ticket/1']), '')
     // The next sweep finds the leftover, proves it empty and finishes it.
     assert.deepEqual(
@@ -365,6 +369,178 @@ test(
       ['1']
     )
     assert.equal(existsSync(record.tickets[0].session!.worktreePath!), false)
+  },
+  GIT_FIXTURE_TIMEOUT
+)
+
+/** A cleanup whose worktree removal fails the way a lock makes it: registration gone, folder kept. */
+function lockedFolderCleanup(context: Awaited<ReturnType<typeof fixture>>) {
+  const manager = createWorktreeManager()
+  const scheduled: { ms: number; run: () => Promise<void> }[] = []
+  const cleanup = createOrchestrationCleanup({
+    containment: createWorkspaceContainment({ roots: () => [context.root] }),
+    runGit: runGitWithExecFile,
+    worktrees: {
+      remove: async (request) => {
+        await manager.remove(request)
+        mkdirSync(request.path, { recursive: true })
+        return {
+          ok: false,
+          blockers: [],
+          message: `error: failed to delete '${request.path}': Invalid argument; deleting the leftover folder failed: EBUSY`
+        }
+      }
+    },
+    canvas: async (request) => {
+      context.canvas.push(`${request.phase}:${request.session.nodeId}`)
+      return { ok: true }
+    },
+    folderRetry: { delaysMs: [15_000, 60_000], schedule: (run, ms) => scheduled.push({ ms, run }) }
+  })
+  return { cleanup, scheduled }
+}
+
+test(
+  'a merged ticket whose folder alone could not be deleted still loses its chat and canvas group',
+  async () => {
+    const context = await fixture()
+    await context.git(['merge', '--ff-only', 'ticket/1'])
+    await context.git(['push'])
+    const { cleanup } = lockedFolderCleanup(context)
+    const result = await cleanup.run(context.record, '1')
+    assert.deepEqual(result.removed, [])
+    assert.match(
+      result.retained[0].reason!,
+      /branch ticket\/1 deleted; ticket chat and canvas group removed; worktree folder retained: .*EBUSY/
+    )
+    assert.deepEqual(context.canvas, ['retire:node-1', 'prepare:node-1', 'remove:node-1'])
+  },
+  GIT_FIXTURE_TIMEOUT
+)
+
+test(
+  'a branch Git would not delete keeps the canvas group beside the retained folder',
+  async () => {
+    const context = await fixture()
+    await context.git(['merge', '--ff-only', 'ticket/1'])
+    await context.git(['push'])
+    const cleanup = createOrchestrationCleanup({
+      containment: createWorkspaceContainment({ roots: () => [context.root] }),
+      runGit: runGitWithExecFile,
+      // A removal that failed before Git touched anything: the worktree still holds the branch.
+      worktrees: { remove: async () => ({ ok: false, blockers: [], message: 'fatal: could not remove' }) },
+      canvas: async (request) => {
+        context.canvas.push(`${request.phase}:${request.session.nodeId}`)
+        return { ok: true }
+      }
+    })
+    const result = await cleanup.run(context.record, '1')
+    assert.match(result.retained[0].reason!, /worktree folder retained: .*; branch not deleted: /)
+    assert.deepEqual(context.canvas, ['retire:node-1', 'prepare:node-1'])
+    assert.ok(await context.git(['branch', '--list', 'ticket/1']))
+  },
+  GIT_FIXTURE_TIMEOUT
+)
+
+test(
+  'a retained folder is deleted by a background retry once nothing holds it',
+  async () => {
+    const context = await fixture()
+    await context.git(['merge', '--ff-only', 'ticket/1'])
+    await context.git(['push'])
+    const { cleanup, scheduled } = lockedFolderCleanup(context)
+    const result = await cleanup.run(context.record, '1')
+    assert.match(result.retained[0].reason!, /Toucan retries deleting it/)
+    assert.deepEqual(
+      scheduled.map((retry) => retry.ms),
+      [15_000]
+    )
+
+    await scheduled[0].run()
+    assert.equal(existsSync(record(context).worktreePath!), false)
+    assert.equal(scheduled.length, 1)
+  },
+  GIT_FIXTURE_TIMEOUT
+)
+
+test(
+  'a ticket whose leftover folder vanished after a retained cleanup is removed from the canvas on retry',
+  async () => {
+    const context = await fixture()
+    const path = await publishWithIgnoredOutput(context)
+    await halfRemove(context, path)
+    await context.git(['branch', '-d', 'ticket/1'])
+    rmSync(path, { recursive: true, force: true })
+    const result = await context.cleanup.run(context.record, '1')
+    assert.deepEqual(
+      result.removed.map((entry) => entry.ticket),
+      ['1']
+    )
+    assert.deepEqual(context.canvas, ['retire:node-1', 'prepare:node-1', 'remove:node-1'])
+  },
+  GIT_FIXTURE_TIMEOUT
+)
+
+/** Ticket 1's recorded session. */
+function record(context: Awaited<ReturnType<typeof fixture>>) {
+  return context.record.tickets[0].session!
+}
+
+/** A process whose working directory is `path`: on Windows, the lock that makes `rmdir` fail EBUSY. */
+async function holdDirectory(path: string): Promise<ChildProcess> {
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+    cwd: path,
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+    stdio: 'ignore',
+    windowsHide: true
+  })
+  child.on('error', () => {})
+  await new Promise<void>((started) => child.once('spawn', () => started()))
+  return child
+}
+
+test.skipIf(process.platform !== 'win32')(
+  'a worktree a live process holds is retired, retried while locked and deleted once it exits (Windows only)',
+  async () => {
+    const context = await fixture()
+    await context.git(['merge', '--ff-only', 'ticket/1'])
+    await context.git(['push'])
+    const path = record(context).worktreePath!
+    const scheduled: { ms: number; run: () => Promise<void> }[] = []
+    const cleanup = createOrchestrationCleanup({
+      containment: createWorkspaceContainment({ roots: () => [context.root] }),
+      runGit: runGitWithExecFile,
+      worktrees: createWorktreeManager(),
+      canvas: async (request) => {
+        context.canvas.push(`${request.phase}:${request.session.nodeId}`)
+        return { ok: true }
+      },
+      folderRetry: { delaysMs: [15_000, 60_000], schedule: (run, ms) => scheduled.push({ ms, run }) }
+    })
+    const holder = await holdDirectory(path)
+    try {
+      const result = await cleanup.run(context.record, '1')
+      assert.match(result.retained[0].reason!, /branch ticket\/1 deleted; ticket chat and canvas group removed/)
+      assert.deepEqual(context.canvas, ['retire:node-1', 'prepare:node-1', 'remove:node-1'])
+      assert.equal(existsSync(path), true)
+      // A manual sweep while the retry is pending does not stack a second one.
+      await cleanup.run(context.record, '1')
+      assert.equal(scheduled.length, 1)
+
+      await scheduled[0].run()
+      assert.equal(existsSync(path), true)
+      assert.deepEqual(
+        scheduled.map((retry) => retry.ms),
+        [15_000, 60_000]
+      )
+    } finally {
+      const exited = new Promise((done) => holder.once('exit', done))
+      holder.kill()
+      await exited
+    }
+    await scheduled[1].run()
+    assert.equal(existsSync(path), false)
+    assert.equal(scheduled.length, 2)
   },
   GIT_FIXTURE_TIMEOUT
 )

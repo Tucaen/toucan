@@ -929,7 +929,13 @@ void app.whenReady().then(async () => {
       const result = await ticketCleanup.request(request)
       if (result.ok && request.phase === 'retire') agentManager.kill(request.session.nodeId)
       return result
-    }
+    },
+    // A killed agent's shells and installs can keep their cwd in the folder for minutes.
+    folderRetry: {
+      delaysMs: [15_000, 60_000, 5 * 60_000, 15 * 60_000],
+      schedule: (retry, ms) => void setTimeout(() => void retry(), ms)
+    },
+    log: mainLog('orchestration cleanup')
   })
   const ticketSpawner: TicketSpawner = createTicketSpawner({
     worktrees,
