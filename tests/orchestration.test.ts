@@ -1,12 +1,15 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'vitest'
+import { classifyMarkdownLink } from '../src/shared/local-file-link'
 import {
   applyPlan,
   applyTicketUpdate,
   clearOrchestrationPacing,
   deferOrchestration,
+  FILE_REFERENCE_RULE,
   SPAWNS_PER_CHECKPOINT,
   TICKET_CONTRACT_HEADING,
+  ticketContract,
   isOrchestrationRecord,
   decisionAnswerFromText,
   orchestratorInstruction,
@@ -265,6 +268,27 @@ test('the orchestrator instruction forbids researching the code itself and deleg
   assert.match(instruction, /delegate immediately/i)
   assert.match(instruction, /never research or search the project code yourself/i)
   assert.match(instruction, /a single question included, goes into a ticket session/i)
+})
+
+test('orchestrator and ticket sessions are told to link files as absolute file URLs, never bare paths (#3)', () => {
+  const instruction = orchestratorInstruction({ cliPath: 'cli.mjs', skillPath: 'SKILL.md' })
+  const contract = ticketContract({ path: 'D:\\wt', branch: 'ticket/1' })
+  for (const text of [instruction, contract]) {
+    assert.ok(text.includes(FILE_REFERENCE_RULE))
+  }
+  assert.match(FILE_REFERENCE_RULE, /Markdown link/)
+  assert.match(FILE_REFERENCE_RULE, /absolute/)
+  assert.match(FILE_REFERENCE_RULE, /never as a bare path or a path in backticks/)
+})
+
+test('the example link the rule teaches is one both chat surfaces classify as that file', () => {
+  const example = /\[[^\]]+\]\(([^)]+)\)/.exec(FILE_REFERENCE_RULE)?.[1]
+  assert.equal(example, 'file:///C:/Users/me/shots/before.png')
+  assert.deepEqual(classifyMarkdownLink(example), { kind: 'file', path: 'C:\\Users\\me\\shots\\before.png' })
+  assert.deepEqual(classifyMarkdownLink('file:///C:/Users/me/My%20Shots/before.png'), {
+    kind: 'file',
+    path: 'C:\\Users\\me\\My Shots\\before.png'
+  })
 })
 
 // Spawning a ticket session (#34): what `spawn` may ask for, the per-orchestration cap, and the

@@ -42,6 +42,18 @@ describe('local image links', () => {
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:shot')
   })
 
+  test('a file URL link, the form agents are told to write, is a tap target with spaces decoded (#3)', async () => {
+    fetchMock.mockResolvedValue(new Response(new Blob(['png']), { status: 200 }))
+    render(<ChatMarkdown host={HOST} text={'See [before.png](file:///C:/Users/me/My%20Shots/before.png).'} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /before\.png/ }))
+
+    await screen.findByRole('img', { name: 'before.png' })
+    expect(fetchMock.mock.calls[0]![0]).toBe(
+      'http://work-pc:1789/api/file?path=C%3A%5CUsers%5Cme%5CMy%20Shots%5Cbefore.png'
+    )
+  })
+
   test("a markdown image is a tap target too, and the host's refusal is shown", async () => {
     fetchMock.mockResolvedValue(
       new Response(JSON.stringify({ error: 'This image is not on the desktop any more.' }), { status: 404 })

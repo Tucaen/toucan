@@ -907,6 +907,16 @@ export function ticketSessionTitle(ticket: Pick<OrchestrationTicket, 'id' | 'tit
 export const TICKET_CONTRACT_HEADING = '## Ticket contract'
 
 /**
+ * How a session writes down a file in chat (#3). A bare path in backticks is text the human has to
+ * copy into Explorer; a Markdown link is one click, and both the desktop transcript and the phone
+ * companion open the `file:` URL form (`classifyMarkdownLink`). The path stays absolute because the
+ * phone fetches a linked image from the desktop by it and cannot resolve a relative one.
+ * @internal exported for tests
+ */
+export const FILE_REFERENCE_RULE =
+  'Write every file you reference in chat, above all screenshots and other images, as a Markdown link to its absolute path as a file URL, for example [before.png](file:///C:/Users/me/shots/before.png), with spaces written as %20; never as a bare path or a path in backticks. The link must be absolute: the phone companion fetches the file from the desktop by that path and cannot resolve a relative one.'
+
+/**
  * The rules every ticket session is bound by, appended after the implementation skill and the
  * ticket (CONTEXT.md, "Ticket contract"). The no-push rule is also enforced - the worktree's
  * `pre-push` hook refuses every push - but it is stated, so the session does not spend a turn
@@ -925,7 +935,8 @@ export function ticketContract(worktree: { path: string; branch: string }): stri
     '- Never push, never merge, and never open a pull request: the orchestrator merges this branch. Pushing is refused by a hook anyway.',
     "- Do not run the project's full test suite before your final report; run the tests that cover your change. The orchestrator rebases this branch onto the target right before the merge and then asks you for the full suite, so it runs once, on what is merged.",
     '- When the orchestrator asks, run the full test suite here and report the commit you tested with its result. When it hands you a rebase conflict, rebase this branch onto the target, resolve it, then run the full suite and report the same way. The orchestrator only fast-forwards what you verified.',
-    '- End with a final report: commit, verification commands and results, unresolved blocking review findings, skipped or deleted tests with reasons, and open questions.'
+    '- End with a final report: commit, verification commands and results, unresolved blocking review findings, skipped or deleted tests with reasons, and open questions.',
+    `- ${FILE_REFERENCE_RULE}`
   ].join('\n')
 }
 
@@ -979,7 +990,8 @@ export function orchestratorInstruction(paths: { cliPath: string; skillPath: str
     `Use \`${cli} followup --ticket <id> --text <text>\` for questions, the pre-merge test run, and conflict recovery; it never answers a tool-permission prompt.`,
     'Those prompts wait for the human and belong on the review list.',
     `Merge a tested ticket with \`${cli} merge --ticket <id> --tested <commit>\`, which fast-forwards, pushes, records and cleans up;`,
-    'never merge into or push the target with your own Git.'
+    'never merge into or push the target with your own Git.',
+    FILE_REFERENCE_RULE
   ].join(' ')
 }
 
