@@ -755,10 +755,11 @@ button.global-status-chip:hover {
   cursor: default;
 }
 
+/* The top-level guide starts on the card's outer left edge; nested lists step in from it. */
 .project-node-list {
   display: grid;
   gap: 2px;
-  margin: 0 0 5px 17px;
+  margin: 0 0 5px;
   padding-left: 9px;
   border-left: 1px solid #29313c;
 }
