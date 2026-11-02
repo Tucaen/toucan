@@ -9,6 +9,7 @@ import {
   stopOrchestration,
   type OrchestrationRecord
 } from '../shared/orchestration'
+import { toucanPrompt } from '../shared/toucan-prompt'
 import type { OrchestrationKey, OrchestrationStore } from './orchestration-store'
 
 /** A live canvas node's place in one orchestration. */
@@ -70,6 +71,27 @@ export function orchestrationResetAt(status: AgentRateLimitStatus | null, now: n
   if (saturated.length > 0) return Math.max(...saturated.map((window) => Math.max(now, window.resetsAt!)))
   const future = windows.flatMap((window) => (window.resetsAt !== undefined && window.resetsAt > now ? [window] : []))
   return future.length > 0 ? Math.min(...future.map((window) => window.resetsAt!)) : undefined
+}
+
+/**
+ * What a ticket session and its orchestrator are told when a usage-limit pause ends.
+ * @internal exported for tests
+ */
+export const usageResetPrompts = {
+  ticket: toucanPrompt('usage limit reset', 'Continue the interrupted ticket work.'),
+  orchestrator: toucanPrompt('usage limit reset', 'Review ticket status and continue the orchestration.')
+} as const
+
+/**
+ * What the orchestrator is told when the human raises a spawn checkpoint.
+ * @internal exported for tests
+ */
+export function continuePrompt(record: OrchestrationRecord): string {
+  return toucanPrompt(
+    `user pressed Continue (+${SPAWNS_PER_CHECKPOINT})`,
+    `The spawn budget is now ${spawnBudget(record)} (${record.spawnCount ?? 0} used). Reread \`status\` and ` +
+      '`plan show`, then retry the spawn that was refused.'
+  )
 }
 
 function isUsageLimitFailure(event: AgentEvent): boolean {
@@ -154,10 +176,8 @@ export function createOrchestrationController(options: OrchestrationControllerOp
     timers.delete(keyId(key))
     options.changed?.(result.record)
     await Promise.all([
-      ...result.affected.map((nodeId) => deliver(nodeId, 'Usage limit reset. Continue the interrupted ticket work.')),
-      ...(wakeOrchestrator
-        ? [deliver(orchestratorNodeId, 'Usage limit reset. Review ticket status and continue the orchestration.')]
-        : [])
+      ...result.affected.map((nodeId) => deliver(nodeId, usageResetPrompts.ticket)),
+      ...(wakeOrchestrator ? [deliver(orchestratorNodeId, usageResetPrompts.orchestrator)] : [])
     ])
     return result.record
   }
@@ -229,14 +249,7 @@ export function createOrchestrationController(options: OrchestrationControllerOp
           options.changed?.(result.record)
           // Not awaited: a working orchestrator takes the wake only at its turn's end, and the
           // button must not wait that long. `idle()` still covers it.
-          void track(
-            deliver(
-              orchestratorNodeId,
-              `The user pressed Continue (+${SPAWNS_PER_CHECKPOINT}): the spawn budget is now ` +
-                `${spawnBudget(result.record)} (${result.record.spawnCount ?? 0} used). Reread \`status\` and ` +
-                '`plan show`, then retry the spawn that was refused.'
-            )
-          )
+          void track(deliver(orchestratorNodeId, continuePrompt(result.record)))
           return result.record
         })()
       )

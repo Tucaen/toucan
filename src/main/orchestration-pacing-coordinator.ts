@@ -13,6 +13,7 @@ import {
   type OrchestrationPacingRecommendation,
   type OrchestrationUsageFreshness
 } from '../shared/orchestration-pacing'
+import { toucanPrompt } from '../shared/toucan-prompt'
 import type { OrchestrationKey, OrchestrationStore } from './orchestration-store'
 import type { ProviderUsage, ProviderUsageReadResult } from './provider-usage'
 
@@ -90,9 +91,13 @@ const recommendationFrom = (pacing: OrchestrationPacingDeferral): OrchestrationP
   ...(pacing.retryAt !== undefined ? { resetsAt: pacing.retryAt } : {})
 })
 
-const reopeningPrompt = (provider: AgentProvider): string =>
-  `Provider pacing reopened for ${provider}. Before retrying spawn, reread usage, status and plan show. ` +
-  'Do not poll, sleep, change provider, or lower the requested model or effort.'
+/** @internal exported for tests */
+export const reopeningPrompt = (provider: AgentProvider): string =>
+  toucanPrompt(
+    `provider pacing reopened for ${provider}`,
+    'Before retrying spawn, reread usage, status and plan show. ' +
+      'Do not poll, sleep, change provider, or lower the requested model or effort.'
+  )
 
 /**
  * Serializes enforced spawn admission per provider. A provisional admission counts as active until

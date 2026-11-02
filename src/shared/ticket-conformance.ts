@@ -2,6 +2,7 @@ import type { AgentFileWrite } from './agent-activity'
 import { pathIdentity } from './paths'
 import { TICKET_FIELD_SENTENCE } from './ticket-format'
 import type { TicketDiagnostic } from './tickets'
+import { toucanPrompt } from './toucan-prompt'
 
 /**
  * Toucan's ticket board shows a file in the tickets folder as a diagnostic row the agent who
@@ -85,7 +86,10 @@ function steerText(files: readonly TicketDiagnostic[]): string {
     files.length === 1
       ? 'A file you just wrote into the tickets folder cannot be shown on Toucan’s ticket board:'
       : 'Files you just wrote into the tickets folder cannot be shown on Toucan’s ticket board:'
-  return [lead, ...files.map((file) => `- \`${file.path}\`: ${file.message}`), '', TICKET_SHAPE].join('\n')
+  return toucanPrompt(
+    'ticket board',
+    [lead, ...files.map((file) => `- \`${file.path}\`: ${file.message}`), '', TICKET_SHAPE].join('\n')
+  )
 }
 
 /** The session that most recently wrote this file, ignoring writes too old to be evidence. */

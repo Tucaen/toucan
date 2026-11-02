@@ -205,8 +205,11 @@ test('a ticket usage-limit failure durably pauses its orchestration and the rese
 
   assert.equal((await records.read(key))!.lifecycle, undefined)
   assert.deepEqual(prompts, [
-    { nodeId: 'ticket-1', text: 'Usage limit reset. Continue the interrupted ticket work.' },
-    { nodeId: 'orchestrator', text: 'Usage limit reset. Review ticket status and continue the orchestration.' }
+    { nodeId: 'ticket-1', text: '[Toucan: usage limit reset]\nContinue the interrupted ticket work.' },
+    {
+      nodeId: 'orchestrator',
+      text: '[Toucan: usage limit reset]\nReview ticket status and continue the orchestration.'
+    }
   ])
   assert.equal(await controller.mayWake('orchestrator'), true)
 })
@@ -335,7 +338,10 @@ test('Continue at the spawn checkpoint raises the budget once, wakes the orchest
     prompts.map((prompt) => prompt.nodeId),
     ['orchestrator']
   )
-  assert.match(prompts[0].text, /Continue \(\+20\).*budget is now 40 \(20 used\).*retry the spawn/)
+  assert.match(
+    prompts[0].text,
+    /^\[Toucan: user pressed Continue \(\+20\)\]\nThe spawn budget is now 40 \(20 used\).*retry the spawn/
+  )
   assert.equal((await records.read(key))?.spawnBudget, 2 * SPAWNS_PER_CHECKPOINT)
 
   // A second press on a stale button finds nothing to continue: no extra budget, no extra wake.

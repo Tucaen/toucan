@@ -8,6 +8,7 @@ import {
 import { fileUrlOf } from './local-file-link'
 import { isRecord } from './record'
 import { SCRATCH_DIRECTORY_NAME } from './scratch-directory'
+import { toucanPrompt } from './toucan-prompt'
 
 /**
  * The orchestration record and the rules its writes are held to (#33; plan in
@@ -1094,11 +1095,13 @@ export function orchestratorWakePrompt(events: readonly TicketWakeEvent[]): stri
     const line = `- ${wakeLine(event)}`
     if (!lines.includes(line)) lines.push(line)
   }
-  return [
-    'Toucan: your ticket sessions reported in.',
-    ...lines,
-    'Read more with `status` and `outcome --ticket <id>`; this message never carries a ticket session transcript.'
-  ].join('\n')
+  return toucanPrompt(
+    'your ticket sessions reported in',
+    [
+      ...lines,
+      'Read more with `status` and `outcome --ticket <id>`; this message never carries a ticket session transcript.'
+    ].join('\n')
+  )
 }
 
 /** Validates `outcome`'s `--ticket <id>`. */

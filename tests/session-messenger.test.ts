@@ -135,7 +135,7 @@ test('an idle target starts a turn with the question, and the asker is not kept 
   assert.equal(h.prompts[0]!.to, id('b'))
   assert.match(
     h.prompts[0]!.text,
-    new RegExp(`^\\[Toucan message ${String(result.body.id)} from session a0000000 "a chat"\\]`)
+    new RegExp(`^\\[Toucan: message ${String(result.body.id)} from session a0000000 "a chat"\\]`)
   )
   assert.match(h.prompts[0]!.text, /which files are you editing\?/)
   assert.match(h.prompts[0]!.text, /reply --id /)
@@ -204,7 +204,7 @@ test('a reply wakes the asker with the answer, and the turn end adds no implicit
   assert.equal(h.prompts[1]!.to, id('a'))
   assert.match(
     h.prompts[1]!.text,
-    /^\[Toucan reply to your message m-1-\w+ from session b0000000 "b chat"\]\nI am editing/
+    /^\[Toucan: reply to your message m-1-\w+ from session b0000000 "b chat"\]\nI am editing/
   )
   await h.endTurn('b', 'some final words')
   assert.equal(h.prompts.length, 2)
@@ -235,7 +235,7 @@ test('a turn the question started that ends without a reply answers with its fin
   assert.match(
     h.prompts[1]!.text,
     new RegExp(
-      `^\\[Toucan implicit reply to your message ${String(asked.body.id)} from session b0000000 "b chat": its turn ended without a reply`
+      `^\\[Toucan: implicit reply to your message ${String(asked.body.id)} from session b0000000 "b chat": its turn ended without a reply`
     )
   )
   assert.match(h.prompts[1]!.text, /I plan to refactor the store first\.$/)
@@ -395,7 +395,7 @@ test('queued messages survive a restart and go out once the target runs again', 
   second.states.set(id('b'), idle)
   await second.emit('b', { type: 'status', status: 'ready' })
   assert.equal(second.prompts.length, 1)
-  assert.match(second.prompts[0]!.text, new RegExp(`\\[Toucan message ${String(asked.body.id)} `))
+  assert.match(second.prompts[0]!.text, new RegExp(`\\[Toucan: message ${String(asked.body.id)} `))
   // Once delivered, the reply route survives too: b answers and a is woken when it runs.
   await second.reply('b', String(asked.body.id), 'after the restart')
   second.states.set(id('a'), idle)
@@ -420,7 +420,7 @@ test('a question whose turn a restart cut short stays open and is asked again on
   second.states.set(id('b'), idle)
   await second.emit('b', { type: 'status', status: 'ready' })
   assert.equal(second.prompts.length, 1)
-  assert.match(second.prompts[0]!.text, new RegExp(`^\\[Toucan message ${String(asked.body.id)} `))
+  assert.match(second.prompts[0]!.text, new RegExp(`^\\[Toucan: message ${String(asked.body.id)} `))
   // And its turn's end answers it as usual.
   await second.endTurn('b', 'answered after all')
   assert.match(second.prompts.at(-1)!.text, /implicit reply[\s\S]*answered after all$/)

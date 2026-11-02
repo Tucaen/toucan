@@ -2,6 +2,7 @@ import { isFinalAssistantMessage } from './agent'
 import type { AgentProvider } from './agent-provider'
 import type { AgentChatStatus, AgentTranscriptState } from './agent-transcript'
 import { isRecord } from './record'
+import { toucanPrompt } from './toucan-prompt'
 
 /**
  * Sibling-session messaging (#2): one session asks another in the same project a question and gets
@@ -211,18 +212,20 @@ export interface SessionMessageParty {
 const quoted = (title: string): string => JSON.stringify(title)
 
 /**
- * The prompt an ask starts in its target. The header is what the agent and the canvas recognise a
- * message by; the footer is the whole reply protocol, so a target that never read the skill still
+ * The prompt an ask starts in its target. The header (Toucan's uniform one, see `toucanPrompt`) is
+ * what the agent and the canvas recognise a message by; the footer is the whole reply protocol, so a target that never read the skill still
  * knows what to do.
  */
 export function askPrompt(message: Pick<SessionMessage, 'id' | 'text'>, sender: SessionMessageParty): string {
-  return [
-    `[Toucan message ${message.id} from session ${sender.shortId} ${quoted(sender.title)}]`,
-    message.text,
-    '',
-    `Answer with the session-messaging CLI: reply --id ${message.id} --text <answer>. ` +
-      'If this turn ends without a reply, your final message is sent back as an implicit reply.'
-  ].join('\n')
+  return toucanPrompt(
+    `message ${message.id} from session ${sender.shortId} ${quoted(sender.title)}`,
+    [
+      message.text,
+      '',
+      `Answer with the session-messaging CLI: reply --id ${message.id} --text <answer>. ` +
+        'If this turn ends without a reply, your final message is sent back as an implicit reply.'
+    ].join('\n')
+  )
 }
 
 /** The prompt that wakes an asker with an answer, or with Toucan's word that none is coming. */
@@ -233,11 +236,14 @@ export function replyPrompt(
   const from = `session ${sender.shortId} ${quoted(sender.title)}`
   switch (reply.replyKind) {
     case 'implicit':
-      return `[Toucan implicit reply to your message ${reply.askId} from ${from}: its turn ended without a reply, so this is its final message]\n${reply.text}`
+      return toucanPrompt(
+        `implicit reply to your message ${reply.askId} from ${from}: its turn ended without a reply, so this is its final message`,
+        reply.text
+      )
     case 'closed':
-      return `[Toucan: no reply to your message ${reply.askId}]\n${reply.text}`
+      return toucanPrompt(`no reply to your message ${reply.askId}`, reply.text)
     default:
-      return `[Toucan reply to your message ${reply.askId} from ${from}]\n${reply.text}`
+      return toucanPrompt(`reply to your message ${reply.askId} from ${from}`, reply.text)
   }
 }
 

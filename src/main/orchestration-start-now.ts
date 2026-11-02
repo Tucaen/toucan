@@ -1,6 +1,7 @@
 import type { AgentPromptResult } from '../shared/agent'
 import { startableTickets } from '../shared/orchestration'
 import type { OrchestrationForceStartResult } from '../shared/ticket-session-spawn'
+import { toucanPrompt } from '../shared/toucan-prompt'
 import type { OrchestrationKey, OrchestrationStore } from './orchestration-store'
 
 /** An orchestrator node as main resolves it: the record it drives, or nothing when it is not one. */
@@ -28,9 +29,13 @@ export type OrchestrationStartNow = (request: {
   ticketId: string
 }) => Promise<OrchestrationForceStartResult>
 
-const startNowPrompt = (ticketId: string): string =>
-  `The user pressed Start now for ticket ${ticketId}. Spawn it now, routed as you otherwise would, with ` +
-  `\`spawn --ticket ${ticketId} --force --reason "user pressed Start now"\`. Report a refusal instead of retrying.`
+/** @internal exported for tests */
+export const startNowPrompt = (ticketId: string): string =>
+  toucanPrompt(
+    'user pressed Start now',
+    `Spawn ticket ${ticketId} now, routed as you otherwise would, with ` +
+      `\`spawn --ticket ${ticketId} --force --reason "user pressed Start now"\`. Report a refusal instead of retrying.`
+  )
 
 const sameKey = (left: OrchestrationKey, right: OrchestrationKey): boolean =>
   left.provider === right.provider && left.conversationId === right.conversationId
