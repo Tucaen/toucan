@@ -98,6 +98,7 @@ import { useRoutineDelegation } from './routine-delegation-context'
 import { routineDelegationRequest, type AgentRoutineDelegation } from '../../shared/routine-delegation'
 import { useDecisionDelegation } from './decision-delegation-context'
 import { ORCHESTRATOR_ROLE } from '../../shared/orchestration'
+import { isToucanOriginText } from '../../shared/toucan-origin'
 import { decisionDelegationRequest, type AgentDecisionDelegation } from '../../shared/decision-delegation'
 import { usePromptEditor, type ComposerFileMentions } from './use-prompt-editor'
 import PromptTextarea from './PromptTextarea'
@@ -251,6 +252,8 @@ export type ChatPendingProps = Pick<
  */
 export type ChatSessionProps = Pick<FlatChatViewProps, 'status' | 'detail'> & {
   focusMode: boolean
+  /** An orchestrator's chat: user-role text Toucan wrote (wakes, notices) renders dimmed. */
+  orchestrator?: boolean
   setFocusMode(enabled: boolean): void
   focusShortcutEnabled?: boolean
   empty?: { icon: ReactNode; title: string; description: string }
@@ -699,8 +702,13 @@ function ApprovalPanel(props: Pick<FlatChatViewProps, 'approval' | 'resolveAppro
  * Classifies assistant replies for visual tone (see decision-message.ts). Memoized because the
  * transcript re-renders per streaming chunk while only the streaming entry's props change.
  */
-const ChatMessageCard = memo(function ChatMessageCard(props: { message: AgentChatMessage }): JSX.Element {
+const ChatMessageCard = memo(function ChatMessageCard(props: {
+  message: AgentChatMessage
+  /** An orchestrator's chat: user-role text Toucan wrote (wakes, notices) renders dimmed. */
+  orchestrator?: boolean
+}): JSX.Element {
   const { message } = props
+  const fromToucan = props.orchestrator === true && message.role === 'user' && isToucanOriginText(message.text)
   const tone = message.role === 'assistant' ? classifyAssistantMessage(message.text) : 'normal'
   const images = message.images ?? []
   const timestamp =
@@ -709,7 +717,7 @@ const ChatMessageCard = memo(function ChatMessageCard(props: { message: AgentCha
       : new Date(message.receivedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
   return (
     <article
-      className={`chat-message ${message.role}${message.queued ? ' queued' : ''}${message.failed ? ' failed' : ''}`}
+      className={`chat-message ${message.role}${message.queued ? ' queued' : ''}${message.failed ? ' failed' : ''}${fromToucan ? ' toucan-origin' : ''}`}
       data-tone={tone}
       data-presentation={message.presentation}
       title={timestamp}
@@ -1060,7 +1068,11 @@ export function ChatView(groups: ChatViewProps): JSX.Element {
                   ) : item.entry.message.presentation === 'progress' ? (
                     !session.focusMode && <ChatMessageCard key={item.entry.key} message={item.entry.message} />
                   ) : (
-                    <ChatMessageCard key={item.entry.key} message={item.entry.message} />
+                    <ChatMessageCard
+                      key={item.entry.key}
+                      message={item.entry.message}
+                      orchestrator={session.orchestrator}
+                    />
                   )
                 )}
                 {messaging && <SessionMessagingEntries entries={messaging.entries} />}
@@ -1606,6 +1618,7 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
               status,
               detail: conversation.detail,
               focusMode: data.focusMode,
+              orchestrator: data.role === ORCHESTRATOR_ROLE,
               setFocusMode: (enabled) => data.onFocusModeChange(id, enabled),
               focusShortcutEnabled: selected,
               statusBar,

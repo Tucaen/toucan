@@ -7,6 +7,7 @@ import type {
 } from '../../src/shared/agent'
 import { describeSessionUsage, describeUsageFreshness, type SessionUsageReadout } from '../../src/shared/session-usage'
 import type { RemoteChatSummary } from '../../src/shared/remote-access'
+import { isToucanOriginText } from '../../src/shared/toucan-origin'
 import {
   activityBodyStale,
   answerFailure,
@@ -238,7 +239,13 @@ export default function ChatScreen({
       <div ref={transcriptRef} className="transcript" data-stale={connection.phase === 'reconnecting' || undefined}>
         <HistoryLoader connection={connection} />
         {items.map((item) => (
-          <TranscriptItem key={item.key} item={item} connection={connection} host={host} />
+          <TranscriptItem
+            key={item.key}
+            item={item}
+            connection={connection}
+            host={host}
+            orchestrator={summary?.orchestrator === true}
+          />
         ))}
         {connection.phase === 'live' && items.length === 0 && (
           <p className="empty">Nothing in this conversation yet.</p>
@@ -760,11 +767,14 @@ function ActivityCard({
 function TranscriptItem({
   item,
   connection,
-  host
+  host,
+  orchestrator
 }: {
   item: ChatViewItem
   connection: ChatConnection
   host: SavedHost
+  /** An orchestrator's chat: user-role text Toucan wrote renders dimmed. */
+  orchestrator: boolean
 }): JSX.Element {
   if (item.type === 'reasoning') {
     return (
@@ -783,7 +793,11 @@ function TranscriptItem({
   }
   if (item.role === 'user') {
     return (
-      <div className="bubble user" data-item-key={item.key}>
+      <div
+        className="bubble user"
+        data-item-key={item.key}
+        data-toucan-origin={(orchestrator && isToucanOriginText(item.text)) || undefined}
+      >
         <ChatMarkdown host={host} text={item.text} authored />
       </div>
     )

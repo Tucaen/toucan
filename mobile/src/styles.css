@@ -484,6 +484,10 @@ body {
   color: var(--ink);
 }
 
+.bubble.user[data-toucan-origin] {
+  opacity: 0.6;
+}
+
 .bubble.assistant {
   align-self: flex-start;
   border: 1px solid var(--line);
