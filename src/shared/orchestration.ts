@@ -541,6 +541,11 @@ export const ORCHESTRATION_QUESTION_LIMIT = 16_000
 
 const QUESTION_ID = /^Q([1-9][0-9]*)$/
 
+/** Whether `value` is a question id as `question add` issues them: `Q1`, `Q2`, ... */
+export function isOrchestrationQuestionId(value: string): boolean {
+  return QUESTION_ID.test(value)
+}
+
 /** The questions still waiting for the human, oldest first. */
 export function openOrchestrationQuestions(
   record: Pick<OrchestrationRecord, 'openQuestions'>

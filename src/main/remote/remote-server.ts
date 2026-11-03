@@ -47,6 +47,7 @@ import type {
   ProviderUsageReport
 } from '../../shared/agent'
 import type { AgentTranscriptState } from '../../shared/agent-transcript'
+import { isOrchestrationQuestionId } from '../../shared/orchestration'
 import type { OrchestrationOpenQuestion } from '../../shared/ticket-session-spawn'
 import type { AppUpdateSnapshot } from '../../shared/app-update'
 import {
@@ -389,7 +390,7 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
    * answer and neither is the canvas's to know. A failed read costs that chat its button or strip,
    * never the whole workspace.
    */
-  const workspaceWithCheckpoints = async (): Promise<RemoteWorkspaceSnapshot> => {
+  const workspaceWithOrchestrations = async (): Promise<RemoteWorkspaceSnapshot> => {
     const orchestration = options.orchestration
     if (!orchestration || !snapshot.chats.some((chat) => chat.orchestrator)) return snapshot
     const chats = await Promise.all(
@@ -449,7 +450,7 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
       reply(404, { error: 'That orchestrator is not open on the desktop.' })
       return
     }
-    if (!/^Q[1-9][0-9]*$/.test(questionId)) {
+    if (!isOrchestrationQuestionId(questionId)) {
       reply(400, { error: 'That is not a question id.' })
       return
     }
@@ -626,7 +627,7 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
         send(request, response, 204, null)
         return
       case 'workspace':
-        send(request, response, 200, JSON.stringify(await workspaceWithCheckpoints()), {
+        send(request, response, 200, JSON.stringify(await workspaceWithOrchestrations()), {
           'content-type': 'application/json; charset=utf-8'
         })
         return

@@ -158,10 +158,10 @@ It never answers a tool-permission prompt. While a ticket session waits on one, 
 
 ## question
 
-A question only the human can answer is pinned once, verbatim, and shown to them above your chat on the desktop and the phone; after that, name it only by its id.
+A question only the human can answer is pinned once, verbatim, for Toucan to show them on your node and on the phone; after that, name it only by its id.
 
-- `question add [--ticket <id>] (--text <markdown> | --file <markdown file>)` prints `{ ok: true, question }`. The record keeps the markdown exactly as sent, `file:///` links included, up to 16,000 characters (save anything longer in the scratch folder and link it). `question.id` is `Q1`, `Q2`, ...: unique within this orchestration, never reused, kept across restarts and `plan set`. `--ticket` must name a ticket that is not yet merged or answered. Prefer `--file` for multi-line markdown: it is sent byte for byte, with no shell quoting in between.
-- `question resolve --id <Q<n>> [--note <text>]` prints `{ ok: true, question, changed }`. Resolving it again is `changed: false` and keeps the first resolution. Resolving here wakes nobody; the human's resolve in the UI wakes you (see Being woken).
+- `question add [--ticket <id>] (--text <markdown> | --file <markdown file>)` prints `{ ok: true, question }`. The record keeps the markdown exactly as sent, `file:///` links included, up to 16,000 characters (save anything longer in the scratch folder and link it). `question.id` is `Q1`, `Q2`, ...: unique within this orchestration, never reused, kept across restarts and `plan set`. `--ticket` must name a ticket that is not yet merged or answered. Prefer `--file` for multi-line markdown: it is sent byte for byte, with no shell quoting in between; markdown that starts with `--` (a `---` rule, front matter) only goes through `--file`.
+- `question resolve --id <Q<n>> [--note <text>]` prints `{ ok: true, question, changed }`. Resolving it again is `changed: false` and keeps the first resolution. Resolving here wakes nobody; the human's resolve in the UI wakes you (see Being woken), unless the orchestration is paused or stopped - then the resume wake's `status` shows it gone.
 - `question list [--all]` prints `{ ok: true, questions }`: the open ones, oldest first, or every one with `--all`. Each is `{ id, ticketId?, markdown, createdAt, resolvedAt?, resolution? }`.
 
 A ticket recorded `merged` or `answered` (by `merge` or `ticket update`) resolves its open questions itself, with `resolution` `ticket <id> merged` or `ticket <id> answered`.

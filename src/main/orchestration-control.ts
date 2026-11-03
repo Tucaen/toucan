@@ -53,8 +53,8 @@ export interface OrchestrationController {
   continueSpawns(key: OrchestrationKey, orchestratorNodeId: string): Promise<OrchestrationRecord | undefined>
   /**
    * The human resolved a pinned question from the desktop or the phone (#2): records it and wakes
-   * the orchestrator with `questionResolvedPrompt`. Idempotent - an unknown or already resolved
-   * question returns the record as is, and nobody is woken.
+   * the orchestrator with `questionResolvedPrompt` unless the orchestration is paused or stopped.
+   * Idempotent - an unknown or already resolved question returns the record as is, and nobody is woken.
    */
   resolveQuestion(
     key: OrchestrationKey,
@@ -156,15 +156,26 @@ export function createOrchestrationController(options: OrchestrationControllerOp
     )
   }
 
+  /**
+   * Keeps an undelivered prompt for the node's next ready. A second one joins the first rather than
+   * replacing it - two resolved questions, or a resolve and a Continue, must both arrive - and the
+   * retry of a held prompt that is refused again does not repeat itself.
+   */
+  const hold = (nodeId: string, text: string): void => {
+    const held = pendingPrompts.get(nodeId)
+    if (held === undefined || held === text) pendingPrompts.set(nodeId, text)
+    else if (!held.includes(text)) pendingPrompts.set(nodeId, `${held}\n\n${text}`)
+  }
+
   const deliver = async (nodeId: string, text: string): Promise<void> => {
     try {
       const result = await options.promptWhenIdle(nodeId, text)
-      if (result.undelivered) pendingPrompts.set(nodeId, text)
+      if (result.undelivered) hold(nodeId, text)
       else pendingPrompts.delete(nodeId)
       if (!result.ok && !result.undelivered)
         options.log?.(`orchestration resume prompt failed: ${result.message ?? 'unknown'}`)
     } catch (error) {
-      pendingPrompts.set(nodeId, text)
+      hold(nodeId, text)
       options.log?.(`orchestration resume prompt could not be delivered: ${String(error)}`)
     }
   }
@@ -297,6 +308,9 @@ export function createOrchestrationController(options: OrchestrationControllerOp
           })
           if (!result.record || !result.question) return result.record
           options.changed?.(result.record)
+          // A paused or stopped orchestration is not woken (`mayWake`): the resume wake's `status`
+          // shows the question gone, and `question list --all` keeps the note.
+          if (result.record.lifecycle !== undefined) return result.record
           // Not awaited, like Continue: a working orchestrator takes the wake only at its turn's end.
           void track(deliver(orchestratorNodeId, questionResolvedPrompt(result.question)))
           return result.record

@@ -15,7 +15,9 @@ import {
   deferOrchestration,
   openOrchestrationQuestions,
   parsePlanInput,
+  pauseOrchestration,
   SPAWNS_PER_CHECKPOINT,
+  stopOrchestration,
   type OrchestrationRecord
 } from '../src/shared/orchestration'
 
@@ -408,4 +410,49 @@ test('the human resolving a pinned question records it, wakes the orchestrator o
   await controller.idle()
   assert.equal(prompts.length, 2)
   assert.equal(changes.length, 2)
+})
+
+test('a resolve on a paused or stopped orchestration is recorded but wakes nobody (#2)', async () => {
+  const { records, controller, prompts } = harness()
+  let asked = addOrchestrationQuestion(record(), { markdown: 'a' }, 't1').record!
+  asked = addOrchestrationQuestion(asked, { markdown: 'b' }, 't1').record!
+  await records.update(key, () => ({ value: pauseOrchestration(asked, undefined, undefined, 't2'), result: undefined }))
+  const paused = await controller.resolveQuestion(key, 'orchestrator', 'Q1', 'note')
+  assert.equal(paused?.openQuestions?.[0]?.resolution, 'note')
+  await records.update(key, (current) => ({ value: stopOrchestration(current!, 't3'), result: undefined }))
+  assert.ok((await controller.resolveQuestion(key, 'orchestrator', 'Q2'))?.openQuestions?.[1]?.resolvedAt)
+  await controller.idle()
+  assert.deepEqual(prompts, [])
+})
+
+test('resolves the orchestrator could not take yet all arrive at its next ready, once each (#2)', async () => {
+  const records = createOrchestrationStore({ directory: mkdtempSync(join(tmpdir(), 'toucan-resolve-held-')) })
+  const prompts: string[] = []
+  let ready = false
+  const controller = createOrchestrationController({
+    records,
+    resolve: async () => ({ provider: 'claude', key, orchestratorNodeId: 'orchestrator' }),
+    readUsage: async () => null,
+    promptWhenIdle: async (_nodeId, text) => {
+      if (!ready) return { ok: false, message: 'not ready', undelivered: true }
+      prompts.push(text)
+      return { ok: true }
+    },
+    kill: () => undefined
+  })
+  let asked = addOrchestrationQuestion(record(), { markdown: 'a' }, 't1').record!
+  asked = addOrchestrationQuestion(asked, { markdown: 'b' }, 't1').record!
+  await records.update(key, () => ({ value: asked, result: undefined }))
+  await controller.resolveQuestion(key, 'orchestrator', 'Q1')
+  await controller.resolveQuestion(key, 'orchestrator', 'Q2')
+  await controller.idle()
+  // Not ready yet: the retry is refused again and must not double the held text.
+  controller.observe('orchestrator', { type: 'status', status: 'ready' })
+  await controller.idle()
+  ready = true
+  controller.observe('orchestrator', { type: 'status', status: 'ready' })
+  await controller.idle()
+  assert.equal(prompts.length, 1)
+  assert.equal((prompts[0].match(/\[Toucan: user resolved Q1\]/g) ?? []).length, 1)
+  assert.equal((prompts[0].match(/\[Toucan: user resolved Q2\]/g) ?? []).length, 1)
 })
