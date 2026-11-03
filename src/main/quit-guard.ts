@@ -74,8 +74,8 @@ export function backgroundTaskTotal(background: readonly QuitSession[]): number 
 }
 
 /**
- * @internal exported for tests
- * Null when closing now costs nothing; otherwise what the user should be told first.
+ * Null when closing now costs nothing; otherwise what the user should be told first. The phone's
+ * restart into an update shows the same warning on the phone (see `remote-app-update.ts`).
  */
 export function describeQuitRisk(activity: QuitActivity, reason: QuitReason): QuitWarning | null {
   const { background, working } = activity

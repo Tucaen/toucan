@@ -45,6 +45,13 @@ import type {
   ProviderUsageReport
 } from '../../shared/agent'
 import type { AgentTranscriptState } from '../../shared/agent-transcript'
+import type { AppUpdateSnapshot } from '../../shared/app-update'
+import {
+  parseRemoteRestartRequest,
+  REMOTE_APP_UPDATE_BODY_LIMIT,
+  type RemoteRestartReply,
+  type RemoteRestartWarning
+} from '../../shared/remote-app-update'
 import { slimAgentEvent, slimTranscriptPage, slimTranscriptState } from '../../shared/remote-activity'
 import { transcriptPage, transcriptWindow, type RemoteTranscriptPage } from '../../shared/remote-transcript-page'
 import { catalogueOffers, type AgentModelCatalogue } from '../../shared/agent-model-catalogue'
@@ -129,6 +136,8 @@ export interface RemoteAccessServerOptions {
   spawn?: RemoteChatSpawn
   /** Orchestration state and controls for orchestrator chats. Absent, the phone sees and does neither. */
   orchestration?: RemoteOrchestration
+  /** The desktop's own updater and its restart, for the phone's update card. Absent, the phone has neither. */
+  appUpdate?: RemoteAppUpdate
   /**
    * How "a phone read this chat" reaches the attention records behind its unread badge. Separate
    * from `sessions` for the same reason `spawn` is: the record set is the canvas's, not the session
@@ -191,6 +200,20 @@ export interface RemoteAccessServerOptions {
 export interface RemoteOrchestration {
   checkpoint(chatId: string): Promise<{ used: number; budget: number } | undefined>
   continueSpawns(chatId: string): Promise<AgentPromptResult>
+}
+
+/**
+ * The desktop's updater as a phone may drive it: the same snapshot and check the header chip uses,
+ * and a restart that differs from the chip's in one way only - who is asked. `restartWarning` is
+ * what the desktop's quit guard would show right now (null when nothing would be stopped), so the
+ * phone can ask its own reader; `restart` then restarts *without* the desktop's modal, because the
+ * reader who confirmed is holding the phone. False when there is nothing downloaded to restart into.
+ */
+export interface RemoteAppUpdate {
+  snapshot(): AppUpdateSnapshot
+  check(): Promise<AppUpdateSnapshot>
+  restartWarning(): Promise<RemoteRestartWarning | null>
+  restart(): boolean
 }
 
 /** Performs one spawn and reports its verdict. Never rejects; a failure is `{ ok: false }`. */
@@ -390,6 +413,64 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
     }
   }
 
+  const sendJson = (request: IncomingMessage, response: ServerResponse, status: number, body: unknown): void =>
+    send(request, response, status, JSON.stringify(body), { 'content-type': 'application/json; charset=utf-8' })
+
+  /** `GET /api/app-update` and `POST /api/app-update/check`: the host's own snapshot, never a copy. */
+  const appUpdateState = async (request: IncomingMessage, response: ServerResponse, check: boolean): Promise<void> => {
+    const appUpdate = options.appUpdate
+    if (!appUpdate) {
+      sendJson(request, response, 503, { error: 'This host does not update from here.' })
+      return
+    }
+    // The check never rejects (see `AppUpdater.check`); a failed one is a snapshot in phase `error`.
+    sendJson(request, response, 200, check ? await appUpdate.check() : appUpdate.snapshot())
+  }
+
+  /**
+   * `POST /api/app-update/restart`. The gates run in the order a reader would want them: nothing to
+   * restart into is refused, busy sessions without `confirmed` come back as the desktop's own
+   * warning for the phone to show, and only then does the host restart - after its reply is out,
+   * because the restart takes this listener down and the phone has to learn that the restart began
+   * rather than that the host vanished.
+   */
+  const restartForUpdate = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
+    const reply = (status: number, body: RemoteRestartReply | { error: string }): void =>
+      sendJson(request, response, status, body)
+    const appUpdate = options.appUpdate
+    if (!appUpdate) {
+      reply(503, { error: 'This host does not update from here.' })
+      return
+    }
+    const body = await readBoundedBody(request, REMOTE_APP_UPDATE_BODY_LIMIT)
+    const restartRequest = body === null ? null : parseRemoteRestartRequest(body)
+    if (!restartRequest) {
+      reply(400, { error: 'That was not a restart request.' })
+      return
+    }
+    if (appUpdate.snapshot().status.phase !== 'downloaded') {
+      reply(409, { restarting: false, error: 'No update has been downloaded yet.' })
+      return
+    }
+    if (!restartRequest.confirmed) {
+      // A failed lookup restarts, as the desktop's guard does: it must never trap the reader.
+      const warning = await appUpdate.restartWarning().catch(() => null)
+      if (warning) {
+        reply(409, { restarting: false, confirm: warning })
+        return
+      }
+    }
+    let restarted = false
+    const restart = (): void => {
+      if (restarted) return
+      restarted = true
+      appUpdate.restart()
+    }
+    response.once('finish', restart)
+    response.once('close', restart)
+    reply(202, { restarting: true })
+  }
+
   /**
    * `GET /api/usage`'s reading, with the seam's failures absorbed. Wrapping in an async call
    * normalizes a synchronous reader and a synchronous throw alike, exactly as `provider-usage.ts`
@@ -508,6 +589,13 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
         return
       case 'continue-spawns':
         await continueSpawns(request, response, route.chatId)
+        return
+      case 'app-update':
+      case 'app-update-check':
+        await appUpdateState(request, response, route.kind === 'app-update-check')
+        return
+      case 'app-update-restart':
+        await restartForUpdate(request, response)
         return
       case 'transcribe':
         await transcribe(request, response)

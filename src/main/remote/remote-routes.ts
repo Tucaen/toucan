@@ -18,6 +18,12 @@ export type RemoteRoute =
   | { kind: 'create-chat' }
   /** The orchestrator's Continue (+20) at its spawn budget, for the chat named in the path. */
   | { kind: 'continue-spawns'; chatId: string }
+  /** The desktop's update state, exactly as its header chip reads it. See `remote-app-update.ts`. */
+  | { kind: 'app-update' }
+  /** Looks for an update now; a found one downloads on its own, as on the desktop. */
+  | { kind: 'app-update-check' }
+  /** Restarts into the downloaded update, after the phone has confirmed any busy sessions. */
+  | { kind: 'app-update-restart' }
   /**
    * What each provider was last seen to offer, so a client choosing a model *before* a session
    * exists has something to choose from. Deliberately its own route rather than a field on the
@@ -59,7 +65,8 @@ const READ_ROUTES = new Map<string, RemoteRoute>([
   ['/api/workspace', { kind: 'workspace' }],
   ['/api/pairing', { kind: 'pairing' }],
   ['/api/models', { kind: 'models' }],
-  ['/api/usage', { kind: 'usage' }]
+  ['/api/usage', { kind: 'usage' }],
+  ['/api/app-update', { kind: 'app-update' }]
 ])
 
 export function resolveRemoteRoute(method: string | undefined, target: string | undefined): RemoteRoute {
@@ -87,6 +94,12 @@ export function resolveRemoteRoute(method: string | undefined, target: string | 
       ? { kind: 'continue-spawns', chatId: continueSpawns[1] }
       : { kind: 'method-not-allowed', allow: 'POST' }
   }
+  if (pathname === '/api/app-update/check') {
+    return method === 'POST' ? { kind: 'app-update-check' } : { kind: 'method-not-allowed', allow: 'POST' }
+  }
+  if (pathname === '/api/app-update/restart') {
+    return method === 'POST' ? { kind: 'app-update-restart' } : { kind: 'method-not-allowed', allow: 'POST' }
+  }
   if (pathname === '/api/transcribe') {
     return method === 'POST' ? { kind: 'transcribe' } : { kind: 'method-not-allowed', allow: 'POST' }
   }
@@ -106,6 +119,9 @@ export function routeRequiresPairing(route: RemoteRoute): boolean {
     route.kind === 'pairing' ||
     route.kind === 'create-chat' ||
     route.kind === 'continue-spawns' ||
+    route.kind === 'app-update' ||
+    route.kind === 'app-update-check' ||
+    route.kind === 'app-update-restart' ||
     route.kind === 'models' ||
     route.kind === 'usage' ||
     route.kind === 'transcribe' ||

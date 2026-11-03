@@ -12,6 +12,7 @@ import { remoteFileRequestPath } from '../src/shared/remote-file'
 import {
   createRemoteAccessServer,
   type RemoteAccessServer,
+  type RemoteAppUpdate,
   type RemoteChatRead,
   type RemoteChatSessionOperations,
   type RemoteChatSpawn,
@@ -27,6 +28,8 @@ import {
 } from '../src/shared/remote-voice'
 import type { AgentEvent, ProviderUsageReport } from '../src/shared/agent'
 import type { AgentModelCatalogue } from '../src/shared/agent-model-catalogue'
+import type { AppUpdateSnapshot } from '../src/shared/app-update'
+import type { RemoteRestartWarning } from '../src/shared/remote-app-update'
 import { agentTranscriptEntryKey, foldAgentEvent, type AgentTranscriptState } from '../src/shared/agent-transcript'
 import { REMOTE_CHAT_PAGE_ENTRIES } from '../src/shared/remote-transcript-page'
 import {
@@ -95,6 +98,7 @@ function harness(
     read?: RemoteChatRead
     spawn?: RemoteChatSpawn
     orchestration?: RemoteOrchestration
+    appUpdate?: RemoteAppUpdate
     models?: () => AgentModelCatalogue
     usage?: () => ProviderUsageReport | Promise<ProviderUsageReport>
     transcriber?: { transcribe: (audio: Float32Array) => Promise<RemoteTranscriptionResult> }
@@ -122,6 +126,7 @@ function harness(
     ...(options.read ? { read: options.read } : {}),
     ...(options.spawn ? { spawn: options.spawn } : {}),
     ...(options.orchestration ? { orchestration: options.orchestration } : {}),
+    ...(options.appUpdate ? { appUpdate: options.appUpdate } : {}),
     ...(options.models ? { models: options.models } : {}),
     ...(options.usage ? { usage: options.usage } : {}),
     ...(options.transcriber ? { transcriber: options.transcriber } : {}),
@@ -2322,5 +2327,143 @@ describe('the spawn checkpoint over HTTP', () => {
 
     const bare = await checkpointHarness()
     assert.equal((await bare.post('/api/chats/orch-1/continue-spawns', '', bare.store.read().token)).status, 503)
+  })
+})
+
+/**
+ * Updating the desktop from a phone (#5): the host's own snapshot and check, and a restart the
+ * phone confirms itself rather than leaving it to a desktop modal nobody may be looking at.
+ */
+describe('the app update over HTTP', () => {
+  const WARNING: RemoteRestartWarning = {
+    title: 'Restart to update?',
+    message: '1 session in the middle of a turn.',
+    detail: 'Restarting to install the update stops them.\n\nWorking:\n• Refactor',
+    proceedLabel: 'Restart anyway'
+  }
+  const IDLE: AppUpdateSnapshot = { currentVersion: '0.25.8', status: { phase: 'idle' } }
+  const DOWNLOADED: AppUpdateSnapshot = { currentVersion: '0.25.8', status: { phase: 'downloaded', version: '0.25.9' } }
+
+  /** The desktop's updater and quit guard, recording what the host asked of them. */
+  function fakeUpdate(
+    snapshot: AppUpdateSnapshot,
+    warning: RemoteRestartWarning | null = null
+  ): RemoteAppUpdate & { checks: number; warnings: number; restarts: number } {
+    const fake = {
+      checks: 0,
+      warnings: 0,
+      restarts: 0,
+      snapshot: () => snapshot,
+      check: async (): Promise<AppUpdateSnapshot> => {
+        fake.checks += 1
+        return { ...snapshot, status: { phase: 'up-to-date' } }
+      },
+      restartWarning: async (): Promise<RemoteRestartWarning | null> => {
+        fake.warnings += 1
+        return warning
+      },
+      restart: (): boolean => {
+        fake.restarts += 1
+        return true
+      }
+    }
+    return fake
+  }
+
+  async function updateHarness(appUpdate?: RemoteAppUpdate): Promise<Harness> {
+    const created = harness(appUpdate ? { appUpdate } : {})
+    await created.server.applySettings({ enabled: true, port: await freePort() })
+    return created
+  }
+
+  /** The restart runs once the reply is out, a tick after the client has read it. */
+  async function eventually(condition: () => boolean): Promise<void> {
+    for (let attempt = 0; attempt < 50 && !condition(); attempt += 1)
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    assert.ok(condition())
+  }
+
+  test('the phone reads the very snapshot the desktop updater holds', async () => {
+    const created = await updateHarness(fakeUpdate(DOWNLOADED))
+    const response = await created.get('/api/app-update', created.store.read().token)
+    assert.equal(response.status, 200)
+    assert.deepEqual(JSON.parse(response.body), DOWNLOADED)
+  })
+
+  test('a check runs the desktop updater and answers with the snapshot it settled on', async () => {
+    const update = fakeUpdate(IDLE)
+    const created = await updateHarness(update)
+    const response = await created.post('/api/app-update/check', '', created.store.read().token)
+    assert.equal(response.status, 200)
+    assert.deepEqual(JSON.parse(response.body), { currentVersion: '0.25.8', status: { phase: 'up-to-date' } })
+    assert.equal(update.checks, 1)
+  })
+
+  test('an unpaired caller can neither read, check nor restart', async () => {
+    const update = fakeUpdate(DOWNLOADED)
+    const created = await updateHarness(update)
+    assert.equal((await created.get('/api/app-update')).status, 401)
+    assert.equal((await created.get('/api/app-update', 'wrong-token')).status, 401)
+    assert.equal((await created.post('/api/app-update/check', '', 'wrong-token')).status, 401)
+    assert.equal((await created.post('/api/app-update/restart', '{"confirmed":true}', 'wrong-token')).status, 401)
+    assert.deepEqual([update.checks, update.warnings, update.restarts], [0, 0, 0])
+  })
+
+  test('with no busy session the restart goes ahead at once, after the reply is out', async () => {
+    const update = fakeUpdate(DOWNLOADED)
+    const created = await updateHarness(update)
+    const response = await created.post('/api/app-update/restart', '', created.store.read().token)
+    assert.equal(response.status, 202)
+    assert.deepEqual(JSON.parse(response.body), { restarting: true })
+    await eventually(() => update.restarts === 1)
+  })
+
+  test('busy sessions come back as the desktop warning, and only a confirmed request restarts', async () => {
+    const update = fakeUpdate(DOWNLOADED, WARNING)
+    const created = await updateHarness(update)
+    const token = created.store.read().token
+
+    const asked = await created.post('/api/app-update/restart', '', token)
+    assert.equal(asked.status, 409)
+    assert.deepEqual(JSON.parse(asked.body), { restarting: false, confirm: WARNING })
+    assert.equal(update.restarts, 0)
+
+    const confirmed = await created.post('/api/app-update/restart', JSON.stringify({ confirmed: true }), token)
+    assert.equal(confirmed.status, 202)
+    await eventually(() => update.restarts === 1)
+  })
+
+  test('a failed busy-session lookup restarts rather than trapping the reader, as on the desktop', async () => {
+    const update = fakeUpdate(DOWNLOADED)
+    update.restartWarning = () => Promise.reject(new Error('workspace unreadable'))
+    const created = await updateHarness(update)
+    const response = await created.post('/api/app-update/restart', '', created.store.read().token)
+    assert.equal(response.status, 202)
+    await eventually(() => update.restarts === 1)
+  })
+
+  test('nothing downloaded refuses the restart without asking or restarting', async () => {
+    const update = fakeUpdate(IDLE, WARNING)
+    const created = await updateHarness(update)
+    const response = await created.post('/api/app-update/restart', '{"confirmed":true}', created.store.read().token)
+    assert.equal(response.status, 409)
+    assert.deepEqual(JSON.parse(response.body), { restarting: false, error: 'No update has been downloaded yet.' })
+    assert.deepEqual([update.warnings, update.restarts], [0, 0])
+  })
+
+  test('a body that is not the confirmation flag is refused', async () => {
+    const update = fakeUpdate(DOWNLOADED)
+    const created = await updateHarness(update)
+    const response = await created.post('/api/app-update/restart', '{"confirmed":"yes"}', created.store.read().token)
+    assert.equal(response.status, 400)
+    assert.equal(update.restarts, 0)
+  })
+
+  test('a host without the seam says so on every route', async () => {
+    const created = await updateHarness()
+    const token = created.store.read().token
+    assert.equal((await created.get('/api/app-update', token)).status, 503)
+    assert.equal((await created.post('/api/app-update/check', '', token)).status, 503)
+    assert.equal((await created.post('/api/app-update/restart', '', token)).status, 503)
   })
 })

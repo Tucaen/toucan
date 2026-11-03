@@ -102,7 +102,7 @@ import { claudeConversationTranscriptPath, createConversationHistory } from './c
 import { createConversationTitleStore } from './conversation-title-store'
 import { createCodexRateLimitReader } from './codex-rate-limits'
 import { createProviderUsage, type ProviderUsage } from './provider-usage'
-import { collectQuitActivity, createQuitGuard } from './quit-guard'
+import { collectQuitActivity, createQuitGuard, describeQuitRisk, type QuitActivity } from './quit-guard'
 import { createProviderWideTicketSessionCounter, createWorkingSessionCounter } from './orchestrated-ticket-sessions'
 import { createRemoteAccessStore } from './remote/remote-access-store'
 import { createSafeStorageVault } from './remote/token-vault'
@@ -990,6 +990,46 @@ void app.whenReady().then(async () => {
     },
     ttlMs: PROVIDER_USAGE_TTL_MS
   })
+  // Self-updating from the public releases repo. Constructed before the window so the header is
+  // subscribed to the very first check, and started after it so a slow feed never delays the UI.
+  const appUpdater = createAppUpdater({
+    updater: autoUpdater,
+    currentVersion: app.getVersion(),
+    packaged: app.isPackaged,
+    environment: process.env,
+    log: mainLog('update')
+  })
+  // What closing or restarting would cost right now; the desktop's guard and the phone's restart
+  // both read it, so the two warnings name the same sessions.
+  const quitActivity = async (): Promise<QuitActivity> => {
+    const labels = new Map<string, string>()
+    try {
+      for (const node of (await workspace.load()).state?.nodes ?? []) labels.set(node.id, node.label)
+    } catch {
+      // Names are a courtesy; the warning stands without them.
+    }
+    return collectQuitActivity(agentManager.backgroundWork(), agentManager.workingSessions(), (id) => labels.get(id))
+  }
+  // Closing the window, quitting, and restarting into an update all end every hosted session, so
+  // all three ask the same guard whether that costs background tasks or a turn in flight first.
+  const quitGuard = createQuitGuard({
+    activity: quitActivity,
+    ask: async (warning) => {
+      const owner = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+      const options: Electron.MessageBoxOptions = {
+        type: 'warning',
+        title: warning.title,
+        message: warning.message,
+        detail: warning.detail,
+        buttons: [warning.proceedLabel, 'Cancel'],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true
+      }
+      const result = owner ? await dialog.showMessageBox(owner, options) : await dialog.showMessageBox(options)
+      return result.response === 0
+    }
+  })
   const remote = createRemoteAccessServer({
     store: createRemoteAccessStore({
       path: join(app.getPath('userData'), 'remote-access.json'),
@@ -1042,6 +1082,20 @@ void app.whenReady().then(async () => {
     // behind that badge are the canvas's - so this is a request to the window, like spawning, and
     // not something main applies on its own.
     read: (chatId) => canvasRequests.markRead(chatId),
+    // The header chip's updater, unchanged. Only the restart differs: the phone has already shown its
+    // reader the guard's warning and had it confirmed, so the exit is cleared rather than asked again
+    // in a desktop modal nobody may be looking at.
+    appUpdate: {
+      snapshot: () => appUpdater.snapshot(),
+      check: () => appUpdater.check(),
+      restartWarning: async () => describeQuitRisk(await quitActivity(), 'update'),
+      restart: () => {
+        quitGuard.allowExit()
+        const restarting = appUpdater.quitAndInstall()
+        if (!restarting) quitGuard.reset()
+        return restarting
+      }
+    },
     // Read per request: a provider that advertises a new model is offered the moment a session has
     // seen it, without the listener knowing anything happened.
     models: () => modelCatalogue.read(),
@@ -1144,43 +1198,6 @@ void app.whenReady().then(async () => {
     })
   })
   registerRemoteIpc(ipcMain, remote, canvasRequests)
-  // Self-updating from the public releases repo. Constructed before the window so the header is
-  // subscribed to the very first check, and started after it so a slow feed never delays the UI.
-  const appUpdater = createAppUpdater({
-    updater: autoUpdater,
-    currentVersion: app.getVersion(),
-    packaged: app.isPackaged,
-    environment: process.env,
-    log: mainLog('update')
-  })
-  // Closing the window, quitting, and restarting into an update all end every hosted session, so
-  // all three ask the same guard whether that costs background tasks or a turn in flight first.
-  const quitGuard = createQuitGuard({
-    activity: async () => {
-      const labels = new Map<string, string>()
-      try {
-        for (const node of (await workspace.load()).state?.nodes ?? []) labels.set(node.id, node.label)
-      } catch {
-        // Names are a courtesy; the warning stands without them.
-      }
-      return collectQuitActivity(agentManager.backgroundWork(), agentManager.workingSessions(), (id) => labels.get(id))
-    },
-    ask: async (warning) => {
-      const owner = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
-      const options: Electron.MessageBoxOptions = {
-        type: 'warning',
-        title: warning.title,
-        message: warning.message,
-        detail: warning.detail,
-        buttons: [warning.proceedLabel, 'Cancel'],
-        defaultId: 1,
-        cancelId: 1,
-        noLink: true
-      }
-      const result = owner ? await dialog.showMessageBox(owner, options) : await dialog.showMessageBox(options)
-      return result.response === 0
-    }
-  })
   registerAppUpdateIpc(ipcMain, appUpdater, () => quitGuard.confirm('update'))
   const guardWindowClose = (window: BrowserWindow): void => {
     window.on('close', (event) => {

@@ -438,6 +438,23 @@ describe('routing', () => {
     })
   })
 
+  test('the update state is a read and its check and restart are POSTs, all behind the same gate', () => {
+    const state = resolveRemoteRoute('GET', '/api/app-update')
+    const check = resolveRemoteRoute('POST', '/api/app-update/check')
+    const restart = resolveRemoteRoute('POST', '/api/app-update/restart')
+    assert.deepEqual(
+      [state, check, restart],
+      [{ kind: 'app-update' }, { kind: 'app-update-check' }, { kind: 'app-update-restart' }]
+    )
+    for (const route of [state, check, restart]) assert.equal(routeRequiresPairing(route), true)
+    assert.deepEqual(resolveRemoteRoute('POST', '/api/app-update'), { kind: 'method-not-allowed', allow: 'GET, HEAD' })
+    assert.deepEqual(resolveRemoteRoute('GET', '/api/app-update/check'), { kind: 'method-not-allowed', allow: 'POST' })
+    assert.deepEqual(resolveRemoteRoute('GET', '/api/app-update/restart'), {
+      kind: 'method-not-allowed',
+      allow: 'POST'
+    })
+  })
+
   test('starting a chat is a POST-only route, and it is behind the same gate', () => {
     assert.deepEqual(resolveRemoteRoute('POST', '/api/chats'), { kind: 'create-chat' })
     assert.equal(routeRequiresPairing(resolveRemoteRoute('POST', '/api/chats')), true)
