@@ -17,7 +17,7 @@ import {
   type RemoteChatSpawn,
   type RemoteOrchestration
 } from '../src/main/remote/remote-server'
-import type { RemoteAccessAddress } from '../src/shared/remote-access'
+import type { RemoteAccessAddress, RemoteWorkspaceProjection } from '../src/shared/remote-access'
 import { REMOTE_SPAWN_BODY_LIMIT, type RemoteChatSpawnRequest } from '../src/shared/remote-spawn'
 import {
   encodePcm16,
@@ -2236,7 +2236,7 @@ describe('serving a linked image over HTTP', () => {
  * phone reads, and the press goes to the same controller operation the desktop button runs.
  */
 describe('the spawn checkpoint over HTTP', () => {
-  const chat = (id: string, orchestrator: boolean): (typeof PROJECTION)['chats'][number] => ({
+  const chat = (id: string, orchestrator: boolean): RemoteWorkspaceProjection['chats'][number] => ({
     id,
     kind: 'claude',
     title: id,

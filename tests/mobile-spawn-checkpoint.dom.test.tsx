@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { beforeEach, describe, expect, test, vi, type Mock } from 'vitest'
 import ChatScreen from '../mobile/src/ChatScreen'
 import type { SavedHost } from '../mobile/src/hosts'
 import type { RemoteChatSummary } from '../src/shared/remote-access'
@@ -50,10 +50,10 @@ function open(summary: RemoteChatSummary): void {
   )
 }
 
-const posted = (fetchStub: ReturnType<typeof vi.fn>): string[] =>
+const posted = (fetchStub: Mock): string[] =>
   fetchStub.mock.calls.filter(([, init]) => init?.method === 'POST').map(([url]) => url as string)
 
-let fetchStub: ReturnType<typeof vi.fn>
+let fetchStub: Mock
 
 beforeEach(() => {
   Element.prototype.scrollIntoView = () => {}
