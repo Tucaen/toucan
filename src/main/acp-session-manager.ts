@@ -415,6 +415,7 @@ function environmentLookup(environment: NodeJS.ProcessEnv): (name: string) => st
  *
  * Codex's counterpart is `developer_instructions` in `CODEX_CONFIG` (`shared/codex-config.ts`),
  * layered at adapter launch rather than here, because that is where its environment is built.
+ * @internal exported for tests
  */
 export function withSessionInstruction(
   configuration: SessionSkillsConfiguration,
