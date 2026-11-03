@@ -592,7 +592,7 @@ test('rejects a routine-delegation preference of the wrong shape', () => {
 test('a workspace saved with the removed decision-delegation preference still loads', () => {
   const base = {
     version: 3,
-    projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\Development\Toucan', color: '#71a9ff' }],
+    projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\\Development\\Toucan', color: '#71a9ff' }],
     activeProjectId: 'project-1',
     sidebarCollapsed: false,
     nodes: [],

@@ -293,8 +293,8 @@ describe('the composer toolbar', () => {
 
     fireEvent.click(container.querySelector('.composer-settings-button') as HTMLElement)
     const panel = screen.getByRole('group', { name: 'More settings' })
-    // Routine-work delegation (issue #179), decisions (#213), dictation cleanup (#215), send key.
-    expect(panel.querySelectorAll('.node-picker')).toHaveLength(4)
+    // Routine-work delegation (issue #179), dictation cleanup (#215), send key.
+    expect(panel.querySelectorAll('.node-picker')).toHaveLength(3)
   })
 
   test('the provider is identity, so it reads in the node header rather than the picker row', () => {
