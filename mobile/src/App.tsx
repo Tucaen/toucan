@@ -16,6 +16,7 @@ import {
   isAwaitingDesktop
 } from './chat-list'
 import { ChevronDown, GitBranch, Network } from 'lucide-react'
+import AppUpdatePanel from './AppUpdatePanel'
 import ChatKindBadge from './ChatKindBadge'
 import ChatScreen from './ChatScreen'
 import {
@@ -536,6 +537,10 @@ function ChatListScreen({
       {blocked && <p className="problem">{blocked}</p>}
 
       <ProviderUsagePanel cards={usageCards} />
+
+      {/* Updating is a question about the host, not about any chat, so it lives with the host's
+          other glance answers on the screen opened first. */}
+      <AppUpdatePanel host={host} offline={offline} onUnauthorized={onUnauthorized} />
 
       {/* The list's one action. Offered even while the desktop is quiet: a workspace with nothing
           open is exactly when starting something is the useful thing to do. */}

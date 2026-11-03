@@ -1,6 +1,12 @@
 import { parseAgentModelCatalogue, type AgentModelCatalogue } from '../../src/shared/agent-model-catalogue'
 import type { RemoteWorkspaceSnapshot } from '../../src/shared/remote-access'
 import type { ProviderUsageReport } from '../../src/shared/agent'
+import type { AppUpdateSnapshot } from '../../src/shared/app-update'
+import {
+  parseAppUpdateSnapshot,
+  parseRemoteRestartReply,
+  type RemoteRestartReply
+} from '../../src/shared/remote-app-update'
 import type { RemoteChatSpawnRequest } from '../../src/shared/remote-spawn'
 import { remoteFileRequestPath } from '../../src/shared/remote-file'
 import { parseProviderUsageReport } from '../../src/shared/remote-usage'
@@ -278,6 +284,55 @@ export async function continueSpawns(host: HostEndpoint, chatId: string): Promis
   const payload = await readJsonBody(sent.value)
   const reported = typeof payload?.error === 'string' ? payload.error : null
   return { ok: false, kind: 'unreachable', message: reported ?? `Host replied ${sent.value.status}` }
+}
+
+/**
+ * The desktop's update state, exactly as its header chip reads it (#5). A host too old to have the
+ * route answers 404, which arrives here as an ordinary failure: the phone then shows no update card.
+ */
+export async function fetchAppUpdate(
+  host: HostEndpoint,
+  signal?: AbortSignal
+): Promise<RemoteResult<AppUpdateSnapshot>> {
+  const result = await request('/api/app-update', host, signal)
+  if (!result.ok) return result
+  return parsedSnapshot(result.value)
+}
+
+/** Runs the desktop's own check; a found update downloads on its own. Answers once the check settles. */
+export async function checkAppUpdate(host: HostEndpoint): Promise<RemoteResult<AppUpdateSnapshot>> {
+  const sent = await send('/api/app-update/check', host, { method: 'POST' })
+  if (!sent.ok) return sent
+  if (!sent.value.ok) return { ok: false, kind: 'unreachable', message: `Host replied ${sent.value.status}` }
+  return parsedSnapshot(sent.value)
+}
+
+async function parsedSnapshot(response: Response): Promise<RemoteResult<AppUpdateSnapshot>> {
+  const snapshot = parseAppUpdateSnapshot(await readJsonBody(response))
+  return snapshot ? { ok: true, value: snapshot } : { ok: false, kind: 'unreachable', message: 'Unreadable reply' }
+}
+
+/**
+ * Asks the desktop to restart into its downloaded update. Unconfirmed, a host with busy sessions
+ * answers with the warning to show instead of restarting; `confirmed` is the reader's yes to it.
+ * Every reply the host wrote is a value here, refusals included - only a request that never got an
+ * answer is a failure, and the caller decides what that means mid-restart.
+ */
+export async function restartForUpdate(
+  host: HostEndpoint,
+  confirmed: boolean
+): Promise<RemoteResult<RemoteRestartReply>> {
+  const sent = await send('/api/app-update/restart', host, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(confirmed ? { confirmed: true } : {})
+  })
+  if (!sent.ok) return sent
+  const payload = await readJsonBody(sent.value)
+  const reply = parseRemoteRestartReply(payload)
+  if (reply) return { ok: true, value: reply }
+  const reported = typeof payload?.error === 'string' ? payload.error : null
+  return { ok: true, value: { restarting: false, error: reported ?? `Host replied ${sent.value.status}` } }
 }
 
 /**

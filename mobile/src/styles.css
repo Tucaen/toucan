@@ -1779,3 +1779,62 @@ body {
 .chat-checkpoint-continue {
   align-self: flex-start;
 }
+
+/* The desktop's version chip, as a card on the list screen: quiet until there is something to do. */
+.app-update {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--raised);
+  color: var(--ink-dim);
+  font-size: 13px;
+}
+
+.app-update p,
+.app-update h2 {
+  margin: 0;
+}
+
+.app-update > p[role='status'] {
+  flex: 1 1 12em;
+}
+
+.app-update h2 {
+  flex-basis: 100%;
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.app-update[data-phase='downloaded'],
+.app-update[data-stage='confirming'] {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+
+.app-update[data-stage='restarting'] {
+  border-style: dashed;
+}
+
+/* The guard's detail names the sessions one per line; the line breaks are the list. */
+.app-update-detail {
+  flex-basis: 100%;
+  white-space: pre-line;
+}
+
+.app-update-notice,
+.app-update p[role='alert'] {
+  flex-basis: 100%;
+}
+
+.app-update p[role='alert'] {
+  color: #f3b3bf;
+}
+
+.app-update-actions {
+  display: flex;
+  gap: 8px;
+}
