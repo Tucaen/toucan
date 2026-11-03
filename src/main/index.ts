@@ -1091,9 +1091,7 @@ void app.whenReady().then(async () => {
       restartWarning: async () => describeQuitRisk(await quitActivity(), 'update'),
       restart: () => {
         quitGuard.allowExit()
-        const restarting = appUpdater.quitAndInstall()
-        if (!restarting) quitGuard.reset()
-        return restarting
+        if (!appUpdater.quitAndInstall()) quitGuard.reset()
       }
     },
     // Read per request: a provider that advertises a new model is offered the moment a session has

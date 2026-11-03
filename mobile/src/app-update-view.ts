@@ -38,18 +38,18 @@ export interface AppUpdateLine {
 }
 
 /**
- * The card's line for a snapshot. Like the desktop chip, a failure nobody on this phone asked for
- * reads as the resting state: a startup check against a flaky network fails constantly and means
- * nothing, while the same failure right after a tap has to be shown or the tap looks broken.
+ * The card's line for a snapshot. Unlike the desktop chip, a failure is shown whoever asked: the
+ * chip hides a startup failure because it sits in the header all day, while this card is the one
+ * place a reader away from the desk learns that the desktop's last check or download failed.
  */
-export function describeAppUpdate(snapshot: AppUpdateSnapshot, announceError: boolean): AppUpdateLine {
+export function describeAppUpdate(snapshot: AppUpdateSnapshot): AppUpdateLine {
   const { currentVersion, status } = snapshot
   const check = { kind: 'check' as const, label: 'Check for updates' }
   switch (status.phase) {
     case 'checking':
       return { text: 'Checking for updates…', action: null }
     case 'available':
-      return { text: `Downloading Toucan ${status.version}…`, action: null }
+      return { text: `Toucan ${status.version} is downloading…`, action: null }
     case 'downloaded':
       return {
         text: `Toucan ${status.version} is downloaded (running ${currentVersion}).`,
@@ -58,9 +58,7 @@ export function describeAppUpdate(snapshot: AppUpdateSnapshot, announceError: bo
     case 'up-to-date':
       return { text: `Toucan ${currentVersion} is the latest version.`, action: check }
     case 'error':
-      return announceError
-        ? { text: `Update check failed: ${status.message}`, action: check }
-        : { text: `Toucan ${currentVersion}`, action: check }
+      return { text: `Update check failed: ${status.message}`, action: check }
     default:
       return { text: `Toucan ${currentVersion}`, action: check }
   }

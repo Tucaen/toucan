@@ -263,8 +263,7 @@ export async function createChat(host: HostEndpoint, spawn: RemoteChatSpawnReque
 
   const payload = await readJsonBody(response)
   if (!response.ok) {
-    const reported = typeof payload?.error === 'string' ? payload.error : null
-    return { ok: false, kind: 'unreachable', message: reported ?? `Host replied ${response.status}` }
+    return { ok: false, kind: 'unreachable', message: hostRefusal(payload, response.status) }
   }
   if (typeof payload?.chatId !== 'string' || payload.chatId.length === 0) {
     return { ok: false, kind: 'unreachable', message: 'The host did not say which chat it started.' }
@@ -282,8 +281,7 @@ export async function continueSpawns(host: HostEndpoint, chatId: string): Promis
   if (!sent.ok) return sent
   if (sent.value.ok) return { ok: true, value: true }
   const payload = await readJsonBody(sent.value)
-  const reported = typeof payload?.error === 'string' ? payload.error : null
-  return { ok: false, kind: 'unreachable', message: reported ?? `Host replied ${sent.value.status}` }
+  return { ok: false, kind: 'unreachable', message: hostRefusal(payload, sent.value.status) }
 }
 
 /**
@@ -301,9 +299,13 @@ export async function fetchAppUpdate(
 
 /** Runs the desktop's own check; a found update downloads on its own. Answers once the check settles. */
 export async function checkAppUpdate(host: HostEndpoint): Promise<RemoteResult<AppUpdateSnapshot>> {
-  const sent = await send('/api/app-update/check', host, { method: 'POST' })
+  const sent = await send('/api/app-update/check', host, {
+    method: 'POST',
+    signal: AbortSignal.timeout(CHECK_TIMEOUT_MS)
+  })
   if (!sent.ok) return sent
-  if (!sent.value.ok) return { ok: false, kind: 'unreachable', message: `Host replied ${sent.value.status}` }
+  if (!sent.value.ok)
+    return { ok: false, kind: 'unreachable', message: hostRefusal(await readJsonBody(sent.value), sent.value.status) }
   return parsedSnapshot(sent.value)
 }
 
@@ -311,6 +313,11 @@ async function parsedSnapshot(response: Response): Promise<RemoteResult<AppUpdat
   const snapshot = parseAppUpdateSnapshot(await readJsonBody(response))
   return snapshot ? { ok: true, value: snapshot } : { ok: false, kind: 'unreachable', message: 'Unreadable reply' }
 }
+
+/** A check waits on the release feed; past this, the reader is better told than kept waiting. */
+const CHECK_TIMEOUT_MS = 60_000
+/** The restart answers at once - before the host goes down - so a slow reply is a lost one. */
+const RESTART_TIMEOUT_MS = 15_000
 
 /**
  * Asks the desktop to restart into its downloaded update. Unconfirmed, a host with busy sessions
@@ -325,14 +332,16 @@ export async function restartForUpdate(
   const sent = await send('/api/app-update/restart', host, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(confirmed ? { confirmed: true } : {})
+    body: JSON.stringify(confirmed ? { confirmed: true } : {}),
+    // A host going down mid-reply can leave the connection half open; giving up turns that into the
+    // same "no answer" a dropped connection is, which the caller reads as the restart under way.
+    signal: AbortSignal.timeout(RESTART_TIMEOUT_MS)
   })
   if (!sent.ok) return sent
   const payload = await readJsonBody(sent.value)
   const reply = parseRemoteRestartReply(payload)
   if (reply) return { ok: true, value: reply }
-  const reported = typeof payload?.error === 'string' ? payload.error : null
-  return { ok: true, value: { restarting: false, error: reported ?? `Host replied ${sent.value.status}` } }
+  return { ok: true, value: { restarting: false, error: hostRefusal(payload, sent.value.status) } }
 }
 
 /**
@@ -373,14 +382,18 @@ export async function fetchLocalImage(
   const response = sent.value
   if (!response.ok) {
     const payload = await readJsonBody(response)
-    const reported = typeof payload?.error === 'string' ? payload.error : null
-    return { ok: false, kind: 'unreachable', message: reported ?? `Host replied ${response.status}` }
+    return { ok: false, kind: 'unreachable', message: hostRefusal(payload, response.status) }
   }
   try {
     return { ok: true, value: await response.blob() }
   } catch (error) {
     return { ok: false, kind: 'unreachable', message: error instanceof Error ? error.message : 'Unreadable reply' }
   }
+}
+
+/** The host's own reason for a refusal when it gave one, else the status it replied with. */
+function hostRefusal(payload: { error?: unknown } | null, status: number): string {
+  return typeof payload?.error === 'string' ? payload.error : `Host replied ${status}`
 }
 
 /** A body that is not JSON is not a reason to lose the status; the caller falls back to it. */

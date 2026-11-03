@@ -54,8 +54,8 @@ export function parseRemoteRestartRequest(body: string): { confirmed: boolean } 
   return { confirmed: confirmed === true }
 }
 
-const text = (value: unknown): value is string => typeof value === 'string'
-const named = (value: unknown): value is string => text(value) && value.length > 0
+const isString = (value: unknown): value is string => typeof value === 'string'
+const isNonEmptyString = (value: unknown): value is string => isString(value) && value.length > 0
 
 function parseStatus(value: unknown): AppUpdateStatus | null {
   if (!isRecord(value)) return null
@@ -66,9 +66,9 @@ function parseStatus(value: unknown): AppUpdateStatus | null {
       return { phase: value.phase }
     case 'available':
     case 'downloaded':
-      return named(value.version) ? { phase: value.phase, version: value.version } : null
+      return isNonEmptyString(value.version) ? { phase: value.phase, version: value.version } : null
     case 'error':
-      return text(value.message) ? { phase: 'error', message: value.message } : null
+      return isString(value.message) ? { phase: 'error', message: value.message } : null
     default:
       return null
   }
@@ -76,7 +76,7 @@ function parseStatus(value: unknown): AppUpdateStatus | null {
 
 /** Parsed, not cast: the phone offers a restart on the strength of this, so a damaged one is none. */
 export function parseAppUpdateSnapshot(value: unknown): AppUpdateSnapshot | null {
-  if (!isRecord(value) || !named(value.currentVersion)) return null
+  if (!isRecord(value) || !isNonEmptyString(value.currentVersion)) return null
   const status = parseStatus(value.status)
   return status ? { currentVersion: value.currentVersion, status } : null
 }
@@ -87,9 +87,9 @@ export function parseRemoteRestartReply(value: unknown): RemoteRestartReply | nu
   const confirm = value.confirm
   if (isRecord(confirm)) {
     const { title, message, detail, proceedLabel } = confirm
-    if (text(title) && text(message) && text(detail) && named(proceedLabel))
+    if (isString(title) && isString(message) && isString(detail) && isNonEmptyString(proceedLabel))
       return { restarting: false, confirm: { title, message, detail, proceedLabel } }
     return null
   }
-  return text(value.error) ? { restarting: false, error: value.error } : null
+  return isString(value.error) ? { restarting: false, error: value.error } : null
 }

@@ -213,7 +213,7 @@ export interface RemoteAppUpdate {
   snapshot(): AppUpdateSnapshot
   check(): Promise<AppUpdateSnapshot>
   restartWarning(): Promise<RemoteRestartWarning | null>
-  restart(): boolean
+  restart(): void
 }
 
 /** Performs one spawn and reports its verdict. Never rejects; a failure is `{ ok: false }`. */
@@ -413,6 +413,7 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
     }
   }
 
+  const NO_APP_UPDATE = { error: 'This host does not update from here.' }
   const sendJson = (request: IncomingMessage, response: ServerResponse, status: number, body: unknown): void =>
     send(request, response, status, JSON.stringify(body), { 'content-type': 'application/json; charset=utf-8' })
 
@@ -420,7 +421,7 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
   const appUpdateState = async (request: IncomingMessage, response: ServerResponse, check: boolean): Promise<void> => {
     const appUpdate = options.appUpdate
     if (!appUpdate) {
-      sendJson(request, response, 503, { error: 'This host does not update from here.' })
+      sendJson(request, response, 503, NO_APP_UPDATE)
       return
     }
     // The check never rejects (see `AppUpdater.check`); a failed one is a snapshot in phase `error`.
@@ -439,11 +440,15 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
       sendJson(request, response, status, body)
     const appUpdate = options.appUpdate
     if (!appUpdate) {
-      reply(503, { error: 'This host does not update from here.' })
+      reply(503, NO_APP_UPDATE)
       return
     }
     const body = await readBoundedBody(request, REMOTE_APP_UPDATE_BODY_LIMIT)
-    const restartRequest = body === null ? null : parseRemoteRestartRequest(body)
+    if (body === null) {
+      reply(413, { error: 'That request was too large to read.' })
+      return
+    }
+    const restartRequest = parseRemoteRestartRequest(body)
     if (!restartRequest) {
       reply(400, { error: 'That was not a restart request.' })
       return

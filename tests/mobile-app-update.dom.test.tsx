@@ -80,17 +80,24 @@ describe('the update card', () => {
   test('a download in progress is shown without a button to press', async () => {
     host.state = () => reply(200, { currentVersion: '0.25.8', status: { phase: 'available', version: '0.25.9' } })
     show()
-    expect(await screen.findByText('Downloading Toucan 0.25.9…')).toBeTruthy()
+    expect(await screen.findByText('Toucan 0.25.9 is downloading…')).toBeTruthy()
     expect(screen.queryByRole('button')).toBeNull()
   })
 
-  test('a failed check is reported once the phone asked, and not before', async () => {
+  test('a failed check or download is shown, and the check can be repeated', async () => {
     host.state = () => reply(200, { currentVersion: '0.25.8', status: { phase: 'error', message: 'offline' } })
     host.check = () => reply(200, { currentVersion: '0.25.8', status: { phase: 'error', message: 'feed 404' } })
     show()
-    expect(await screen.findByText('Toucan 0.25.8')).toBeTruthy()
+    expect(await screen.findByText('Update check failed: offline')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Check for updates' }))
     expect(await screen.findByText('Update check failed: feed 404')).toBeTruthy()
+  })
+
+  test('a host refusing the check is reported in its own words', async () => {
+    host.check = () => reply(503, { error: 'This host does not update from here.' })
+    show()
+    fireEvent.click(await screen.findByRole('button', { name: 'Check for updates' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('This host does not update from here.')
   })
 
   test('a host without the update routes gets no card', async () => {

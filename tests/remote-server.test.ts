@@ -2362,9 +2362,8 @@ describe('the app update over HTTP', () => {
         fake.warnings += 1
         return warning
       },
-      restart: (): boolean => {
+      restart: (): void => {
         fake.restarts += 1
-        return true
       }
     }
     return fake

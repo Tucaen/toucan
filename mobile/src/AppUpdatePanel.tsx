@@ -37,7 +37,6 @@ export default function AppUpdatePanel({
 }): JSX.Element | null {
   const [snapshot, setSnapshot] = useState<AppUpdateSnapshot | null>(null)
   const [restart, setRestart] = useState<PhoneRestart>(NO_RESTART)
-  const [announceError, setAnnounceError] = useState(false)
   const [pending, setPending] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
@@ -77,7 +76,6 @@ export default function AppUpdatePanel({
 
   const check = useCallback(async (): Promise<void> => {
     setPending(true)
-    setAnnounceError(true)
     setNotice(null)
     setProblem(null)
     const result = await checkAppUpdate(host)
@@ -159,7 +157,7 @@ export default function AppUpdatePanel({
     )
   }
 
-  const line = describeAppUpdate(snapshot, announceError)
+  const line = describeAppUpdate(snapshot)
   return (
     <section className="app-update" data-phase={snapshot.status.phase} aria-label="Toucan update">
       <p role="status">{line.text}</p>
