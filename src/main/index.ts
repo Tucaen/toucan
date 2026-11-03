@@ -655,10 +655,15 @@ void app.whenReady().then(async () => {
       startPrompt: (nodeId, text) => agentManager.startPrompt(nodeId, text),
       promptWhenIdle: (nodeId, text) => agentManager.promptWhenIdle(nodeId, text),
       answerQuestion: (nodeId, requestId, content) => agentManager.resolveElicitation(nodeId, requestId, content),
-      outcome: async (identity) => (await sessionOutcomeStore.find(identity)) ?? undefined
+      outcome: async (identity) => (await sessionOutcomeStore.find(identity)) ?? undefined,
+      finalReport: (nodeId) => {
+        const snapshot = agentEvents.snapshot(nodeId)
+        return snapshot ? latestTurnAnswer(snapshot) : undefined
+      }
     },
     onTicketSpawned: (nodeId, binding) => orchestrationWaker.bind(nodeId, binding),
     spawned: publishOrchestrationState,
+    questionsChanged: publishOrchestrationState,
     resumePaused: (key, orchestratorNodeId) => orchestrationController.resumeForForce(key, orchestratorNodeId),
     log: mainLog('orchestrator endpoint')
   })

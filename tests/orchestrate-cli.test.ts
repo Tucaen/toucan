@@ -325,3 +325,51 @@ test('spawn --force is a switch that needs --reason', async () => {
     await endpoint.close()
   }
 })
+
+test('question add, resolve and list reach the endpoint; add reads the markdown verbatim from --file (#2)', async () => {
+  const { endpoint, environment } = await harness()
+  const markdown = 'Which one?\n\n![shot](file:///D:/Development/toucan/.toucan-scratch/a%20b.png)\n'
+  const file = join(mkdtempSync(join(tmpdir(), 'toucan-orchestrate-cli-question-')), 'question.md')
+  writeFileSync(file, markdown)
+  try {
+    await run(
+      [
+        'plan',
+        'set',
+        '--json',
+        JSON.stringify({ task: 't', targetBranch: 'main', tickets: [{ id: '34', title: 'Spawn' }] })
+      ],
+      environment
+    )
+    const added = await run(['question', 'add', '--ticket', '34', '--file', file], environment)
+    assert.deepEqual([added.code, added.lines], [0, 1])
+    const question = added.output.question as { id: string; ticketId: string; markdown: string }
+    assert.deepEqual([question.id, question.ticketId, question.markdown], ['Q1', '34', markdown])
+    const text = await run(['question', 'add', '--text', 'General?'], environment)
+    assert.equal((text.output.question as { id: string }).id, 'Q2')
+
+    const resolved = await run(['question', 'resolve', '--id', 'Q1', '--note', 'the left one'], environment)
+    assert.equal(resolved.code, 0)
+    assert.equal((resolved.output.question as { resolution: string }).resolution, 'the left one')
+    const open = await run(['question', 'list'], environment)
+    assert.deepEqual(
+      (open.output.questions as { id: string }[]).map((entry) => entry.id),
+      ['Q2']
+    )
+    const all = await run(['question', 'list', '--all'], environment)
+    assert.equal((all.output.questions as unknown[]).length, 2)
+
+    assert.equal((await run(['question', 'add', '--text', 'a', '--file', file], environment)).code, 2)
+    assert.equal((await run(['question', 'add'], environment)).code, 2)
+    assert.equal((await run(['question', 'add', '--file', join(tmpdir(), 'missing-question.md')], environment)).code, 2)
+    assert.equal((await run(['question', 'resolve'], environment)).code, 2)
+    assert.equal((await run(['question', 'list', 'extra'], environment)).code, 2)
+    assert.equal((await run(['question', 'ask'], environment)).code, 2)
+    // --full is a switch: the harness has no ticket-session control, so Toucan refuses after it was sent.
+    const full = await run(['outcome', '--ticket', '34', '--full'], environment)
+    assert.equal(full.code, 1)
+    assert.match(full.output.error ?? '', /no ticket session|outcome/)
+  } finally {
+    await endpoint.close()
+  }
+})

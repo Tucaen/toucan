@@ -60,7 +60,10 @@ export const ORCHESTRATOR_COMMANDS = [
   'merge',
   'cleanup',
   'report',
-  'usage'
+  'usage',
+  'question add',
+  'question resolve',
+  'question list'
 ] as const
 export type OrchestratorCommand = (typeof ORCHESTRATOR_COMMANDS)[number]
 
@@ -238,8 +241,31 @@ export interface OrchestrationRecord {
    * attempt a spawn; `forced` records the latest spawn forced past the usage limits.
    */
   pacing?: OrchestrationRecordPacing
+  /**
+   * Every question the orchestrator pinned for the human, resolved ones included, oldest first. Read
+   * the open ones through `openOrchestrationQuestions`. Never reset by a re-plan; absent is none.
+   */
+  openQuestions?: OrchestrationQuestion[]
   createdAt: string
   updatedAt: string
+}
+
+/**
+ * A question for the human, stored once and verbatim (#2): the orchestrator copies it with its
+ * links and context the first time it is asked, and every later status message names only its id,
+ * so the human finds the screenshots in the pinned question rather than scrolling up for them.
+ */
+export interface OrchestrationQuestion {
+  /** `Q1`, `Q2`, ...: unique within the orchestration and never reused. */
+  id: string
+  /** The ticket it came from; settling that ticket resolves the question. */
+  ticketId?: string
+  /** Exactly as the orchestrator sent it, `file:///` links included. */
+  markdown: string
+  createdAt: string
+  resolvedAt?: string
+  /** The human's or orchestrator's note, or why Toucan resolved it. */
+  resolution?: string
 }
 
 export interface OrchestrationIdentity {
@@ -388,6 +414,7 @@ export function applyPlan(
       ...(existing?.spawnBudget ? { spawnBudget: existing.spawnBudget } : {}),
       ...(existing?.lifecycle ? { lifecycle: existing.lifecycle } : {}),
       ...(existing?.pacing ? { pacing: existing.pacing } : {}),
+      ...(existing?.openQuestions ? { openQuestions: existing.openQuestions } : {}),
       createdAt: existing?.createdAt ?? now,
       updatedAt: now
     }
@@ -497,7 +524,145 @@ export function applyTicketUpdate(
     const invalid = dependencyError(tickets)
     if (invalid) return refuse(invalid)
   }
-  return { record: { ...record, tickets, updatedAt: now } }
+  const updated = { ...record, tickets, updatedAt: now }
+  return {
+    record:
+      patch.mergeStatus && isTicketSettled(patch.mergeStatus)
+        ? resolveTicketQuestions(updated, ticketId, `ticket ${ticketId} ${patch.mergeStatus}`, now)
+        : updated
+  }
+}
+
+/**
+ * The longest question `question add` takes. It is refused rather than clipped, because the point
+ * of the record is the verbatim text; a report longer than this belongs in a scratch file it links.
+ */
+export const ORCHESTRATION_QUESTION_LIMIT = 16_000
+
+const QUESTION_ID = /^Q([1-9][0-9]*)$/
+
+/** The questions still waiting for the human, oldest first. */
+export function openOrchestrationQuestions(
+  record: Pick<OrchestrationRecord, 'openQuestions'>
+): OrchestrationQuestion[] {
+  return (record.openQuestions ?? []).filter((question) => question.resolvedAt === undefined)
+}
+
+/** Validates `question add`'s optional `--ticket <id>` and the markdown the CLI read from `--text` or `--file`. */
+export function parseQuestionAddInput(value: unknown): Outcome<'add', { ticketId?: string; markdown: string }> {
+  const args = isRecord(value) ? value : {}
+  if (Object.keys(args).some((key) => key !== 'ticket' && key !== 'markdown')) {
+    return refuse('question add takes only [--ticket <id>] and --text <markdown> or --file <markdown file>')
+  }
+  if (args.ticket !== undefined && !nonEmptyString(args.ticket))
+    return refuse('question add --ticket needs a ticket id')
+  if (!nonEmptyString(args.markdown)) return refuse('question add needs --text <markdown> or --file <markdown file>')
+  if (args.markdown.length > ORCHESTRATION_QUESTION_LIMIT) {
+    return refuse(
+      `the question is longer than ${ORCHESTRATION_QUESTION_LIMIT} characters; save the long part in the scratch folder and link it`
+    )
+  }
+  return {
+    add: { ...(nonEmptyString(args.ticket) ? { ticketId: args.ticket.trim() } : {}), markdown: args.markdown }
+  }
+}
+
+/** Validates `question resolve --id <Q<n>> [--note <text>]`; `3` and `q3` both read as `Q3`. */
+export function parseQuestionResolveInput(value: unknown): Outcome<'resolve', { id: string; note?: string }> {
+  const args = isRecord(value) ? value : {}
+  if (Object.keys(args).some((key) => key !== 'id' && key !== 'note')) {
+    return refuse('question resolve takes only --id <Q<n>> [--note <text>]')
+  }
+  const id = typeof args.id === 'string' ? `Q${args.id.trim().replace(/^q/i, '')}` : ''
+  if (!QUESTION_ID.test(id)) return refuse('question resolve needs --id <Q<n>>, the id question add returned')
+  if (args.note !== undefined && !nonEmptyString(args.note)) return refuse('question resolve --note needs a text')
+  return { resolve: { id, ...(nonEmptyString(args.note) ? { note: args.note.trim() } : {}) } }
+}
+
+/** Validates `question list [--all]`: open questions by default, every one with `--all`. */
+export function parseQuestionListInput(value: unknown): Outcome<'list', { all: boolean }> {
+  if (value === undefined) return { list: { all: false } }
+  if (
+    !isRecord(value) ||
+    Object.keys(value).some((key) => key !== 'all') ||
+    (value.all !== undefined && value.all !== true)
+  ) {
+    return refuse('question list takes only an optional --all')
+  }
+  return { list: { all: value.all === true } }
+}
+
+/** The next free id: one past the highest ever issued, so a resolved question's id is never reused. */
+function nextQuestionId(questions: readonly OrchestrationQuestion[]): string {
+  const highest = Math.max(0, ...questions.map((question) => Number(QUESTION_ID.exec(question.id)?.[1] ?? 0)))
+  return `Q${highest + 1}`
+}
+
+/** Pins a question. A ticket it names must be in the plan and not yet settled. */
+export function addOrchestrationQuestion(
+  record: OrchestrationRecord,
+  input: { ticketId?: string; markdown: string },
+  now: string
+): Outcome<'record', OrchestrationRecord> & { question?: OrchestrationQuestion } {
+  if (input.ticketId !== undefined) {
+    const ticket = record.tickets.find((candidate) => candidate.id === input.ticketId)
+    if (!ticket) return refuse(`the plan has no ticket "${input.ticketId}"`)
+    if (isTicketSettled(ticket.mergeStatus)) return refuse(`ticket ${ticket.id} is already ${ticket.mergeStatus}`)
+  }
+  const questions = record.openQuestions ?? []
+  const question: OrchestrationQuestion = {
+    id: nextQuestionId(questions),
+    ...(input.ticketId !== undefined ? { ticketId: input.ticketId } : {}),
+    markdown: input.markdown,
+    createdAt: now
+  }
+  return { record: { ...record, openQuestions: [...questions, question], updatedAt: now }, question }
+}
+
+/**
+ * Resolves one question. Resolving it again changes nothing (`changed: false`) and keeps the first
+ * resolution, so a stale second press from the UI wakes nobody.
+ */
+export function resolveOrchestrationQuestion(
+  record: OrchestrationRecord,
+  id: string,
+  now: string,
+  note?: string
+): Outcome<'record', OrchestrationRecord> & { question?: OrchestrationQuestion; changed?: boolean } {
+  const questions = record.openQuestions ?? []
+  const existing = questions.find((question) => question.id === id)
+  if (!existing) return refuse(`this orchestration has no question ${id}`)
+  if (existing.resolvedAt !== undefined) return { record, question: existing, changed: false }
+  const question: OrchestrationQuestion = { ...existing, resolvedAt: now, ...(note ? { resolution: note } : {}) }
+  return {
+    record: {
+      ...record,
+      openQuestions: questions.map((candidate) => (candidate.id === id ? question : candidate)),
+      updatedAt: now
+    },
+    question,
+    changed: true
+  }
+}
+
+/** A settled ticket's open questions are moot: nothing of it is left to ask about. */
+function resolveTicketQuestions(
+  record: OrchestrationRecord,
+  ticketId: string,
+  resolution: string,
+  now: string
+): OrchestrationRecord {
+  if (!record.openQuestions?.some((question) => question.ticketId === ticketId && question.resolvedAt === undefined)) {
+    return record
+  }
+  return {
+    ...record,
+    openQuestions: record.openQuestions.map((question) =>
+      question.ticketId === ticketId && question.resolvedAt === undefined
+        ? { ...question, resolvedAt: now, resolution }
+        : question
+    )
+  }
 }
 
 function isTicketSession(value: unknown): value is TicketSession {
@@ -573,6 +738,27 @@ function isOrchestrationPacingDeferral(value: unknown): value is OrchestrationPa
   )
 }
 
+function isOrchestrationQuestion(value: unknown): value is OrchestrationQuestion {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    QUESTION_ID.test(value.id) &&
+    (value.ticketId === undefined || nonEmptyString(value.ticketId)) &&
+    nonEmptyString(value.markdown) &&
+    typeof value.createdAt === 'string' &&
+    optionalString(value.resolvedAt) &&
+    optionalString(value.resolution)
+  )
+}
+
+function isOrchestrationQuestionList(value: unknown): value is OrchestrationQuestion[] {
+  return (
+    Array.isArray(value) &&
+    value.every(isOrchestrationQuestion) &&
+    new Set(value.map((question) => question.id)).size === value.length
+  )
+}
+
 /** The store's parse predicate: a record on disk is used only if every field still holds. */
 export function isOrchestrationRecord(value: unknown): value is OrchestrationRecord {
   return (
@@ -589,6 +775,7 @@ export function isOrchestrationRecord(value: unknown): value is OrchestrationRec
     (value.spawnBudget === undefined || (isNonNegativeInteger(value.spawnBudget) && value.spawnBudget > 0)) &&
     (value.lifecycle === undefined || isOrchestrationLifecycle(value.lifecycle)) &&
     (value.pacing === undefined || isOrchestrationRecordPacing(value.pacing)) &&
+    (value.openQuestions === undefined || isOrchestrationQuestionList(value.openQuestions)) &&
     typeof value.createdAt === 'string' &&
     typeof value.updatedAt === 'string'
   )
@@ -1104,11 +1291,15 @@ export function orchestratorWakePrompt(events: readonly TicketWakeEvent[]): stri
   )
 }
 
-/** Validates `outcome`'s `--ticket <id>`. */
-export function parseOutcomeInput(value: unknown): Outcome<'ticketId', string> {
+/**
+ * Validates `outcome`'s `--ticket <id> [--full]`. `--full` adds the ticket session's untruncated
+ * final report, so a question can be copied with its links instead of from the record's excerpt.
+ */
+export function parseOutcomeInput(value: unknown): Outcome<'outcome', { ticketId: string; full: boolean }> {
   const args = isRecord(value) ? value : {}
   if (!nonEmptyString(args.ticket)) return refuse('outcome needs --ticket <id>')
-  return { ticketId: args.ticket.trim() }
+  if (args.full !== undefined && args.full !== true) return refuse('outcome --full takes no value')
+  return { outcome: { ticketId: args.ticket.trim(), full: args.full === true } }
 }
 
 /** Validates `cleanup`'s optional `--ticket <id>` selector. No selector means the final full sweep. */

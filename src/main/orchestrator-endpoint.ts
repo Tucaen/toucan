@@ -4,9 +4,11 @@ import type { AgentDecisionRequest, AgentDecisionResponseContent, AgentPromptRes
 import { AGENT_PROVIDERS, type AgentProvider } from '../shared/agent-provider'
 import type { AgentChatStatus } from '../shared/agent-transcript'
 import {
+  addOrchestrationQuestion,
   applyPlan,
   applyTicketUpdate,
   decisionAnswerFromText,
+  openOrchestrationQuestions,
   ORCHESTRATOR_COMMANDS,
   ORCHESTRATOR_TOKEN_ENV,
   ORCHESTRATOR_URL_ENV,
@@ -17,6 +19,9 @@ import {
   parseMergeInput,
   parseOutcomeInput,
   parsePlanInput,
+  parseQuestionAddInput,
+  parseQuestionListInput,
+  parseQuestionResolveInput,
   parseRouteInput,
   parseSpawnInput,
   parseTicketUpdate,
@@ -24,6 +29,7 @@ import {
   recordTicketRoute,
   recordTicketSession,
   reserveSpawn,
+  resolveOrchestrationQuestion,
   resumeOrchestration,
   spawnBudget,
   ticketRunProvider,
@@ -139,6 +145,11 @@ export interface TicketSessionControl {
   answerQuestion(nodeId: string, requestId: string, content: AgentDecisionResponseContent): AgentPromptResult
   /** The conversation's session outcome record and where it is on disk. */
   outcome(identity: SessionOutcomeIdentity): Promise<{ path: string; record: SessionOutcomeRecord } | undefined>
+  /**
+   * The session's latest final answer, untruncated, as the live transcript holds it - the report the
+   * outcome record keeps only an excerpt of. Undefined when Toucan is not running the session.
+   */
+  finalReport?(nodeId: string): string | undefined
 }
 
 /** What routing by difficulty tier needs (#36): the configuration, the picker's models, and Jev. */
@@ -182,6 +193,8 @@ export interface OrchestratorEndpointOptions {
   onTicketSpawned?(nodeId: string, binding: TicketBinding): void
   /** A spawn wrote its session into the record or hit its budget; the orchestrator node's controls re-read it. */
   spawned?(record: OrchestrationRecord): void
+  /** A question was pinned or resolved, by a command or a settled ticket; the pinned strip re-reads it. */
+  questionsChanged?(record: OrchestrationRecord): void
   /**
    * Lifts a reactive usage pause for `spawn --force`, as Resume now does but without waking the
    * orchestrator that is making the call. Absent, the record's pause is simply cleared.
@@ -798,13 +811,15 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
       const { ok: _ok, ...refusal } = merged
       return { status: 409, body: { ok: false, ticket: ticketId, ...refusal } }
     }
+    let moved = false
     const recorded = await options.records.update(key, (current) => {
       if (!current) return { value: current, result: undefined }
       const applied = applyTicketUpdate(current, ticketId, { mergeStatus: 'merged' }, now())
-      return applied.error !== undefined
-        ? { value: current, result: undefined }
-        : { value: applied.record, result: applied.record }
+      if (applied.error !== undefined) return { value: current, result: undefined }
+      moved = questionsMoved(current, applied.record)
+      return { value: applied.record, result: applied.record }
     })
+    if (recorded && moved) options.questionsChanged?.(recorded)
     if (!recorded) {
       return refused(
         500,
@@ -865,15 +880,64 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
         ok: true,
         tickets,
         pacing: record.pacing ?? null,
-        pendingPermissionPrompts: tickets.filter((ticket) => ticket.permissionPrompt).map((ticket) => ticket.id)
+        pendingPermissionPrompts: tickets.filter((ticket) => ticket.permissionPrompt).map((ticket) => ticket.id),
+        openQuestions: openOrchestrationQuestions(record)
       }
     }
+  }
+
+  /** Whether a write changed the record's questions; an untouched list is the same array. */
+  const questionsMoved = (before: OrchestrationRecord, after: OrchestrationRecord): boolean =>
+    before.openQuestions !== after.openQuestions
+
+  /** `question add`, `question resolve` and `question list` (#2): the human's pinned questions. */
+  const question = async (
+    grant: LiveGrant,
+    key: OrchestrationKey,
+    command: 'question add' | 'question resolve' | 'question list',
+    args: unknown
+  ): Promise<Reply> => {
+    if (command === 'question list') {
+      const parsed = parseQuestionListInput(args)
+      if (parsed.error !== undefined) return refused(400, parsed.error)
+      const own = await ownRecord(grant, key)
+      if ('status' in own) return own
+      const questions = parsed.list.all ? (own.record.openQuestions ?? []) : openOrchestrationQuestions(own.record)
+      return { status: 200, body: { ok: true, questions } }
+    }
+    const adding = command === 'question add' ? parseQuestionAddInput(args) : undefined
+    const resolving = command === 'question resolve' ? parseQuestionResolveInput(args) : undefined
+    const invalid = adding?.error ?? resolving?.error
+    if (invalid !== undefined) return refused(400, invalid)
+    const written = await options.records.update<{ reply: Reply; record?: OrchestrationRecord }>(key, (current) => {
+      const refuse = (reply: Reply) => ({ value: current, result: { reply } })
+      if (!current) return refuse(refused(404, 'there is no plan yet; run plan set first'))
+      const scope = outOfScope(grant, current)
+      if (scope) return refuse(refused(403, scope))
+      if (adding?.add) {
+        const { ticketId } = adding.add
+        if (ticketId !== undefined && !current.tickets.some((ticket) => ticket.id === ticketId)) {
+          return refuse(refused(400, `the plan has no ticket "${ticketId}"`))
+        }
+        const added = addOrchestrationQuestion(current, adding.add, now())
+        if (added.error !== undefined) return refuse(refused(409, added.error))
+        const reply = { status: 200, body: { ok: true as const, question: added.question } }
+        return { value: added.record, result: { reply, record: added.record } }
+      }
+      const { id, note } = resolving!.resolve!
+      const resolved = resolveOrchestrationQuestion(current, id, now(), note)
+      if (resolved.error !== undefined) return refuse(refused(404, resolved.error))
+      const reply = { status: 200, body: { ok: true as const, question: resolved.question, changed: resolved.changed } }
+      return { value: resolved.record, result: { reply, ...(resolved.changed ? { record: resolved.record } : {}) } }
+    })
+    if (written.record) options.questionsChanged?.(written.record)
+    return written.reply
   }
 
   const outcome = async (record: OrchestrationRecord, args: unknown): Promise<Reply> => {
     const parsed = parseOutcomeInput(args)
     if (parsed.error !== undefined) return refused(400, parsed.error)
-    const ticket = ticketIn(record, parsed.ticketId)
+    const ticket = ticketIn(record, parsed.outcome.ticketId)
     if ('status' in ticket) return ticket
     const conversationId = ticket.session?.conversationId
     if (!conversationId) return refused(409, `ticket ${ticket.id} has no ticket session yet`)
@@ -888,7 +952,21 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
       )
     }
     const { key: _key, provider: _provider, conversationId: _conversationId, ...fields } = found.record
-    return { status: 200, body: { ok: true, ticket: ticket.id, path: found.path, fields } }
+    const body = { ok: true as const, ticket: ticket.id, path: found.path, fields }
+    if (!parsed.outcome.full) return { status: 200, body }
+    const report = ticket.session?.nodeId ? sessions.finalReport?.(ticket.session.nodeId) : undefined
+    return {
+      status: 200,
+      body: report
+        ? { ...body, report }
+        : {
+            ...body,
+            report: null,
+            reportUnavailable:
+              `ticket ${ticket.id}'s session is not running in Toucan or has no final answer yet, so only the ` +
+              "outcome record's excerpts (fields.mainResult, fields.lastResult) are available"
+          }
+    }
   }
 
   /**
@@ -975,6 +1053,9 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     if (command === 'escalate') return escalate(grant, key, args)
     if (command === 'report') return report(grant, args)
     if (command === 'merge') return mergeTicket(grant, key, args)
+    if (command === 'question add' || command === 'question resolve' || command === 'question list') {
+      return question(grant, key, command, args)
+    }
     if (command === 'cleanup') {
       const parsed = parseCleanupInput(args)
       if (parsed.error !== undefined) return refused(400, parsed.error)
@@ -1007,15 +1088,19 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
       const refusal = await answeredRefusal(grant, key, ticketId)
       if (refusal) return refusal
     }
-    return options.records.update(key, (current) => {
+    let moved: OrchestrationRecord | undefined
+    const reply = await options.records.update<Reply>(key, (current) => {
       if (!current) return { value: current, result: refused(404, 'there is no plan yet; run plan set first') }
       const scope = outOfScope(grant, current)
       if (scope) return { value: current, result: refused(403, scope) }
       const applied = applyTicketUpdate(current, ticketId, parsed.patch, now())
       if (applied.error !== undefined) return { value: current, result: refused(400, applied.error) }
+      if (questionsMoved(current, applied.record)) moved = applied.record
       const ticket = applied.record.tickets.find((candidate) => candidate.id === ticketId)
-      return { value: applied.record, result: { status: 200, body: { ok: true, ticket } } }
+      return { value: applied.record, result: { status: 200, body: { ok: true as const, ticket } } }
     })
+    if (moved) options.questionsChanged?.(moved)
+    return reply
   }
 
   const respond = (response: ServerResponse, reply: Reply): void => {

@@ -3,7 +3,7 @@
 import { readFile } from 'node:fs/promises'
 import { request as httpRequest } from 'node:http'
 
-// The orchestrator's CLI (#33, #34, #35, #36, #40): sends one command to the Toucan endpoint named in the
+// The orchestrator's CLI (#33, #34, #35, #36, #40, pinned questions #2): sends one command to the Toucan endpoint named in the
 // environment and prints its reply as one JSON line. Only an orchestrator session carries the
 // endpoint and token; every other session gets a clear refusal before anything is sent.
 
@@ -19,8 +19,11 @@ const USAGE = [
   '| merge --ticket <id> --tested <commit>',
   '| cleanup [--ticket <id>]',
   '| report',
-  '| outcome --ticket <id>',
-  '| followup --ticket <id> --text <text>'
+  '| outcome --ticket <id> [--full]',
+  '| followup --ticket <id> --text <text>',
+  '| question add [--ticket <id>] (--text <markdown> | --file <markdown file>)',
+  '| question resolve --id <Q<n>> [--note <text>]',
+  '| question list [--all]'
 ].join(' ')
 
 const finish = (payload, code) => {
@@ -90,6 +93,22 @@ async function jsonInput(flags, what) {
   }
 }
 
+/**
+ * A question's markdown from exactly one of --text and --file, sent byte for byte: the record keeps
+ * it verbatim, links and trailing whitespace included.
+ */
+async function markdownInput(flags) {
+  if ((flags.text === undefined) === (flags.file === undefined)) {
+    usage('question add needs exactly one of --text and --file')
+  }
+  if (flags.text !== undefined) return flags.text
+  try {
+    return await readFile(flags.file, 'utf8')
+  } catch (error) {
+    return usage(`Could not read ${flags.file}: ${error.message}`)
+  }
+}
+
 async function message(words) {
   const [first, second, ...rest] = words
   if (first === 'plan' && second === 'show') {
@@ -143,9 +162,29 @@ async function message(words) {
     return { command: first }
   }
   if (first === 'outcome') {
-    const { flags, positionals } = parseFlags(words.slice(1), ['ticket'])
-    if (positionals.length > 0 || flags.ticket === undefined) usage('outcome needs --ticket <id> and nothing else')
+    const { flags, positionals } = parseFlags(words.slice(1), ['ticket'], ['full'])
+    if (positionals.length > 0 || flags.ticket === undefined)
+      usage('outcome needs --ticket <id> [--full] and nothing else')
     return { command: 'outcome', args: flags }
+  }
+  if (first === 'question' && second === 'add') {
+    const { flags, positionals } = parseFlags(rest, ['ticket', 'text', 'file'])
+    if (positionals.length > 0) usage('question add takes no positional arguments')
+    return {
+      command: 'question add',
+      args: { ...(flags.ticket === undefined ? {} : { ticket: flags.ticket }), markdown: await markdownInput(flags) }
+    }
+  }
+  if (first === 'question' && second === 'resolve') {
+    const { flags, positionals } = parseFlags(rest, ['id', 'note'])
+    if (positionals.length > 0 || flags.id === undefined)
+      usage('question resolve needs --id <Q<n>> [--note <text>] and nothing else')
+    return { command: 'question resolve', args: flags }
+  }
+  if (first === 'question' && second === 'list') {
+    const { flags, positionals } = parseFlags(rest, [], ['all'])
+    if (positionals.length > 0) usage('question list takes only an optional --all')
+    return { command: 'question list', ...(flags.all ? { args: flags } : {}) }
   }
   if (first === 'followup') {
     const { flags, positionals } = parseFlags(words.slice(1), ['ticket', 'text'])
