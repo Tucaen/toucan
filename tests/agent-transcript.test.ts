@@ -108,7 +108,6 @@ test('a resumed-session replay reconstructs turn boundaries from user messages',
   assert.equal(state.sessionId, 'sess-1')
   // No delegation policy on the request means none reported - and none invented.
   assert.equal(state.routineDelegation, null)
-  assert.equal(state.decisionDelegation, null)
   assert.equal(state.status, 'ready')
   // No turn_complete arrives during session/load replay; each user message closes the turn
   // before it, so only the last assistant message of each replayed turn reads as final.
@@ -131,9 +130,7 @@ test('the create result carries the launch-time delegation policy into the trans
     ok: true,
     status: 'ready',
     sessionId: 'sess-1',
-    routineDelegation: { workerModelId: 'gpt-5.6-luna', workerEffortId: 'low', status: 'configured' },
-    // Issue #213: the decision policy folds through the very same seam, independently.
-    decisionDelegation: { status: 'unavailable', message: 'Decision delegation applies to Claude sessions for now.' }
+    routineDelegation: { workerModelId: 'gpt-5.6-luna', workerEffortId: 'low', status: 'configured' }
   }
   const state = applyAgentCreateResult(initialAgentTranscriptState(), result)
   assert.deepEqual(state.routineDelegation, {
@@ -141,8 +138,6 @@ test('the create result carries the launch-time delegation policy into the trans
     workerEffortId: 'low',
     status: 'configured'
   })
-  assert.equal(state.decisionDelegation?.status, 'unavailable')
-  assert.match(state.decisionDelegation?.message ?? '', /Claude sessions for now/)
 })
 
 test('a live turn after a settled replay settles independently of the replayed messages', () => {

@@ -1,6 +1,5 @@
 import { useMemo } from 'react'
 import type { AttentionItem } from '../../shared/attention'
-import type { DecisionDelegationPreference } from '../../shared/decision-delegation'
 import type { DictationCleanupPreference } from '../../shared/dictation-cleanup'
 import type { RoutineDelegationPreference } from '../../shared/routine-delegation'
 import type {
@@ -28,7 +27,6 @@ export interface WorkspaceSnapshotInput {
   agentPermissionModes: AgentPermissionModes
   composerSendKey: ComposerSendKey
   routineDelegation: RoutineDelegationPreference
-  decisionDelegation: DecisionDelegationPreference
   dictationCleanup: DictationCleanupPreference
   nodes: readonly CanvasNode[]
   /**
@@ -49,7 +47,7 @@ export interface WorkspaceSnapshotInput {
  * feature, which is what lets a workspace saved before that feature existed keep the shape it had.
  */
 function buildWorkspaceSnapshot(input: WorkspaceSnapshotInput): WorkspaceState {
-  const { routineDelegation, decisionDelegation, dictationCleanup, layoutSlots } = input
+  const { routineDelegation, dictationCleanup, layoutSlots } = input
   return {
     version: 3,
     projects: input.projects,
@@ -65,7 +63,6 @@ function buildWorkspaceSnapshot(input: WorkspaceSnapshotInput): WorkspaceState {
       ? { routineDelegation }
       : {}),
     // Same rule: absent until the user first turns it on, so older workspaces keep their shape.
-    ...(decisionDelegation.enabled ? { decisionDelegation } : {}),
     ...(dictationCleanup.enabled || dictationCleanup.claudeModelId ? { dictationCleanup } : {}),
     // One array per node kind, from the one table that knows how each is persisted - including
     // which of them stay absent from the snapshot rather than being written empty.

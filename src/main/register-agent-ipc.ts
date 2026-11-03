@@ -33,7 +33,7 @@ export function isAgentCreateRequest(value: unknown): value is AgentCreateReques
     return false
   if (value.commandGuard !== undefined && value.commandGuard !== false) return false
   if (value.role !== undefined && !isChatNodeRole(value.role)) return false
-  return value.decisionDelegation === undefined || value.decisionDelegation === true
+  return true
 }
 
 function isPrompt(value: unknown): value is AgentPromptContent {

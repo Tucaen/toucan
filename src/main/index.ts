@@ -92,8 +92,6 @@ import { registerFileViewIpc } from './file-view-ipc'
 import { createPrettierFileFormatter } from './file-formatter'
 import { createGithubIssueReader } from './github-issues'
 import { registerGithubIssuesIpc } from './github-issues-ipc'
-import { registerDecisionDelegationIpc } from './decision-delegation-ipc'
-import { isDecisionProviderInstalled } from './decision-provider'
 import { registerTicketIpc } from './ticket-ipc'
 import { createTicketLibrary } from './ticket-library'
 import { createTicketSkillScaffold } from './ticket-skill-scaffold'
@@ -463,10 +461,6 @@ void app.whenReady().then(async () => {
       manager.readOutput(agentId, terminalSessionId, readOptions),
     log: mainLog('terminal context')
   })
-  // One probe, both readers: the session manager decides what a launch carries, the picker's
-  // channel decides what the menu offers. Neither caches - the user may install the skill while
-  // Toucan is running.
-  const decisionProviderInstalled = (): boolean => isDecisionProviderInstalled(app.getPath('home'))
   // The orchestrator's local endpoint and its records (docs/plans/orchestrator-mode.md): one record
   // per orchestrator conversation, and a 127.0.0.1 listener that exists only while an orchestrator
   // session holds a token.
@@ -756,7 +750,6 @@ void app.whenReady().then(async () => {
     sessionOutcomes,
     sessionOutcomesDirectory,
     terminalContext: terminalContextMcp,
-    decisionProviderInstalled,
     orchestrator: orchestratorEndpoint,
     messaging: messagingEndpoint,
     projectPathFor: checkoutPathFor,
@@ -1073,7 +1066,6 @@ void app.whenReady().then(async () => {
     reveal: (path) => shell.showItemInFolder(normalize(path)),
     isGitRepository: (projectPath) => worktrees.isRepository(projectPath)
   })
-  registerDecisionDelegationIpc(ipcMain, decisionProviderInstalled)
   registerGithubIssuesIpc(
     ipcMain,
     createGithubIssueReader({ resolveCommand: (command) => commands.find(command), statusLabelsFor: githubLabelsFor }),

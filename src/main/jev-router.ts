@@ -12,8 +12,7 @@ import { errorMessage } from '../shared/text'
  *
  * Main makes the call rather than the CLI, because main owns the mapping and the record. The key is
  * read from main's environment at call time and never enters a reply, a log or the renderer, so
- * every message built from a response is scrubbed of it. (Agent sessions still inherit it from
- * Toucan's environment, as decision delegation's TypeSafe skill needs; this module adds no path.)
+ * every message built from a response is scrubbed of it.
  */
 
 export interface JevTicket {

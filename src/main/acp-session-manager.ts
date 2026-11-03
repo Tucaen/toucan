@@ -82,11 +82,6 @@ import {
   type ClaudeDelegationSessionMeta,
   type RoutineDelegationRequest
 } from '../shared/routine-delegation'
-import {
-  appliedDecisionDelegation,
-  decisionDelegationInstruction,
-  type AgentDecisionDelegation
-} from '../shared/decision-delegation'
 import { createAgentEventBroker, type AgentEventBroker } from './agent-event-broker'
 import { buildAgentProcessLaunch, spawnAgentProcess, type AgentProcessLaunch } from './agent-process'
 import { readCachedCodexModels } from './codex-model-cache'
@@ -640,12 +635,6 @@ interface RunningAgent {
    * preference. A Claude record can still turn `unavailable` once the session lists its models.
    */
   routineDelegation?: AgentRoutineDelegation
-  /**
-   * The decision-delegation policy this agent launched with, decided once at create from the
-   * availability probe. Fixed for the life of the agent like the routine record: a skill installed
-   * after launch reaches this session only when it is next created or resumed.
-   */
-  decisionDelegation?: AgentDecisionDelegation
   /**
    * The orchestrator token this agent was launched with - only an orchestrator node's
    * session has one. Revoked through this handle when the agent stops or its adapter exits, which
@@ -1206,12 +1195,6 @@ export interface AcpSessionManagerOptions {
    * throws - a listener that cannot bind costs the tool, not the session.
    */
   terminalContext?: Pick<TerminalContextMcp, 'serverFor'>
-  /**
-   * Whether the decision provider's agent skill is installed for Claude Code right now
-   * (`decision-provider.ts`). Asked once per session creation, because that is the moment the
-   * instruction is either carried or withheld; absent reads as not installed, which withholds it.
-   */
-  decisionProviderInstalled?: () => boolean
   /**
    * The orchestrator endpoint (`orchestrator-endpoint.ts`), asked for a grant when an orchestrator
    * node's session launches. Its token and URL ride the adapter environment beside
@@ -1783,21 +1766,15 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
               sessionOutcomeInstructionFor(sessionOutcomesDirectory, toucanSkillsRoot ?? options.appPath)
             )
           : delegatingConfiguration
-      // The third and last instruction on the one `_meta.systemPrompt` a session gets. Order is
-      // immaterial - `withSessionInstruction` appends - so this simply layers on top.
-      const decidingConfiguration =
-        running.decisionDelegation?.status === 'configured'
-          ? withSessionInstruction(skillsConfiguration, decisionDelegationInstruction())
-          : skillsConfiguration
       // Every Claude session when messaging is wired, the orchestrator's included: it may ask, even
       // though it is never asked. Codex carries the same pointer in its CODEX_CONFIG at launch.
       const messagingConfiguration =
         running.request.provider === 'claude' && options.messaging
           ? withSessionInstruction(
-              decidingConfiguration,
+              skillsConfiguration,
               sessionMessagingInstructionFor(toucanSkillsRoot ?? options.appPath)
             )
-          : decidingConfiguration
+          : skillsConfiguration
       // An orchestrator's first prompt is its task; what to do with it rides the system prompt, so
       // no slash command is needed. Carried by role, even if the grant failed: the CLI then says
       // plainly that the token is missing rather than the session not knowing it orchestrates.
@@ -1954,7 +1931,6 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         ...(efforts ? { efforts } : {}),
         ...(running.cachedCommands?.length ? { commands: running.cachedCommands } : {}),
         ...(running.routineDelegation ? { routineDelegation: running.routineDelegation } : {}),
-        ...(running.decisionDelegation ? { decisionDelegation: running.decisionDelegation } : {}),
         ...(terminalContextServer ? { terminalContext: true } : {}),
         ...(replay?.length ? { replay } : {})
       }
@@ -1975,8 +1951,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           forkSupport: running.forkSupport,
           ...(models ? { models } : {}),
           ...(efforts ? { efforts } : {}),
-          ...(running.routineDelegation ? { routineDelegation: running.routineDelegation } : {}),
-          ...(running.decisionDelegation ? { decisionDelegation: running.decisionDelegation } : {})
+          ...(running.routineDelegation ? { routineDelegation: running.routineDelegation } : {})
         }
       }
       const message = errorMessage(error)
@@ -2187,11 +2162,6 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
               cachedModels?.availableModels.map((model) => model.id)
             )
           : appliedClaudeDelegation(request.routineDelegation, lastClaudeSessionModelIds, environment)
-      // Probed here, at the one moment the answer is authoritative for what this session carries.
-      // A Codex request is still recorded rather than dropped, so its node can say why.
-      const decisionDelegation = request.decisionDelegation
-        ? appliedDecisionDelegation(request.provider, options.decisionProviderInstalled?.())
-        : undefined
       // The conditional awaits keep a launch with neither an orchestrator grant nor a guard-preferences
       // seam spawning synchronously within `create`, which the launch tests observe.
       const stopsBeforeGrant = stopCounts.get(request.id) ?? 0
@@ -2467,7 +2437,6 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         // and the running adapter cannot disagree about who this node is.
         environment: agentEnvironment,
         ...(delegation ? { routineDelegation: delegation } : {}),
-        ...(decisionDelegation ? { decisionDelegation } : {}),
         ...(orchestratorGrant ? { orchestratorGrant } : {}),
         ...(scratchPath ? { scratchPath } : {}),
         ...(messagingGrant ? { messagingGrant } : {}),

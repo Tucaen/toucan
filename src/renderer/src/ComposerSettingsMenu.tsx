@@ -9,9 +9,6 @@ import { composerSendKeyLabels, type ComposerSendKey } from './composer-keys'
 import { useRoutineDelegation } from './routine-delegation-context'
 import { DELEGATION_OFF_OPTION, describeRoutineDelegation } from './routine-delegation-display'
 import { withWorkerSelection, type AgentRoutineDelegation } from '../../shared/routine-delegation'
-import { useDecisionDelegation } from './decision-delegation-context'
-import { DECISION_DELEGATION_ON_OPTION, describeDecisionDelegation } from './decision-delegation-display'
-import { type AgentDecisionDelegation } from '../../shared/decision-delegation'
 import { useDictationCleanupPreference } from './dictation-cleanup-context'
 import { DICTATION_CLEANUP_MODELS } from '../../shared/dictation-cleanup'
 import { COMMAND_GUARD_ON_OPTION, describeCommandGuard } from './command-guard-display'
@@ -27,13 +24,12 @@ export interface ComposerCommandGuard {
 export interface ComposerSettingsMenuProps {
   provider: AgentProvider
   routineDelegation?: AgentRoutineDelegation | null
-  decisionDelegation?: AgentDecisionDelegation | null
   commandGuard?: ComposerCommandGuard
 }
 
 /**
  * The settings a conversation is set up with once and then forgotten: routine-work delegation,
- * decision delegation, dictation cleanup and the send key. All four are workspace-wide rather than
+ * dictation cleanup and the send key. All three are workspace-wide rather than
  * session-bound, so they earn a click rather than a permanent chip next to the model, effort and
  * permission pickers - the three that actually change from turn to turn.
  *
@@ -48,17 +44,11 @@ export default function ComposerSettingsMenu(props: ComposerSettingsMenuProps): 
   const panelRef = useRef<HTMLDivElement>(null)
   const { sendKey, setSendKey } = useComposerSendKey()
   const routineDelegation = useRoutineDelegation()
-  const decisionDelegation = useDecisionDelegation()
   const cleanup = useDictationCleanupPreference()
   const delegation = describeRoutineDelegation(
     props.provider,
     routineDelegation.preference,
     props.routineDelegation ?? undefined
-  )
-  const decisions = describeDecisionDelegation(
-    decisionDelegation.preference,
-    props.decisionDelegation ?? undefined,
-    decisionDelegation.skillInstalled
   )
   const guard = props.commandGuard
     ? describeCommandGuard(props.provider, props.commandGuard.enabled, props.commandGuard.globallyOff ?? false)
@@ -71,7 +61,7 @@ export default function ComposerSettingsMenu(props: ComposerSettingsMenuProps): 
     open,
     { width: 260, height: 0 },
     undefined,
-    `${delegation.note ?? ''}|${decisions.note ?? ''}|${guard?.note ?? ''}`
+    `${delegation.note ?? ''}|${guard?.note ?? ''}`
   )
 
   useEffect(() => {
@@ -126,17 +116,6 @@ export default function ComposerSettingsMenu(props: ComposerSettingsMenuProps): 
         }
       />
       {delegation.note && <span className="composer-toolbar-note">{delegation.note}</span>}
-      <SelectorPicker
-        kind="decisions"
-        options={decisions.options}
-        selectedId={decisions.selectedId}
-        // Never closed, for the routine picker's reason plus one of its own: opening is what
-        // re-probes for the skill, so a picker that refused to open could never learn it arrived.
-        disabled={false}
-        onOpen={decisionDelegation.refreshAvailability}
-        select={(id) => decisionDelegation.setPreference({ enabled: id === DECISION_DELEGATION_ON_OPTION.id })}
-      />
-      {decisions.note && <span className="composer-toolbar-note">{decisions.note}</span>}
       {guard && props.commandGuard && (
         <>
           <SelectorPicker

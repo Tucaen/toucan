@@ -96,10 +96,8 @@ import { useComposerSendKey } from './composer-send-key-context'
 import { useCommandGuardGloballyOff } from './command-guard-context'
 import { useRoutineDelegation } from './routine-delegation-context'
 import { routineDelegationRequest, type AgentRoutineDelegation } from '../../shared/routine-delegation'
-import { useDecisionDelegation } from './decision-delegation-context'
 import { ORCHESTRATOR_ROLE } from '../../shared/orchestration'
 import { isToucanOriginText } from '../../shared/toucan-origin'
-import { decisionDelegationRequest, type AgentDecisionDelegation } from '../../shared/decision-delegation'
 import { usePromptEditor, type ComposerFileMentions } from './use-prompt-editor'
 import PromptTextarea from './PromptTextarea'
 import ComposerQueue from './ComposerQueue'
@@ -185,8 +183,6 @@ interface FlatChatViewProps {
   efforts?: AgentEffortState | null
   /** What the running session's adapter actually launched with; the preference is only a request. */
   routineDelegation?: AgentRoutineDelegation | null
-  /** What the running session carries for decision delegation; the preference is only a request. */
-  decisionDelegation?: AgentDecisionDelegation | null
   /** This node's command guard switch; absent when the node cannot persist one. */
   commandGuard?: ComposerCommandGuard
   selectorsDisabled?: boolean
@@ -222,7 +218,6 @@ export type ChatComposerProps = Pick<
   | 'models'
   | 'efforts'
   | 'routineDelegation'
-  | 'decisionDelegation'
   | 'commandGuard'
   | 'selectorsDisabled'
   | 'modelChangeBlocked'
@@ -359,7 +354,6 @@ function ComposerToolbar(
     | 'models'
     | 'efforts'
     | 'routineDelegation'
-    | 'decisionDelegation'
     | 'commandGuard'
     | 'selectorsDisabled'
     | 'modelChangeBlocked'
@@ -404,7 +398,6 @@ function ComposerToolbar(
       <ComposerSettingsMenu
         provider={props.provider}
         routineDelegation={props.routineDelegation}
-        decisionDelegation={props.decisionDelegation}
         commandGuard={props.commandGuard}
       />
     </div>
@@ -491,7 +484,6 @@ export function Composer(props: ComposerProps): JSX.Element {
           models={props.models}
           efforts={props.efforts}
           routineDelegation={props.routineDelegation}
-          decisionDelegation={props.decisionDelegation}
           commandGuard={props.commandGuard}
           selectorsDisabled={props.selectorsDisabled}
           modelChangeBlocked={props.modelChangeBlocked}
@@ -1130,7 +1122,6 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
   const provider = data.kind === 'claude' ? 'claude' : 'codex'
   const commandGuardGloballyOff = useCommandGuardGloballyOff()
   const routineDelegationPreference = useRoutineDelegation().preference
-  const decisionDelegationPreference = useDecisionDelegation().preference
   const conversation = useAgentConversation({
     id,
     provider,
@@ -1147,7 +1138,6 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
     routineDelegation: routineDelegationRequest(provider, routineDelegationPreference),
     // Read at session creation for the same reason, and carried for Codex too: main records the
     // request and reports back why it was withheld, rather than the node quietly dropping it.
-    decisionDelegation: decisionDelegationRequest(decisionDelegationPreference),
     // Per node and read at creation too: the switch in More settings applies on the next start.
     commandGuard: data.commandGuard,
     role: data.role,
@@ -1588,7 +1578,6 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
               models: conversation.models,
               efforts: conversation.efforts,
               routineDelegation: conversation.routineDelegation,
-              decisionDelegation: conversation.decisionDelegation,
               commandGuard: data.onCommandGuardChange
                 ? {
                     enabled: data.commandGuard !== false,

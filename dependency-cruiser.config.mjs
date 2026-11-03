@@ -16,7 +16,6 @@ const pureRendererFeatureNames = [
   'composer-autosize',
   'composer-keys',
   'conversation-reporting',
-  'decision-delegation-display',
   'decision-form',
   'decision-message',
   'diff-node',

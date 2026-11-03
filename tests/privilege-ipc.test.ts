@@ -62,8 +62,7 @@ test('agent IPC refuses malformed launches, outside grants, and malformed comman
     { ...valid, modelId: [] },
     { ...valid, sessionId: 's', forkFromSessionId: 'f' },
     { ...valid, routineDelegation: true },
-    { ...valid, routineDelegation: { workerModelId: [] } },
-    { ...valid, decisionDelegation: 'yes' }
+    { ...valid, routineDelegation: { workerModelId: [] } }
   ])
     assert.equal(((await call(AGENT_CHANNELS.create, request)) as { ok: boolean }).ok, false)
   for (const channel of [

@@ -103,9 +103,7 @@ import { ComposerSendKeyContext } from './composer-send-key-context'
 import { RoutineDelegationContext } from './routine-delegation-context'
 import { DictationCleanupContext } from './dictation-cleanup-context'
 import type { DictationCleanupPreference } from '../../shared/dictation-cleanup'
-import { DecisionDelegationContext } from './decision-delegation-context'
 import type { RoutineDelegationPreference } from '../../shared/routine-delegation'
-import type { DecisionDelegationPreference } from '../../shared/decision-delegation'
 import { useAppUpdate } from './use-app-update'
 import { RemoteAccessDialog } from './RemoteAccessDialog'
 import { AdapterManagementDialog } from './AdapterManagementDialog'
@@ -334,11 +332,6 @@ function Canvas(): JSX.Element {
   const [composerSendKey, setComposerSendKey] = useState<ComposerSendKey>(COMPOSER_SEND_KEY_DEFAULT)
   const [routineDelegation, setRoutineDelegation] = useState<RoutineDelegationPreference>({ enabled: false })
   const [dictationCleanup, setDictationCleanup] = useState<DictationCleanupPreference>({ enabled: false })
-  const [decisionDelegation, setDecisionDelegation] = useState<DecisionDelegationPreference>({ enabled: false })
-  // Undefined until a probe answers, which reads as "not known" rather than "not installed" - the
-  // picker leaves its On option open on an unknown, since the launch-time probe, not this one,
-  // decides what a session carries.
-  const [decisionProviderInstalled, setDecisionProviderInstalled] = useState<boolean | undefined>(undefined)
   const [recentlyClosedNodes, setRecentlyClosedNodes] = useState<WorkspaceTerminalNode[]>([])
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
   const [worktreeDraft, setWorktreeDraft] = useState<WorktreeDraft | null>(null)
@@ -1738,7 +1731,6 @@ function Canvas(): JSX.Element {
       // Absent in older snapshots means off: existing workspaces migrate with delegation disabled.
       setRoutineDelegation(saved.routineDelegation ?? { enabled: false })
       setDictationCleanup(saved.dictationCleanup ?? { enabled: false })
-      setDecisionDelegation(saved.decisionDelegation ?? { enabled: false })
       setRecentlyClosedNodes(saved.recentlyClosedNodes ?? [])
       setLayoutSlots(pruneLayoutSlots(saved.layoutSlots ?? {}, new Set(restored.nodes.map((node) => node.id))))
       restoreAttention(
@@ -1788,7 +1780,6 @@ function Canvas(): JSX.Element {
     agentPermissionModes,
     composerSendKey,
     routineDelegation,
-    decisionDelegation,
     dictationCleanup,
     nodes,
     snaps: nodeFit.state,
@@ -2872,176 +2863,153 @@ function Canvas(): JSX.Element {
     [dictationCleanup]
   )
 
-  // No watcher and no poll: the answer only changes when the user installs a plugin. Asked once at
-  // mount and again on every picker open - the mount probe is what stops a first open rendering
-  // "On" as available and then flipping it closed when the open's own probe answers.
-  const refreshDecisionProvider = useCallback(() => {
-    void window.decisionDelegationApi
-      .availability()
-      .then(setDecisionProviderInstalled)
-      .catch(() => setDecisionProviderInstalled(false))
-  }, [])
-
-  useEffect(refreshDecisionProvider, [refreshDecisionProvider])
-
-  const decisionDelegationSetting = useMemo(
-    () => ({
-      preference: decisionDelegation,
-      setPreference: setDecisionDelegation,
-      skillInstalled: decisionProviderInstalled,
-      refreshAvailability: refreshDecisionProvider
-    }),
-    [decisionDelegation, decisionProviderInstalled, refreshDecisionProvider]
-  )
-
   const workspace = (
     <ComposerSendKeyContext.Provider value={sendKeyPreference}>
       <RoutineDelegationContext.Provider value={routineDelegationSetting}>
-        <DecisionDelegationContext.Provider value={decisionDelegationSetting}>
-          {/* One poll, every node: account usage is per provider, so a chat node reads it from here
+        {/* One poll, every node: account usage is per provider, so a chat node reads it from here
         instead of asking for it itself. */}
-          <ProviderRateLimitsContext.Provider value={providerRateLimits.limits}>
-            <main className="app-shell" onClick={() => setMenu(null)}>
-              {workspaceUnrecoverable && (
-                // Deliberately no onClose: this dialog is only acknowledged, never dismissed.
-                <ModalDialog role="alertdialog" labelledBy="unrecoverable-workspace-title">
-                  <div className="dialog dialog-compact workspace-recovery-dialog">
-                    <strong id="unrecoverable-workspace-title">Your saved workspace could not be recovered</strong>
-                    <p>
-                      The saved canvas and its backup were both damaged, likely by a crash or an interrupted write.
-                      Nothing has been overwritten yet.
-                    </p>
-                    <button
-                      type="button"
-                      className="workspace-recovery-confirm"
-                      onClick={() => acknowledgeUnrecoverableWorkspace()}
-                    >
-                      Start a new workspace
-                    </button>
-                  </div>
-                </ModalDialog>
-              )}
-              <AppHeader
-                status={statusSummary}
-                unreadTotal={unreadTotal}
-                describeUnread={describeUnread}
-                saveFailed={saveStatus === 'error'}
-                notice={notice}
-                onDismissNotice={dismissNotice}
-                recoveredFromBackup={workspaceRecovered && !recoveryDismissed}
-                onDismissRecovery={dismissRecovery}
-                usage={providerRateLimits}
-                appUpdate={appUpdate}
-                remoteState={remoteAccess.state}
-                activeProject={activeProject}
-                onOpenAdapterManagement={openAdapterManagement}
-                onOpenOrchestrationSettings={openOrchestrationSettings}
-                onOpenCommandGuardSettings={openCommandGuardSettings}
-                onOpenPlugins={openPlugins}
-                onOpenRemoteAccess={openRemoteAccess}
-              />
+        <ProviderRateLimitsContext.Provider value={providerRateLimits.limits}>
+          <main className="app-shell" onClick={() => setMenu(null)}>
+            {workspaceUnrecoverable && (
+              // Deliberately no onClose: this dialog is only acknowledged, never dismissed.
+              <ModalDialog role="alertdialog" labelledBy="unrecoverable-workspace-title">
+                <div className="dialog dialog-compact workspace-recovery-dialog">
+                  <strong id="unrecoverable-workspace-title">Your saved workspace could not be recovered</strong>
+                  <p>
+                    The saved canvas and its backup were both damaged, likely by a crash or an interrupted write.
+                    Nothing has been overwritten yet.
+                  </p>
+                  <button
+                    type="button"
+                    className="workspace-recovery-confirm"
+                    onClick={() => acknowledgeUnrecoverableWorkspace()}
+                  >
+                    Start a new workspace
+                  </button>
+                </div>
+              </ModalDialog>
+            )}
+            <AppHeader
+              status={statusSummary}
+              unreadTotal={unreadTotal}
+              describeUnread={describeUnread}
+              saveFailed={saveStatus === 'error'}
+              notice={notice}
+              onDismissNotice={dismissNotice}
+              recoveredFromBackup={workspaceRecovered && !recoveryDismissed}
+              onDismissRecovery={dismissRecovery}
+              usage={providerRateLimits}
+              appUpdate={appUpdate}
+              remoteState={remoteAccess.state}
+              activeProject={activeProject}
+              onOpenAdapterManagement={openAdapterManagement}
+              onOpenOrchestrationSettings={openOrchestrationSettings}
+              onOpenCommandGuardSettings={openCommandGuardSettings}
+              onOpenPlugins={openPlugins}
+              onOpenRemoteAccess={openRemoteAccess}
+            />
 
-              <div className="workspace-shell">
-                <ProjectSidebar
-                  projects={projects}
-                  groups={projectGroups}
-                  collapsed={sidebarCollapsed}
-                  activeProjectId={activeProject?.id}
-                  summaries={sidebarSummaries}
-                  avatars={projectAvatars}
-                  branchRevision={branchRevision}
-                  renamingGroupId={renamingGroupId}
-                  unreadByNode={unreadByNode}
-                  countUnread={countUnread}
-                  describeUnread={describeUnread}
-                  ticketBoardOpen={panels.ticketBoard.state.open}
-                  intents={sidebarIntents}
-                  canvasControls={
-                    /* One segmented group, not five loose buttons: they all steer the canvas, so they
+            <div className="workspace-shell">
+              <ProjectSidebar
+                projects={projects}
+                groups={projectGroups}
+                collapsed={sidebarCollapsed}
+                activeProjectId={activeProject?.id}
+                summaries={sidebarSummaries}
+                avatars={projectAvatars}
+                branchRevision={branchRevision}
+                renamingGroupId={renamingGroupId}
+                unreadByNode={unreadByNode}
+                countUnread={countUnread}
+                describeUnread={describeUnread}
+                ticketBoardOpen={panels.ticketBoard.state.open}
+                intents={sidebarIntents}
+                canvasControls={
+                  /* One segmented group, not five loose buttons: they all steer the canvas, so they
                     share a single border and are divided by hairlines, like the stock React Flow
                     controls. The readout is the group's own reset affordance, which is why it is a
                     button rather than a label. They stay the canvas's to supply - the sidebar only
                     hosts them - because they steer React Flow. */
-                    <div className="canvas-zoom-row" role="group" aria-label="Canvas zoom">
-                      <button
-                        type="button"
-                        className="canvas-zoom-button"
-                        title="Zoom out"
-                        aria-label="Zoom out"
-                        onClick={() => void zoomOut()}
-                      >
-                        <ZoomOut aria-hidden="true" />
-                      </button>
-                      <button
-                        type="button"
-                        className="canvas-zoom-level"
-                        title="Reset zoom to 100%"
-                        aria-label={`Canvas zoom ${Math.round(canvasZoom * 100)} percent, reset to 100 percent`}
-                        onClick={() => void zoomTo(1, { duration: 160 })}
-                      >
-                        {Math.round(canvasZoom * 100)}%
-                      </button>
-                      <button
-                        type="button"
-                        className="canvas-zoom-button"
-                        title="Zoom in"
-                        aria-label="Zoom in"
-                        onClick={() => void zoomIn()}
-                      >
-                        <ZoomIn aria-hidden="true" />
-                      </button>
-                      <button
-                        type="button"
-                        className="canvas-zoom-button"
-                        title="Fit view"
-                        aria-label="Fit view"
-                        onClick={() => void fitView()}
-                      >
-                        <Maximize aria-hidden="true" />
-                      </button>
-                      <button
-                        type="button"
-                        className="canvas-zoom-button"
-                        title={`Tile nodes as ${tileMode} (${LAYOUT_SHORTCUT_LABELS.tile})`}
-                        aria-label="Tile nodes"
-                        onClick={() => tileCanvas(null)}
-                      >
-                        <LayoutGrid aria-hidden="true" />
-                      </button>
-                    </div>
-                  }
-                />
+                  <div className="canvas-zoom-row" role="group" aria-label="Canvas zoom">
+                    <button
+                      type="button"
+                      className="canvas-zoom-button"
+                      title="Zoom out"
+                      aria-label="Zoom out"
+                      onClick={() => void zoomOut()}
+                    >
+                      <ZoomOut aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      className="canvas-zoom-level"
+                      title="Reset zoom to 100%"
+                      aria-label={`Canvas zoom ${Math.round(canvasZoom * 100)} percent, reset to 100 percent`}
+                      onClick={() => void zoomTo(1, { duration: 160 })}
+                    >
+                      {Math.round(canvasZoom * 100)}%
+                    </button>
+                    <button
+                      type="button"
+                      className="canvas-zoom-button"
+                      title="Zoom in"
+                      aria-label="Zoom in"
+                      onClick={() => void zoomIn()}
+                    >
+                      <ZoomIn aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      className="canvas-zoom-button"
+                      title="Fit view"
+                      aria-label="Fit view"
+                      onClick={() => void fitView()}
+                    >
+                      <Maximize aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      className="canvas-zoom-button"
+                      title={`Tile nodes as ${tileMode} (${LAYOUT_SHORTCUT_LABELS.tile})`}
+                      aria-label="Tile nodes"
+                      onClick={() => tileCanvas(null)}
+                    >
+                      <LayoutGrid aria-hidden="true" />
+                    </button>
+                  </div>
+                }
+              />
 
-                <section ref={canvasRegionRef} className="canvas-region">
-                  <SessionMessagingContext.Provider value={sessionMessaging}>
-                    <NodeFitContext.Provider value={nodeFit.toggle}>
-                      <NodeSearchContext.Provider value={nodeSearchRequest}>
-                        <OpenFileContext.Provider value={openFileFromCard}>
-                          <WorktreeCanvasContext.Provider value={worktreeCanvasHost}>
-                            <SessionConnectionsProvider
-                              nodes={nodes}
-                              edges={canvasEdges}
+              <section ref={canvasRegionRef} className="canvas-region">
+                <SessionMessagingContext.Provider value={sessionMessaging}>
+                  <NodeFitContext.Provider value={nodeFit.toggle}>
+                    <NodeSearchContext.Provider value={nodeSearchRequest}>
+                      <OpenFileContext.Provider value={openFileFromCard}>
+                        <WorktreeCanvasContext.Provider value={worktreeCanvasHost}>
+                          <SessionConnectionsProvider
+                            nodes={nodes}
+                            edges={canvasEdges}
+                            onConnect={connectTerminalContext}
+                            onDisconnect={disconnectTerminalContext}
+                            onReveal={focusNode}
+                          >
+                            <ReactFlow
+                              nodes={canvasPartition.main}
+                              nodeTypes={nodeTypes}
+                              edges={canvasEdgeSplit.main}
+                              onEdgesChange={onEdgesChange}
                               onConnect={connectTerminalContext}
-                              onDisconnect={disconnectTerminalContext}
-                              onReveal={focusNode}
-                            >
-                              <ReactFlow
-                                nodes={canvasPartition.main}
-                                nodeTypes={nodeTypes}
-                                edges={canvasEdgeSplit.main}
-                                onEdgesChange={onEdgesChange}
-                                onConnect={connectTerminalContext}
-                                isValidConnection={isValidCanvasConnection}
-                                onNodesChange={handleNodesChange}
-                                onNodeClick={followClickedNodeProject}
-                                onPaneContextMenu={openContextMenu}
-                                onPaneClick={() => {
-                                  setMenu(null)
-                                  clearSelectionOutside(null)
-                                }}
-                                minZoom={0.25}
-                                maxZoom={2}
-                                /* Plain wheel is reserved for scrolling inside nodes; only a Ctrl-held
+                              isValidConnection={isValidCanvasConnection}
+                              onNodesChange={handleNodesChange}
+                              onNodeClick={followClickedNodeProject}
+                              onPaneContextMenu={openContextMenu}
+                              onPaneClick={() => {
+                                setMenu(null)
+                                clearSelectionOutside(null)
+                              }}
+                              minZoom={0.25}
+                              maxZoom={2}
+                              /* Plain wheel is reserved for scrolling inside nodes; only a Ctrl-held
                            wheel moves the canvas, so a stray scroll over the pane never zooms.
                            Ctrl is the whole gate - a trackpad pinch arrives as one too, which is
                            what `zoomOnPinch` then lets through. `preventScrolling` has to go with
@@ -3050,168 +3018,167 @@ function Canvas(): JSX.Element {
                            gesture for. Nodes can then leave the wheel alone entirely - no
                            `nowheel`, no stopPropagation - so a Ctrl+wheel over a transcript or a
                            grown composer still zooms. */
-                                zoomOnScroll={false}
-                                zoomOnPinch
-                                panOnScroll={false}
-                                preventScrolling={false}
-                                defaultViewport={{ x: 0, y: 0, zoom: 1 }}
-                                colorMode="dark"
-                                deleteKeyCode={['Backspace', 'Delete']}
-                                onBeforeDelete={backspaceChatShield.beforeDelete}
-                              >
-                                <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} color="#303744" />
-                              </ReactFlow>
-                            </SessionConnectionsProvider>
-                          </WorktreeCanvasContext.Provider>
-                        </OpenFileContext.Provider>
-                      </NodeSearchContext.Provider>
-                    </NodeFitContext.Provider>
-                  </SessionMessagingContext.Provider>
-                </section>
+                              zoomOnScroll={false}
+                              zoomOnPinch
+                              panOnScroll={false}
+                              preventScrolling={false}
+                              defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+                              colorMode="dark"
+                              deleteKeyCode={['Backspace', 'Delete']}
+                              onBeforeDelete={backspaceChatShield.beforeDelete}
+                            >
+                              <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} color="#303744" />
+                            </ReactFlow>
+                          </SessionConnectionsProvider>
+                        </WorktreeCanvasContext.Provider>
+                      </OpenFileContext.Provider>
+                    </NodeSearchContext.Provider>
+                  </NodeFitContext.Provider>
+                </SessionMessagingContext.Provider>
+              </section>
 
-                <WorkspacePanels
-                  panels={panels}
-                  activeProject={activeProject}
-                  ticketsFolderRevision={ticketsFolderRevision}
-                  ticketSources={ticketSources}
-                  ticketSessions={ticketSessions}
-                  onFocusSession={focusNode}
-                />
+              <WorkspacePanels
+                panels={panels}
+                activeProject={activeProject}
+                ticketsFolderRevision={ticketsFolderRevision}
+                ticketSources={ticketSources}
+                ticketSessions={ticketSessions}
+                onFocusSession={focusNode}
+              />
+            </div>
+
+            {projectMenu && (
+              <ProjectRowMenu
+                x={projectMenu.x}
+                y={projectMenu.y}
+                target={projectMenu.target}
+                initialPage={projectMenu.page}
+                groups={projectGroups}
+                onClose={() => setProjectMenu(null)}
+                onListBranches={listProjectBranches}
+                onSwitchBranch={switchProjectBranch}
+                workingSessions={countWorkingCheckoutSessions}
+                onColorChange={setProjectColor}
+                onMoveToGroup={moveProjectToGroup}
+                onCreateGroup={createProjectGroup}
+                onRunCommand={handleRunProjectCommand}
+                onRenameGroup={setRenamingGroupId}
+                onDeleteGroup={deleteProjectGroup}
+              />
+            )}
+
+            {menu && activeProject && (
+              <div
+                className="context-menu"
+                style={{ left: menu.clientX, top: menu.clientY }}
+                role="menu"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <p>Create in {activeProject.name}</p>
+                {CREATE_NODE_ACTIONS.map((entry) => (
+                  <button
+                    key={entry.action}
+                    type="button"
+                    role="menuitem"
+                    onClick={() => runCreateActionFromMenu(entry.action)}
+                  >
+                    <span className={`menu-icon ${CREATE_ACTION_ICONS[entry.action].className}`}>
+                      {CREATE_ACTION_ICONS[entry.action].icon}
+                    </span>
+                    <span>
+                      <strong>{entry.title}</strong>
+                      <small>{entry.description}</small>
+                    </span>
+                    <kbd>{NODE_SHORTCUT_LABELS[entry.action]}</kbd>
+                  </button>
+                ))}
               </div>
+            )}
 
-              {projectMenu && (
-                <ProjectRowMenu
-                  x={projectMenu.x}
-                  y={projectMenu.y}
-                  target={projectMenu.target}
-                  initialPage={projectMenu.page}
-                  groups={projectGroups}
-                  onClose={() => setProjectMenu(null)}
-                  onListBranches={listProjectBranches}
-                  onSwitchBranch={switchProjectBranch}
-                  workingSessions={countWorkingCheckoutSessions}
-                  onColorChange={setProjectColor}
-                  onMoveToGroup={moveProjectToGroup}
-                  onCreateGroup={createProjectGroup}
-                  onRunCommand={handleRunProjectCommand}
-                  onRenameGroup={setRenamingGroupId}
-                  onDeleteGroup={deleteProjectGroup}
-                />
-              )}
+            {filePickerRequest && (
+              <FilePickerDialog
+                projectName={filePickerRequest.projectName}
+                root={filePickerRequest.root}
+                onCancel={cancelFilePicker}
+                onOpen={openPickedFile}
+              />
+            )}
 
-              {menu && activeProject && (
-                <div
-                  className="context-menu"
-                  style={{ left: menu.clientX, top: menu.clientY }}
-                  role="menu"
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  <p>Create in {activeProject.name}</p>
-                  {CREATE_NODE_ACTIONS.map((entry) => (
-                    <button
-                      key={entry.action}
-                      type="button"
-                      role="menuitem"
-                      onClick={() => runCreateActionFromMenu(entry.action)}
-                    >
-                      <span className={`menu-icon ${CREATE_ACTION_ICONS[entry.action].className}`}>
-                        {CREATE_ACTION_ICONS[entry.action].icon}
-                      </span>
-                      <span>
-                        <strong>{entry.title}</strong>
-                        <small>{entry.description}</small>
-                      </span>
-                      <kbd>{NODE_SHORTCUT_LABELS[entry.action]}</kbd>
-                    </button>
-                  ))}
-                </div>
-              )}
+            {historyDrop && activeProject && (
+              <ConversationHistoryDialog
+                projectName={activeProject.name}
+                directories={historyDirectories}
+                directoryLabels={historyDirectoryLabels}
+                onCancel={() => setHistoryDrop(null)}
+                onOpen={openHistoryConversation}
+              />
+            )}
 
-              {filePickerRequest && (
-                <FilePickerDialog
-                  projectName={filePickerRequest.projectName}
-                  root={filePickerRequest.root}
-                  onCancel={cancelFilePicker}
-                  onOpen={openPickedFile}
-                />
-              )}
+            {worktreeDraft && activeWorktreeDraftProject && (
+              <WorktreeCreateDialog
+                draft={worktreeDraft}
+                project={activeWorktreeDraftProject}
+                onChange={(patch) => setWorktreeDraft((current) => (current ? { ...current, ...patch } : current))}
+                onCancel={() => setWorktreeDraft(null)}
+                onConfirm={confirmWorktreeDraft}
+              />
+            )}
 
-              {historyDrop && activeProject && (
-                <ConversationHistoryDialog
-                  projectName={activeProject.name}
-                  directories={historyDirectories}
-                  directoryLabels={historyDirectoryLabels}
-                  onCancel={() => setHistoryDrop(null)}
-                  onOpen={openHistoryConversation}
-                />
-              )}
+            {remoteAccessOpen && (
+              <RemoteAccessDialog
+                state={remoteAccess.state}
+                busy={remoteAccess.busy}
+                onApply={(settings) => void remoteAccess.applySettings(settings)}
+                onRegenerate={() => void remoteAccess.regenerateToken()}
+                onCopyToken={(token) => window.shellApi.copyText(token)}
+                onClose={() => setRemoteAccessOpen(false)}
+              />
+            )}
 
-              {worktreeDraft && activeWorktreeDraftProject && (
-                <WorktreeCreateDialog
-                  draft={worktreeDraft}
-                  project={activeWorktreeDraftProject}
-                  onChange={(patch) => setWorktreeDraft((current) => (current ? { ...current, ...patch } : current))}
-                  onCancel={() => setWorktreeDraft(null)}
-                  onConfirm={confirmWorktreeDraft}
-                />
-              )}
+            {adapterManagementOpen && <AdapterManagementDialog onClose={() => setAdapterManagementOpen(false)} />}
 
-              {remoteAccessOpen && (
-                <RemoteAccessDialog
-                  state={remoteAccess.state}
-                  busy={remoteAccess.busy}
-                  onApply={(settings) => void remoteAccess.applySettings(settings)}
-                  onRegenerate={() => void remoteAccess.regenerateToken()}
-                  onCopyToken={(token) => window.shellApi.copyText(token)}
-                  onClose={() => setRemoteAccessOpen(false)}
-                />
-              )}
+            {orchestrationSettingsOpen && (
+              <OrchestrationSettingsDialog
+                {...(activeProject ? { project: { name: activeProject.name, path: activeProject.path } } : {})}
+                onClose={() => setOrchestrationSettingsOpen(false)}
+              />
+            )}
 
-              {adapterManagementOpen && <AdapterManagementDialog onClose={() => setAdapterManagementOpen(false)} />}
+            {commandGuardSettingsOpen && (
+              <CommandGuardSettingsDialog
+                onSaved={(preferences) => setCommandGuardGloballyOff(!preferences.enabled)}
+                onClose={() => setCommandGuardSettingsOpen(false)}
+              />
+            )}
 
-              {orchestrationSettingsOpen && (
-                <OrchestrationSettingsDialog
-                  {...(activeProject ? { project: { name: activeProject.name, path: activeProject.path } } : {})}
-                  onClose={() => setOrchestrationSettingsOpen(false)}
-                />
-              )}
+            {pluginsOpen && (
+              <PluginsDialog
+                {...(activeProject ? { project: { name: activeProject.name, path: activeProject.path } } : {})}
+                onClose={() => setPluginsOpen(false)}
+              />
+            )}
 
-              {commandGuardSettingsOpen && (
-                <CommandGuardSettingsDialog
-                  onSaved={(preferences) => setCommandGuardGloballyOff(!preferences.enabled)}
-                  onClose={() => setCommandGuardSettingsOpen(false)}
-                />
-              )}
+            {removalPrompt && (
+              <WorktreeRemoveDialog
+                prompt={removalPrompt}
+                onCancel={() => setRemovalPrompt(null)}
+                onConfirm={confirmWorktreeRemoval}
+              />
+            )}
 
-              {pluginsOpen && (
-                <PluginsDialog
-                  {...(activeProject ? { project: { name: activeProject.name, path: activeProject.path } } : {})}
-                  onClose={() => setPluginsOpen(false)}
-                />
-              )}
-
-              {removalPrompt && (
-                <WorktreeRemoveDialog
-                  prompt={removalPrompt}
-                  onCancel={() => setRemovalPrompt(null)}
-                  onConfirm={confirmWorktreeRemoval}
-                />
-              )}
-
-              {setupProject && (
-                <ProjectSettingsDialog
-                  project={setupProject}
-                  avatarUrl={projectAvatars[setupProject.id] ?? null}
-                  avatarError={avatarError}
-                  onChooseAvatar={() => void chooseProjectAvatar(setupProject.id)}
-                  onRemoveAvatar={() => void removeProjectAvatar(setupProject.id)}
-                  onCancel={() => setSetupProjectId(null)}
-                  onSave={(settings) => saveProjectSettings(setupProject.id, settings)}
-                />
-              )}
-            </main>
-          </ProviderRateLimitsContext.Provider>
-        </DecisionDelegationContext.Provider>
+            {setupProject && (
+              <ProjectSettingsDialog
+                project={setupProject}
+                avatarUrl={projectAvatars[setupProject.id] ?? null}
+                avatarError={avatarError}
+                onChooseAvatar={() => void chooseProjectAvatar(setupProject.id)}
+                onRemoveAvatar={() => void removeProjectAvatar(setupProject.id)}
+                onCancel={() => setSetupProjectId(null)}
+                onSave={(settings) => saveProjectSettings(setupProject.id, settings)}
+              />
+            )}
+          </main>
+        </ProviderRateLimitsContext.Provider>
       </RoutineDelegationContext.Provider>
     </ComposerSendKeyContext.Provider>
   )

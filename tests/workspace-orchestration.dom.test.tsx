@@ -24,7 +24,6 @@ const stableSnapshotInput = {
   agentPermissionModes: {},
   composerSendKey: 'enter',
   routineDelegation: { enabled: false },
-  decisionDelegation: { enabled: false },
   dictationCleanup: { enabled: false },
   nodes: [],
   snaps: () => ({}),

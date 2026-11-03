@@ -17,7 +17,6 @@ import type { VoiceModelApi, VoiceModelStatus } from '../shared/voice-model'
 import type { AdapterManagementApi, AdapterSnapshot } from '../shared/adapter-management'
 import type { TerminalContextApi } from '../shared/terminal-context'
 import type { ProjectAvatarApi } from '../shared/project-avatar'
-import type { DecisionDelegationApi } from '../shared/decision-delegation'
 import type { DictationCleanupApi } from '../shared/dictation-cleanup'
 import type { OrchestratorApi, TicketSessionCanvasRequest } from '../shared/ticket-session-spawn'
 import type { CommandGuardSettingsApi } from '../shared/command-guard-settings'
@@ -38,7 +37,6 @@ import {
   APP_UPDATE_CHANNELS,
   CONVERSATION_CHANNELS,
   FILE_VIEW_CHANNELS,
-  DECISION_DELEGATION_CHANNELS,
   GITHUB_ISSUES_CHANNELS,
   PROJECT_CHANNELS,
   REMOTE_CHANNELS,
@@ -257,12 +255,6 @@ const ticketSkillApi: TicketSkillApi = {
 }
 
 contextBridge.exposeInMainWorld('ticketSkillApi', ticketSkillApi)
-
-const decisionDelegationApi: DecisionDelegationApi = {
-  availability: () => ipcRenderer.invoke(DECISION_DELEGATION_CHANNELS.availability)
-}
-
-contextBridge.exposeInMainWorld('decisionDelegationApi', decisionDelegationApi)
 
 const sessionMessagingApi: SessionMessagingApi = {
   open: () => ipcRenderer.invoke(SESSION_MESSAGING_CHANNELS.open),

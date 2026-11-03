@@ -13,7 +13,6 @@ import type { WorkspaceWorktree } from './worktree'
 import type { ConversationTitleSource } from './conversation-title'
 import type { ChatNodeRole } from './orchestration'
 import type { OrchestratorLink } from './ticket-session-spawn'
-import type { DecisionDelegationPreference } from './decision-delegation'
 import type { RoutineDelegationPreference } from './routine-delegation'
 import type { ScheduledMessage } from './scheduled-message'
 import type { DictationCleanupPreference } from './dictation-cleanup'
@@ -218,12 +217,6 @@ export interface WorkspaceState {
   routineDelegation?: RoutineDelegationPreference
   /** Absent means off: cleanup spends the user's Claude subscription only after opting in. */
   dictationCleanup?: DictationCleanupPreference
-  /**
-   * The "delegate decisions" preference (see `shared/decision-delegation.ts`). Independent of
-   * `routineDelegation` and absent by the same rule: a snapshot written before it existed is the
-   * off state, so existing workspaces migrate by doing nothing.
-   */
-  decisionDelegation?: DecisionDelegationPreference
   nodes: WorkspaceTerminalNode[]
   /** Bounded LIFO history used by Ctrl+Shift+T; callbacks are rebuilt when an entry is reopened. */
   recentlyClosedNodes?: WorkspaceTerminalNode[]

@@ -14,7 +14,6 @@ import type { FileViewApi } from '../shared/file-view'
 import type { AdapterManagementApi } from '../shared/adapter-management'
 import type { ProjectAvatarApi } from '../shared/project-avatar'
 import type { TerminalContextApi } from '../shared/terminal-context'
-import type { DecisionDelegationApi } from '../shared/decision-delegation'
 import type { DictationCleanupApi } from '../shared/dictation-cleanup'
 import type { OrchestratorApi } from '../shared/ticket-session-spawn'
 import type { CommandGuardSettingsApi } from '../shared/command-guard-settings'
@@ -46,7 +45,6 @@ declare global {
     ticketsApi: TicketFilesApi
     ticketSkillApi: TicketSkillApi
     githubIssuesApi: TicketGithubApi
-    decisionDelegationApi: DecisionDelegationApi
     sessionMessagingApi: SessionMessagingApi
     fileViewApi: FileViewApi
     appUpdateApi: AppUpdateApi

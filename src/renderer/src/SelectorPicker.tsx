@@ -5,7 +5,6 @@ import {
   Cpu,
   Keyboard,
   Pencil,
-  Scale,
   ShieldAlert,
   ShieldCheck,
   UsersRound
@@ -44,12 +43,6 @@ export const pickerCopy = {
     heading: 'Routine work',
     idle: 'Delegation',
     hint: 'Delegate routine work to an economical worker model'
-  },
-  decisions: {
-    icon: Scale,
-    heading: 'Decisions',
-    idle: 'Decisions',
-    hint: 'Let decision-shaped subtasks go to an installed decision-provider skill'
   },
   commandGuard: {
     icon: ShieldAlert,

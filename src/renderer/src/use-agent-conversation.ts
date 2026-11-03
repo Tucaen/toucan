@@ -16,7 +16,6 @@ import type {
 } from '../../shared/agent'
 import { MODEL_CHANGE_WHILE_BUSY } from '../../shared/agent'
 import type { AgentRoutineDelegation, RoutineDelegationRequest } from '../../shared/routine-delegation'
-import type { AgentDecisionDelegation } from '../../shared/decision-delegation'
 import type { ChatNodeRole } from '../../shared/orchestration'
 import {
   applyAgentCreateResult,
@@ -82,8 +81,6 @@ export interface AgentConversationOptions {
   effortId?: string
   /** The routine-delegation policy to launch with; read at create time, never a restart trigger. */
   routineDelegation?: RoutineDelegationRequest
-  /** Whether to launch asking for decision delegation; read at create time, like the policy above. */
-  decisionDelegation?: true
   /** `false` launches without the command guard; read at create time, never a restart trigger. */
   commandGuard?: false
   /** The chat node's role; an orchestrator's launch is minted its token in main. */
@@ -139,8 +136,6 @@ export interface AgentConversationController {
   efforts: AgentEffortState | null
   /** The routine-delegation policy the session's adapter launched with; null before it reports. */
   routineDelegation: AgentRoutineDelegation | null
-  /** The decision-delegation policy the session launched with; null before it reports. */
-  decisionDelegation: AgentDecisionDelegation | null
   /** Slash commands and skills this session advertises, for the composer's completion. */
   commands: AgentCommand[]
   status: AgentChatStatus
@@ -343,7 +338,6 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
         modelId: options.modelId,
         effortId: options.effortId,
         routineDelegation: options.routineDelegation,
-        decisionDelegation: options.decisionDelegation,
         ...(options.commandGuard === false ? { commandGuard: false as const } : {}),
         ...(options.role ? { role: options.role } : {})
       })
@@ -627,7 +621,6 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     models: chat.models,
     efforts: chat.efforts,
     routineDelegation: chat.routineDelegation,
-    decisionDelegation: chat.decisionDelegation,
     commands: chat.commands,
     status,
     backgroundTasks: chat.backgroundTasks,

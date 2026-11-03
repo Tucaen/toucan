@@ -164,10 +164,6 @@ export const SESSION_MESSAGING_CHANNELS = {
   event: 'session-messaging:event'
 } as const
 
-export const DECISION_DELEGATION_CHANNELS = {
-  availability: 'decision-delegation:availability'
-} as const
-
 export const GITHUB_ISSUES_CHANNELS = {
   availability: 'github-issues:availability',
   list: 'github-issues:list'
