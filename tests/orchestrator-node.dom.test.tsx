@@ -302,3 +302,25 @@ test('a spawn checkpoint waits for the human, offers Continue (+20) instead of S
   )
   await waitFor(() => expect(container.querySelector('.node-orchestration-checkpoint')).toBeNull())
 })
+
+// #3: an orchestrator pins its open questions above the transcript; Antworten fills the node's draft.
+
+test('an orchestrator pins its open questions and Antworten prefills the draft', async () => {
+  window.orchestratorApi = {
+    onStartTicketSession: () => () => undefined,
+    completeTicketSession: vi.fn(),
+    jevReachability: vi.fn(async () => ({ state: 'reachable' as const })),
+    orchestrationState: vi.fn(async () => ({
+      provider: 'claude',
+      conversationId: 'conv-1',
+      status: 'running',
+      openQuestions: [{ id: 'Q3', ticketId: '3', markdown: 'Which **color**?', createdAt: 1 }]
+    })),
+    onOrchestrationState: () => () => undefined
+  } as unknown as typeof window.orchestratorApi
+  const { container } = renderChat('orchestrator', 'conv-1')
+  await waitFor(() => expect(container.querySelector('.chat-scroll .orchestration-questions')).not.toBeNull())
+  expect(container.querySelector('.orchestration-questions')).toHaveTextContent('Offene Fragen (1)')
+  fireEvent.click(container.querySelector('.orchestration-question-actions button') as HTMLElement)
+  expect(callbacks.onDraftChange).toHaveBeenCalledWith('chat-1', 'Zu Q3: ')
+})

@@ -8034,3 +8034,77 @@ button.worktree-agent-unread:focus-visible {
   color: #efb0b3;
   font-size: 12px;
 }
+
+/* Open questions pinned for the human at the top of an orchestrator's transcript (#3). */
+.orchestration-questions {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin-bottom: 12px;
+  max-height: 45%;
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--node-accent) 42%, #323a45);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--node-accent) 7%, var(--neutral-900));
+}
+
+.orchestration-questions-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  color: #dbe1e9;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.orchestration-questions-toggle svg {
+  width: 14px;
+  height: 14px;
+}
+
+.orchestration-questions-list {
+  margin: 0;
+  padding: 0 10px 8px;
+  list-style: none;
+}
+
+.orchestration-question {
+  padding: 8px 0;
+  border-top: 1px solid #2a323d;
+  font-size: 12px;
+}
+
+.orchestration-question-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.orchestration-question-actions {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: auto;
+  /* The node's Focus toggle floats over the scroll area's top-right corner. */
+  margin-right: 4px;
+}
+
+.orchestration-question-actions button {
+  padding: 3px 8px;
+  border: 1px solid #3a4554;
+  border-radius: 6px;
+  color: #dbe1e9;
+  background: #242b36;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.orchestration-question-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

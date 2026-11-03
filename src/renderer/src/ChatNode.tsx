@@ -31,6 +31,7 @@ import { ImageAttachments } from './ImageAttachments'
 import WorktreeBadge from './WorktreeBadge'
 import JevReachabilityNote from './JevReachabilityNote'
 import OrchestrationControls from './OrchestrationControls'
+import OrchestrationQuestionsStrip from './OrchestrationQuestionsStrip'
 import {
   LINEAGE_SOURCE_HANDLE,
   LINEAGE_TARGET_HANDLE,
@@ -253,6 +254,8 @@ export type ChatSessionProps = Pick<FlatChatViewProps, 'status' | 'detail'> & {
   focusShortcutEnabled?: boolean
   empty?: { icon: ReactNode; title: string; description: string }
   statusBar?: ReactNode
+  /** Pinned at the top of the transcript's scroll area, outside the messages (the orchestrator's open questions). */
+  pinned?: ReactNode
   /** Relaunches an `exited` session in place; absent where the view has no session to relaunch. */
   relaunch?(): void
 }
@@ -1031,6 +1034,7 @@ export function ChatView(groups: ChatViewProps): JSX.Element {
           <SubagentActivitiesContext.Provider value={subagentActivities}>
             <SessionCommandsContext.Provider value={transcript.commands ?? []}>
               <div className="chat-scroll nodrag nopan" ref={scrollRef} onScroll={onScroll}>
+                {session.pinned}
                 {!authVisible &&
                   transcript.messages.length === 0 &&
                   (transcript.outcomes?.length ?? 0) === 0 &&
@@ -1611,6 +1615,14 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
               setFocusMode: (enabled) => data.onFocusModeChange(id, enabled),
               focusShortcutEnabled: selected,
               statusBar,
+              pinned:
+                data.role === ORCHESTRATOR_ROLE && data.conversationId ? (
+                  <OrchestrationQuestionsStrip
+                    request={{ provider, conversationId: data.conversationId, nodeId: id }}
+                    draft={data.draft ?? ''}
+                    onDraftChange={(text) => data.onDraftChange(id, text)}
+                  />
+                ) : undefined,
               relaunch: () => data.onResume(id)
             }}
             search={{
