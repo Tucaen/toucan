@@ -152,6 +152,12 @@ export interface RemoteChatSummary {
   /** An orchestrator's chat, so the phone marks it the way the desktop sidebar does. */
   orchestrator?: true
   /**
+   * Set on an orchestrator whose spawn budget is used up (the desktop's `spawnCheckpoint`): the
+   * phone offers Continue (+20) for it. Never in the canvas projection - it is orchestration
+   * state main owns, folded in by the host when it serves the workspace.
+   */
+  spawnCheckpoint?: { used: number; budget: number }
+  /**
    * The orchestrator that owns the worktree this chat runs in (see `ticketWorktreeOwners`), written
    * only on a ticket session the desktop lists beneath that orchestrator. The phone nests it there.
    */

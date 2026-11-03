@@ -267,6 +267,20 @@ export async function createChat(host: HostEndpoint, spawn: RemoteChatSpawnReque
 }
 
 /**
+ * The orchestrator's Continue (+20) at its spawn budget: the host runs the same controller
+ * operation the desktop button does. A stale press (already continued) is accepted as a no-op, so
+ * a refusal here is only ever a reason the reader can read - not an orchestrator, not open.
+ */
+export async function continueSpawns(host: HostEndpoint, chatId: string): Promise<RemoteResult<true>> {
+  const sent = await send(`/api/chats/${encodeURIComponent(chatId)}/continue-spawns`, host, { method: 'POST' })
+  if (!sent.ok) return sent
+  if (sent.value.ok) return { ok: true, value: true }
+  const payload = await readJsonBody(sent.value)
+  const reported = typeof payload?.error === 'string' ? payload.error : null
+  return { ok: false, kind: 'unreachable', message: reported ?? `Host replied ${sent.value.status}` }
+}
+
+/**
  * Hands the host a recording and gets its transcript back. For phones whose browser has no speech
  * recognizer of its own: the desktop's model does the work, so the reply takes as long as the
  * desktop takes, and a refusal - no model prepared, a recording too long - is the desktop's own

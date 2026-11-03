@@ -1021,6 +1021,23 @@ void app.whenReady().then(async () => {
       setModel: (id, modelId) => agentManager.setModel(id, modelId)
     },
     spawn: (request) => canvasRequests.spawn(request),
+    // The desktop's own orchestration controller, reached by node id like its IPC handlers are, so
+    // Continue (+20) from a phone is the very operation the canvas button runs.
+    orchestration: {
+      checkpoint: async (chatId) => {
+        const session = await orchestrationSessionForNode(chatId)
+        if (!session || session.ticketNodeId !== undefined) return undefined
+        const record = await orchestrationController.state(session.key, chatId)
+        return record ? orchestrationState(record).spawnCheckpoint : undefined
+      },
+      continueSpawns: async (chatId) => {
+        const session = await orchestrationSessionForNode(chatId)
+        if (!session || session.ticketNodeId !== undefined)
+          return { ok: false, message: 'That chat is not an orchestrator.' }
+        const record = await orchestrationController.continueSpawns(session.key, chatId)
+        return record ? { ok: true } : { ok: false, message: 'Toucan could not continue that orchestration.' }
+      }
+    },
     // Reading a chat on the phone has to retire its badge everywhere, and the attention records
     // behind that badge are the canvas's - so this is a request to the window, like spawning, and
     // not something main applies on its own.

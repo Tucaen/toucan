@@ -428,6 +428,16 @@ describe('routing', () => {
     assert.deepEqual(resolveRemoteRoute('GET', undefined), { kind: 'not-found' })
   })
 
+  test('continuing an orchestration is a POST-only route per chat, behind the same gate', () => {
+    const route = resolveRemoteRoute('POST', '/api/chats/orch-1/continue-spawns')
+    assert.deepEqual(route, { kind: 'continue-spawns', chatId: 'orch-1' })
+    assert.equal(routeRequiresPairing(route), true)
+    assert.deepEqual(resolveRemoteRoute('GET', '/api/chats/orch-1/continue-spawns'), {
+      kind: 'method-not-allowed',
+      allow: 'POST'
+    })
+  })
+
   test('starting a chat is a POST-only route, and it is behind the same gate', () => {
     assert.deepEqual(resolveRemoteRoute('POST', '/api/chats'), { kind: 'create-chat' })
     assert.equal(routeRequiresPairing(resolveRemoteRoute('POST', '/api/chats')), true)

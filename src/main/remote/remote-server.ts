@@ -127,6 +127,8 @@ export interface RemoteAccessServerOptions {
    * round-trips through the desktop renderer. Absent, the host cannot start chats and says so.
    */
   spawn?: RemoteChatSpawn
+  /** Orchestration state and controls for orchestrator chats. Absent, the phone sees and does neither. */
+  orchestration?: RemoteOrchestration
   /**
    * How "a phone read this chat" reaches the attention records behind its unread badge. Separate
    * from `sessions` for the same reason `spawn` is: the record set is the canvas's, not the session
@@ -178,6 +180,17 @@ export interface RemoteAccessServerOptions {
    * phone is actually served with.
    */
   heartbeatMs?: number
+}
+
+/**
+ * The orchestrator controls a phone may reach, reusing the desktop's own controller behind them.
+ * `checkpoint` is read for every orchestrator chat in a served workspace; `continueSpawns` is the
+ * same operation the desktop's Continue (+20) calls, answering `ok: false` for a chat that is not
+ * an orchestrator, or one no longer at its budget (a stale second press).
+ */
+export interface RemoteOrchestration {
+  checkpoint(chatId: string): Promise<{ used: number; budget: number } | undefined>
+  continueSpawns(chatId: string): Promise<AgentPromptResult>
 }
 
 /** Performs one spawn and reports its verdict. Never rejects; a failure is `{ ok: false }`. */
@@ -338,6 +351,46 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
   }
 
   /**
+   * The published projection with each orchestrator's spawn checkpoint folded in. Read per request
+   * from main's own records, because the projection is the renderer's answer and the budget is not
+   * the canvas's to know. A failed read costs that chat its button, never the whole workspace.
+   */
+  const workspaceWithCheckpoints = async (): Promise<RemoteWorkspaceSnapshot> => {
+    const orchestration = options.orchestration
+    if (!orchestration || !snapshot.chats.some((chat) => chat.orchestrator)) return snapshot
+    const chats = await Promise.all(
+      snapshot.chats.map(async (chat) => {
+        if (!chat.orchestrator) return chat
+        const spawnCheckpoint = await orchestration.checkpoint(chat.id).catch(() => undefined)
+        return spawnCheckpoint ? { ...chat, spawnCheckpoint } : chat
+      })
+    )
+    return { ...snapshot, chats }
+  }
+
+  /** `POST /api/chats/:id/continue-spawns`. Gated on the projection like every chat-addressed call. */
+  const continueSpawns = async (request: IncomingMessage, response: ServerResponse, chatId: string): Promise<void> => {
+    const reply = (status: number, body: unknown): void =>
+      send(request, response, status, JSON.stringify(body), { 'content-type': 'application/json; charset=utf-8' })
+    const orchestration = options.orchestration
+    if (!orchestration) {
+      reply(503, { error: 'This host does not control orchestrations.' })
+      return
+    }
+    if (!snapshot.chats.some((chat) => chat.id === chatId && chat.orchestrator)) {
+      reply(404, { error: 'That orchestrator is not open on the desktop.' })
+      return
+    }
+    try {
+      const result = await orchestration.continueSpawns(chatId)
+      if (result.ok) reply(200, { ok: true })
+      else reply(409, { error: result.message ?? 'The orchestration is not at its spawn budget.' })
+    } catch (cause) {
+      reply(503, { error: cause instanceof Error ? cause.message : 'The host could not continue the orchestration.' })
+    }
+  }
+
+  /**
    * `GET /api/usage`'s reading, with the seam's failures absorbed. Wrapping in an async call
    * normalizes a synchronous reader and a synchronous throw alike, exactly as `provider-usage.ts`
    * does one layer down - a provider CLI is the single flakiest thing this host talks to, and it
@@ -428,7 +481,7 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
         send(request, response, 204, null)
         return
       case 'workspace':
-        send(request, response, 200, JSON.stringify(snapshot), {
+        send(request, response, 200, JSON.stringify(await workspaceWithCheckpoints()), {
           'content-type': 'application/json; charset=utf-8'
         })
         return
@@ -452,6 +505,9 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
         return
       case 'create-chat':
         await createChat(request, response)
+        return
+      case 'continue-spawns':
+        await continueSpawns(request, response, route.chatId)
         return
       case 'transcribe':
         await transcribe(request, response)

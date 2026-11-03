@@ -16,6 +16,8 @@ export type RemoteRoute =
   | { kind: 'pairing' }
   /** Starts a chat that does not exist yet. */
   | { kind: 'create-chat' }
+  /** The orchestrator's Continue (+20) at its spawn budget, for the chat named in the path. */
+  | { kind: 'continue-spawns'; chatId: string }
   /**
    * What each provider was last seen to offer, so a client choosing a model *before* a session
    * exists has something to choose from. Deliberately its own route rather than a field on the
@@ -79,6 +81,12 @@ export function resolveRemoteRoute(method: string | undefined, target: string | 
     // chats exist is already the workspace projection's answer.
     return method === 'POST' ? { kind: 'create-chat' } : { kind: 'method-not-allowed', allow: 'POST' }
   }
+  const continueSpawns = /^\/api\/chats\/([^/]+)\/continue-spawns$/.exec(pathname)
+  if (continueSpawns) {
+    return method === 'POST'
+      ? { kind: 'continue-spawns', chatId: continueSpawns[1] }
+      : { kind: 'method-not-allowed', allow: 'POST' }
+  }
   if (pathname === '/api/transcribe') {
     return method === 'POST' ? { kind: 'transcribe' } : { kind: 'method-not-allowed', allow: 'POST' }
   }
@@ -97,6 +105,7 @@ export function routeRequiresPairing(route: RemoteRoute): boolean {
     route.kind === 'workspace' ||
     route.kind === 'pairing' ||
     route.kind === 'create-chat' ||
+    route.kind === 'continue-spawns' ||
     route.kind === 'models' ||
     route.kind === 'usage' ||
     route.kind === 'transcribe' ||

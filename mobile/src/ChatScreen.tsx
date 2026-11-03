@@ -52,7 +52,7 @@ import ChatKindBadge from './ChatKindBadge'
 import ChatMarkdown from './ChatMarkdown'
 import type { SavedHost } from './hosts'
 import MobileVoiceInput from './MobileVoiceInput'
-import { fetchWorkspace, rememberFocusMode, storedFocusMode } from './remote-client'
+import { WORKSPACE_POLL_MS, continueSpawns, fetchWorkspace, rememberFocusMode, storedFocusMode } from './remote-client'
 import { appendDictation, voiceStatusLine, type MobileVoiceStatus } from './voice-input'
 import { useChatConnection, type ChatConnection } from './use-chat-connection'
 
@@ -111,6 +111,26 @@ export default function ChatScreen({
       cancelled = true
     }
   }, [summary, host, chatId, onUnauthorized])
+
+  // The spawn checkpoint is orchestration state the host folds into each workspace read, so an
+  // orchestrator's chat keeps reading it; no other chat has anything to learn from the poll.
+  const isOrchestrator = summary?.orchestrator === true
+  useEffect(() => {
+    if (!isOrchestrator) return
+    const controller = new AbortController()
+    const refresh = (): void => {
+      void fetchWorkspace(host, controller.signal).then((result) => {
+        if (!result.ok) return
+        const fresh = result.value.chats.find((chat) => chat.id === chatId)
+        if (fresh) setSummary(fresh)
+      })
+    }
+    const timer = setInterval(refresh, WORKSPACE_POLL_MS)
+    return () => {
+      clearInterval(timer)
+      controller.abort()
+    }
+  }, [isOrchestrator, host, chatId])
 
   const [focusMode, setFocusMode] = useState(storedFocusMode)
   const toggleFocusMode = (): void => {
@@ -215,6 +235,14 @@ export default function ChatScreen({
         {summary && <ChatKindBadge kind={summary.kind} />}
       </header>
 
+      {summary?.spawnCheckpoint && (
+        <SpawnCheckpoint
+          host={host}
+          chatId={chatId}
+          checkpoint={summary.spawnCheckpoint}
+          onUnauthorized={onUnauthorized}
+        />
+      )}
       <ModelBar connection={connection} />
       <SessionUsageRow readout={usageReadout} limitFreshness={providerUsage} />
 
@@ -258,6 +286,52 @@ export default function ChatScreen({
       {pending && <PendingRequestCard key={pending.id} pending={pending} connection={connection} />}
       {!composerHidden(connection) && <Composer connection={connection} host={host} />}
     </main>
+  )
+}
+
+/**
+ * An orchestration at its spawn budget refuses further spawns until the human continues. Wording
+ * and effect match the desktop node: Continue (+20) raises the budget by 20 and wakes the
+ * orchestrator. The card goes away when the next workspace read no longer reports the checkpoint.
+ */
+function SpawnCheckpoint({
+  host,
+  chatId,
+  checkpoint,
+  onUnauthorized
+}: {
+  host: SavedHost
+  chatId: string
+  checkpoint: { used: number; budget: number }
+  onUnauthorized(): void
+}): JSX.Element {
+  const [pending, setPending] = useState(false)
+  const [problem, setProblem] = useState<string | null>(null)
+  const press = async (): Promise<void> => {
+    setPending(true)
+    setProblem(null)
+    const result = await continueSpawns(host, chatId)
+    setPending(false)
+    if (result.ok) return
+    if (result.kind === 'unauthorized') onUnauthorized()
+    else setProblem(result.message)
+  }
+  return (
+    <section className="chat-checkpoint">
+      <p role="status">
+        Spawn budget reached ({checkpoint.used}/{checkpoint.budget}) — waiting for you
+      </p>
+      <button
+        type="button"
+        className="chat-checkpoint-continue"
+        disabled={pending}
+        title="Raise the spawn budget by 20 and wake the orchestrator to retry"
+        onClick={() => void press()}
+      >
+        Continue (+20)
+      </button>
+      {problem && <p role="alert">{problem}</p>}
+    </section>
   )
 }
 

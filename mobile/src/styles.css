@@ -1764,3 +1764,18 @@ body {
   background: var(--raised);
   font-size: 11px;
 }
+
+.chat-checkpoint {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px;
+}
+
+.chat-checkpoint p {
+  margin: 0;
+}
+
+.chat-checkpoint-continue {
+  align-self: flex-start;
+}

@@ -14,7 +14,8 @@ import {
   type RemoteAccessServer,
   type RemoteChatRead,
   type RemoteChatSessionOperations,
-  type RemoteChatSpawn
+  type RemoteChatSpawn,
+  type RemoteOrchestration
 } from '../src/main/remote/remote-server'
 import type { RemoteAccessAddress } from '../src/shared/remote-access'
 import { REMOTE_SPAWN_BODY_LIMIT, type RemoteChatSpawnRequest } from '../src/shared/remote-spawn'
@@ -93,6 +94,7 @@ function harness(
     sessions?: RemoteChatSessionOperations
     read?: RemoteChatRead
     spawn?: RemoteChatSpawn
+    orchestration?: RemoteOrchestration
     models?: () => AgentModelCatalogue
     usage?: () => ProviderUsageReport | Promise<ProviderUsageReport>
     transcriber?: { transcribe: (audio: Float32Array) => Promise<RemoteTranscriptionResult> }
@@ -119,6 +121,7 @@ function harness(
     ...(options.sessions ? { sessions: options.sessions } : {}),
     ...(options.read ? { read: options.read } : {}),
     ...(options.spawn ? { spawn: options.spawn } : {}),
+    ...(options.orchestration ? { orchestration: options.orchestration } : {}),
     ...(options.models ? { models: options.models } : {}),
     ...(options.usage ? { usage: options.usage } : {}),
     ...(options.transcriber ? { transcriber: options.transcriber } : {}),
@@ -2225,5 +2228,99 @@ describe('serving a linked image over HTTP', () => {
     const created = await listening()
     const response = await created.get(remoteFileRequestPath('D:/x.png'), created.store.read().token)
     assert.equal(response.status, 503)
+  })
+})
+
+/**
+ * The orchestrator's Continue (+20) from a phone: the checkpoint is folded into the workspace the
+ * phone reads, and the press goes to the same controller operation the desktop button runs.
+ */
+describe('the spawn checkpoint over HTTP', () => {
+  const chat = (id: string, orchestrator: boolean): (typeof PROJECTION)['chats'][number] => ({
+    id,
+    kind: 'claude',
+    title: id,
+    projectId: 'toucan',
+    status: 'idle',
+    unread: 0,
+    ...(orchestrator ? { orchestrator: true as const } : {})
+  })
+  const PROJECTION = {
+    projects: [{ id: 'toucan', name: 'Toucan', color: '#71a9ff' }],
+    chats: [chat('orch-1', true), chat('orch-2', true), chat('chat-1', false)]
+  }
+
+  async function checkpointHarness(orchestration?: RemoteOrchestration): Promise<Harness> {
+    const created = harness(orchestration ? { orchestration } : {})
+    await created.server.applySettings({ enabled: true, port: await freePort() })
+    created.server.publishWorkspace(PROJECTION)
+    return created
+  }
+
+  test('only an orchestrator at its budget carries the checkpoint', async () => {
+    const created = await checkpointHarness({
+      checkpoint: async (chatId) => (chatId === 'orch-1' ? { used: 20, budget: 20 } : undefined),
+      continueSpawns: async () => ({ ok: true })
+    })
+    const response = await created.get('/api/workspace', created.store.read().token)
+    const chats = JSON.parse(response.body).chats as { id: string; spawnCheckpoint?: unknown }[]
+    assert.deepEqual(chats.find((c) => c.id === 'orch-1')?.spawnCheckpoint, { used: 20, budget: 20 })
+    assert.equal(chats.find((c) => c.id === 'orch-2')?.spawnCheckpoint, undefined)
+    assert.equal(chats.find((c) => c.id === 'chat-1')?.spawnCheckpoint, undefined)
+  })
+
+  test('a checkpoint read that fails costs that chat its button, not the workspace', async () => {
+    const created = await checkpointHarness({
+      checkpoint: async () => {
+        throw new Error('record unreadable')
+      },
+      continueSpawns: async () => ({ ok: true })
+    })
+    const response = await created.get('/api/workspace', created.store.read().token)
+    assert.equal(response.status, 200)
+    assert.equal(JSON.parse(response.body).chats.length, 3)
+  })
+
+  test('pressing Continue reaches the desktop controller for that orchestrator', async () => {
+    const continued: string[] = []
+    const created = await checkpointHarness({
+      checkpoint: async () => undefined,
+      continueSpawns: async (chatId) => {
+        continued.push(chatId)
+        return { ok: true }
+      }
+    })
+    const response = await created.post('/api/chats/orch-1/continue-spawns', '', created.store.read().token)
+    assert.equal(response.status, 200)
+    assert.deepEqual(continued, ['orch-1'])
+  })
+
+  test('an unpaired caller, an unlisted chat and a non-orchestrator never reach the controller', async () => {
+    const continued: string[] = []
+    const created = await checkpointHarness({
+      checkpoint: async () => undefined,
+      continueSpawns: async (chatId) => {
+        continued.push(chatId)
+        return { ok: true }
+      }
+    })
+    const token = created.store.read().token
+    assert.equal((await created.post('/api/chats/orch-1/continue-spawns', '', 'wrong-token')).status, 401)
+    assert.equal((await created.post('/api/chats/chat-1/continue-spawns', '', token)).status, 404)
+    assert.equal((await created.post('/api/chats/ghost/continue-spawns', '', token)).status, 404)
+    assert.deepEqual(continued, [])
+  })
+
+  test('a refusal from the controller is passed through, and a host without the seam says so', async () => {
+    const refused = await checkpointHarness({
+      checkpoint: async () => undefined,
+      continueSpawns: async () => ({ ok: false, message: 'That chat is not an orchestrator.' })
+    })
+    const response = await refused.post('/api/chats/orch-1/continue-spawns', '', refused.store.read().token)
+    assert.equal(response.status, 409)
+    assert.deepEqual(JSON.parse(response.body), { error: 'That chat is not an orchestrator.' })
+
+    const bare = await checkpointHarness()
+    assert.equal((await bare.post('/api/chats/orch-1/continue-spawns', '', bare.store.read().token)).status, 503)
   })
 })
