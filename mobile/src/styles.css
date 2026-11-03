@@ -1780,6 +1780,28 @@ body {
   align-self: flex-start;
 }
 
+/* Pinned open questions: capped so a long one scrolls inside the strip, not the transcript away. */
+.open-questions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 12px;
+  max-height: 40vh;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--line);
+}
+
+.open-questions h2,
+.open-questions p {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.open-question-actions {
+  display: flex;
+  gap: 8px;
+}
+
 /* The desktop's version chip, as a card on the list screen: quiet until there is something to do. */
 .app-update {
   display: flex;

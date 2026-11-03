@@ -7,6 +7,7 @@ import type {
 } from '../../src/shared/agent'
 import { describeSessionUsage, describeUsageFreshness, type SessionUsageReadout } from '../../src/shared/session-usage'
 import type { RemoteChatSummary } from '../../src/shared/remote-access'
+import type { OrchestrationOpenQuestion } from '../../src/shared/ticket-session-spawn'
 import { isToucanOriginText } from '../../src/shared/toucan-origin'
 import {
   activityBodyStale,
@@ -52,7 +53,14 @@ import ChatKindBadge from './ChatKindBadge'
 import ChatMarkdown from './ChatMarkdown'
 import type { SavedHost } from './hosts'
 import MobileVoiceInput from './MobileVoiceInput'
-import { WORKSPACE_POLL_MS, continueSpawns, fetchWorkspace, rememberFocusMode, storedFocusMode } from './remote-client'
+import {
+  WORKSPACE_POLL_MS,
+  continueSpawns,
+  fetchWorkspace,
+  rememberFocusMode,
+  resolveQuestion,
+  storedFocusMode
+} from './remote-client'
 import { appendDictation, voiceStatusLine, type MobileVoiceStatus } from './voice-input'
 import { useChatConnection, type ChatConnection } from './use-chat-connection'
 
@@ -243,6 +251,15 @@ export default function ChatScreen({
           onUnauthorized={onUnauthorized}
         />
       )}
+      {summary?.openQuestions && summary.openQuestions.length > 0 && (
+        <OpenQuestions
+          host={host}
+          chatId={chatId}
+          questions={summary.openQuestions}
+          onAnswer={(id) => connection.onDraftChange(answerDraft(connection.draft, id))}
+          onUnauthorized={onUnauthorized}
+        />
+      )}
       <ModelBar connection={connection} />
       <SessionUsageRow readout={usageReadout} limitFreshness={providerUsage} />
 
@@ -330,6 +347,67 @@ function SpawnCheckpoint({
       >
         Continue (+20)
       </button>
+      {problem && <p role="alert">{problem}</p>}
+    </section>
+  )
+}
+
+/** The composer text after Antworten: a `Zu Q<n>: ` lead-in, ahead of whatever is already typed. */
+function answerDraft(draft: string, questionId: string): string {
+  const lead = `Zu ${questionId}: `
+  return draft.startsWith(lead) ? draft : `${lead}${draft}`
+}
+
+/**
+ * The orchestrator's open questions, pinned above the transcript (not part of its paged history):
+ * each is stored once, verbatim, so its links and context are here and not far up the scroll.
+ * Erledigt resolves one on the host; Antworten starts the composer with `Zu Q<n>: `. A question
+ * leaves when the next workspace read no longer lists it.
+ */
+function OpenQuestions({
+  host,
+  chatId,
+  questions,
+  onAnswer,
+  onUnauthorized
+}: {
+  host: SavedHost
+  chatId: string
+  questions: OrchestrationOpenQuestion[]
+  onAnswer(questionId: string): void
+  onUnauthorized(): void
+}): JSX.Element {
+  const [pendingId, setPendingId] = useState<string | null>(null)
+  const [problem, setProblem] = useState<string | null>(null)
+  const resolve = async (id: string): Promise<void> => {
+    setPendingId(id)
+    setProblem(null)
+    const result = await resolveQuestion(host, chatId, id)
+    setPendingId(null)
+    if (result.ok) return
+    if (result.kind === 'unauthorized') onUnauthorized()
+    else setProblem(result.message)
+  }
+  return (
+    <section className="open-questions" aria-label="Offene Fragen">
+      <h2>Offene Fragen ({questions.length})</h2>
+      {questions.map((question) => (
+        <article key={question.id} className="open-question">
+          <header>
+            <strong>{question.id}</strong>
+            {question.ticketId !== undefined && <span> · #{question.ticketId}</span>}
+          </header>
+          <ChatMarkdown host={host} text={question.markdown} />
+          <div className="open-question-actions">
+            <button type="button" onClick={() => onAnswer(question.id)}>
+              Antworten
+            </button>
+            <button type="button" disabled={pendingId === question.id} onClick={() => void resolve(question.id)}>
+              Erledigt
+            </button>
+          </div>
+        </article>
+      ))}
       {problem && <p role="alert">{problem}</p>}
     </section>
   )

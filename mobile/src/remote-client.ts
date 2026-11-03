@@ -285,6 +285,26 @@ export async function continueSpawns(host: HostEndpoint, chatId: string): Promis
 }
 
 /**
+ * The human marking a pinned question done (#2's resolve route). A stale press (already resolved)
+ * is accepted by the host as a no-op, so a refusal is only ever a reason the reader can read.
+ */
+export async function resolveQuestion(
+  host: HostEndpoint,
+  chatId: string,
+  questionId: string
+): Promise<RemoteResult<true>> {
+  const sent = await send(
+    `/api/chats/${encodeURIComponent(chatId)}/questions/${encodeURIComponent(questionId)}/resolve`,
+    host,
+    { method: 'POST' }
+  )
+  if (!sent.ok) return sent
+  if (sent.value.ok) return { ok: true, value: true }
+  const payload = await readJsonBody(sent.value)
+  return { ok: false, kind: 'unreachable', message: hostRefusal(payload, sent.value.status) }
+}
+
+/**
  * The desktop's update state, exactly as its header chip reads it (#5). A host too old to have the
  * route answers 404, which arrives here as an ordinary failure: the phone then shows no update card.
  */
