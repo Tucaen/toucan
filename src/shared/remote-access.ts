@@ -20,6 +20,7 @@ import type { WorkspaceState } from './workspace'
 import type { AgentProvider } from './agent-provider'
 import { ORCHESTRATOR_ROLE } from './orchestration'
 import { ticketWorktreeOwners, type OwnershipNode } from './ticket-worktree-owners'
+import type { OrchestrationOpenQuestion } from './ticket-session-spawn'
 
 /**
  * Well above the ephemeral range and unassigned by IANA, so it rarely collides on a dev machine.
@@ -158,12 +159,45 @@ export interface RemoteChatSummary {
    */
   spawnCheckpoint?: { used: number; budget: number }
   /**
+   * Set on an orchestrator with questions pinned for the human (#2), oldest first, each markdown
+   * verbatim: the phone pins them and resolves one through
+   * `POST /api/chats/:id/questions/:questionId/resolve`. Folded in by the host like
+   * `spawnCheckpoint`, never part of the canvas projection.
+   */
+  openQuestions?: OrchestrationOpenQuestion[]
+  /**
    * The orchestrator that owns the worktree this chat runs in (see `ticketWorktreeOwners`), written
    * only on a ticket session the desktop lists beneath that orchestrator. The phone nests it there.
    */
   orchestratorId?: string
   /** The branch of the worktree a nested chat runs in; the desktop lists the chat under that branch. */
   worktree?: string
+}
+
+/** The most a resolve request's body may carry: a JSON object with an optional note. */
+export const REMOTE_QUESTION_RESOLVE_BODY_LIMIT = 8 * 1024
+
+/** The longest note a phone may send with a resolved question. */
+export const REMOTE_QUESTION_NOTE_LIMIT = 4000
+
+/**
+ * A resolve request's body: empty, or `{ "note"?: string }`. A blank note reads as none; anything
+ * else, a note past `REMOTE_QUESTION_NOTE_LIMIT` included, is null.
+ */
+export function parseRemoteQuestionResolveBody(body: string): { note?: string } | null {
+  if (body.trim() === '') return {}
+  let value: unknown
+  try {
+    value = JSON.parse(body)
+  } catch {
+    return null
+  }
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null
+  const { note, ...rest } = value as { note?: unknown }
+  if (Object.keys(rest).length > 0) return null
+  if (note === undefined) return {}
+  if (typeof note !== 'string' || note.length > REMOTE_QUESTION_NOTE_LIMIT) return null
+  return note.trim() === '' ? {} : { note: note.trim() }
 }
 
 export interface RemoteProjectSummary {

@@ -5,6 +5,8 @@ import type { Duplex } from 'node:stream'
 import { WebSocketServer, type WebSocket } from 'ws'
 import {
   EMPTY_REMOTE_WORKSPACE_SNAPSHOT,
+  parseRemoteQuestionResolveBody,
+  REMOTE_QUESTION_RESOLVE_BODY_LIMIT,
   remoteAccessPortProblem,
   remoteBindHostProblem,
   type RemoteAccessAddress,
@@ -45,6 +47,7 @@ import type {
   ProviderUsageReport
 } from '../../shared/agent'
 import type { AgentTranscriptState } from '../../shared/agent-transcript'
+import type { OrchestrationOpenQuestion } from '../../shared/ticket-session-spawn'
 import type { AppUpdateSnapshot } from '../../shared/app-update'
 import {
   parseRemoteRestartRequest,
@@ -200,6 +203,13 @@ export interface RemoteAccessServerOptions {
 export interface RemoteOrchestration {
   checkpoint(chatId: string): Promise<{ used: number; budget: number } | undefined>
   continueSpawns(chatId: string): Promise<AgentPromptResult>
+  /** The orchestrator's open pinned questions (#2); absent, the phone sees none. */
+  openQuestions?(chatId: string): Promise<OrchestrationOpenQuestion[] | undefined>
+  /**
+   * The same resolve the desktop's pinned strip runs, which wakes the orchestrator. `ok: false` for
+   * a chat that is not an orchestrator or a question it does not have; a resolved one answers ok.
+   */
+  resolveQuestion?(chatId: string, questionId: string, note?: string): Promise<AgentPromptResult>
 }
 
 /**
@@ -374,9 +384,10 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
   }
 
   /**
-   * The published projection with each orchestrator's spawn checkpoint folded in. Read per request
-   * from main's own records, because the projection is the renderer's answer and the budget is not
-   * the canvas's to know. A failed read costs that chat its button, never the whole workspace.
+   * The published projection with each orchestrator's spawn checkpoint and open pinned questions
+   * folded in. Read per request from main's own records, because the projection is the renderer's
+   * answer and neither is the canvas's to know. A failed read costs that chat its button or strip,
+   * never the whole workspace.
    */
   const workspaceWithCheckpoints = async (): Promise<RemoteWorkspaceSnapshot> => {
     const orchestration = options.orchestration
@@ -384,8 +395,15 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
     const chats = await Promise.all(
       snapshot.chats.map(async (chat) => {
         if (!chat.orchestrator) return chat
-        const spawnCheckpoint = await orchestration.checkpoint(chat.id).catch(() => undefined)
-        return spawnCheckpoint ? { ...chat, spawnCheckpoint } : chat
+        const [spawnCheckpoint, openQuestions] = await Promise.all([
+          orchestration.checkpoint(chat.id).catch(() => undefined),
+          orchestration.openQuestions?.(chat.id).catch(() => undefined)
+        ])
+        return {
+          ...chat,
+          ...(spawnCheckpoint ? { spawnCheckpoint } : {}),
+          ...(openQuestions && openQuestions.length > 0 ? { openQuestions } : {})
+        }
       })
     )
     return { ...snapshot, chats }
@@ -410,6 +428,47 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
       else reply(409, { error: result.message ?? 'The orchestration is not at its spawn budget.' })
     } catch (cause) {
       reply(503, { error: cause instanceof Error ? cause.message : 'The host could not continue the orchestration.' })
+    }
+  }
+
+  /** `POST /api/chats/:id/questions/:questionId/resolve`, gated on the projection like Continue. */
+  const resolveQuestion = async (
+    request: IncomingMessage,
+    response: ServerResponse,
+    chatId: string,
+    questionId: string
+  ): Promise<void> => {
+    const reply = (status: number, body: unknown): void =>
+      send(request, response, status, JSON.stringify(body), { 'content-type': 'application/json; charset=utf-8' })
+    const orchestration = options.orchestration
+    if (!orchestration?.resolveQuestion) {
+      reply(503, { error: 'This host does not control orchestrations.' })
+      return
+    }
+    if (!snapshot.chats.some((chat) => chat.id === chatId && chat.orchestrator)) {
+      reply(404, { error: 'That orchestrator is not open on the desktop.' })
+      return
+    }
+    if (!/^Q[1-9][0-9]*$/.test(questionId)) {
+      reply(400, { error: 'That is not a question id.' })
+      return
+    }
+    const body = await readBoundedBody(request, REMOTE_QUESTION_RESOLVE_BODY_LIMIT)
+    if (body === null) {
+      reply(413, { error: 'That request was too large to read.' })
+      return
+    }
+    const parsed = parseRemoteQuestionResolveBody(body)
+    if (!parsed) {
+      reply(400, { error: 'A resolve request carries at most a short note.' })
+      return
+    }
+    try {
+      const result = await orchestration.resolveQuestion(chatId, questionId, parsed.note)
+      if (result.ok) reply(200, { ok: true })
+      else reply(409, { error: result.message ?? 'The question could not be resolved.' })
+    } catch (cause) {
+      reply(503, { error: cause instanceof Error ? cause.message : 'The host could not resolve the question.' })
     }
   }
 
@@ -594,6 +653,9 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
         return
       case 'continue-spawns':
         await continueSpawns(request, response, route.chatId)
+        return
+      case 'resolve-question':
+        await resolveQuestion(request, response, route.chatId, route.questionId)
         return
       case 'app-update':
       case 'app-update-check':

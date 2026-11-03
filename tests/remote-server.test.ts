@@ -2331,6 +2331,116 @@ describe('the spawn checkpoint over HTTP', () => {
 })
 
 /**
+ * Pinned open questions on the phone (#2): the open ones are folded into the orchestrator's summary
+ * the way the checkpoint is, and resolving one reaches the same controller operation the desktop runs.
+ */
+describe('pinned open questions over HTTP', () => {
+  const chat = (id: string, orchestrator: boolean): RemoteWorkspaceProjection['chats'][number] => ({
+    id,
+    kind: 'claude',
+    title: id,
+    projectId: 'toucan',
+    status: 'idle',
+    unread: 0,
+    ...(orchestrator ? { orchestrator: true as const } : {})
+  })
+  const PROJECTION = {
+    projects: [{ id: 'toucan', name: 'Toucan', color: '#71a9ff' }],
+    chats: [chat('orch-1', true), chat('orch-2', true), chat('chat-1', false)]
+  }
+  const QUESTION = { id: 'Q3', ticketId: '3', markdown: '![a](file:///D:/a.png)', createdAt: 't' }
+
+  async function questionsHarness(orchestration?: RemoteOrchestration): Promise<Harness> {
+    const created = harness(orchestration ? { orchestration } : {})
+    await created.server.applySettings({ enabled: true, port: await freePort() })
+    created.server.publishWorkspace(PROJECTION)
+    return created
+  }
+
+  const resolved: Array<{ chatId: string; questionId: string; note?: string }> = []
+  const seam = (overrides: Partial<RemoteOrchestration> = {}): RemoteOrchestration => ({
+    checkpoint: async () => undefined,
+    continueSpawns: async () => ({ ok: true }),
+    openQuestions: async (chatId) => (chatId === 'orch-1' ? [QUESTION] : []),
+    resolveQuestion: async (chatId, questionId, note) => {
+      resolved.push({ chatId, questionId, ...(note !== undefined ? { note } : {}) })
+      return { ok: true }
+    },
+    ...overrides
+  })
+
+  afterEach(() => {
+    resolved.length = 0
+  })
+
+  test('only an orchestrator with open questions carries them, verbatim', async () => {
+    const created = await questionsHarness(seam())
+    const response = await created.get('/api/workspace', created.store.read().token)
+    const chats = JSON.parse(response.body).chats as { id: string; openQuestions?: unknown }[]
+    assert.deepEqual(chats.find((c) => c.id === 'orch-1')?.openQuestions, [QUESTION])
+    assert.equal(chats.find((c) => c.id === 'orch-2')?.openQuestions, undefined)
+    assert.equal(chats.find((c) => c.id === 'chat-1')?.openQuestions, undefined)
+  })
+
+  test('a question read that fails costs that chat its strip, not the workspace', async () => {
+    const created = await questionsHarness(
+      seam({
+        openQuestions: async () => {
+          throw new Error('record unreadable')
+        }
+      })
+    )
+    const response = await created.get('/api/workspace', created.store.read().token)
+    assert.equal(response.status, 200)
+    assert.equal(JSON.parse(response.body).chats.length, 3)
+  })
+
+  test('resolving reaches the desktop controller with the note, or without one for an empty body', async () => {
+    const created = await questionsHarness(seam())
+    const token = created.store.read().token
+    const withNote = await created.post(
+      '/api/chats/orch-1/questions/Q3/resolve',
+      JSON.stringify({ note: ' left ' }),
+      token
+    )
+    assert.equal(withNote.status, 200)
+    assert.equal((await created.post('/api/chats/orch-1/questions/Q3/resolve', '', token)).status, 200)
+    assert.deepEqual(resolved, [
+      { chatId: 'orch-1', questionId: 'Q3', note: 'left' },
+      { chatId: 'orch-1', questionId: 'Q3' }
+    ])
+  })
+
+  test('an unpaired caller, a non-orchestrator, a bad id or body never reach the controller', async () => {
+    const created = await questionsHarness(seam())
+    const token = created.store.read().token
+    assert.equal((await created.post('/api/chats/orch-1/questions/Q3/resolve', '', 'wrong-token')).status, 401)
+    assert.equal((await created.post('/api/chats/chat-1/questions/Q3/resolve', '', token)).status, 404)
+    assert.equal((await created.post('/api/chats/ghost/questions/Q3/resolve', '', token)).status, 404)
+    assert.equal((await created.post('/api/chats/orch-1/questions/nope/resolve', '', token)).status, 400)
+    assert.equal((await created.post('/api/chats/orch-1/questions/Q3/resolve', '{"note": 5}', token)).status, 400)
+    assert.equal((await created.post('/api/chats/orch-1/questions/Q3/resolve', 'not json', token)).status, 400)
+    assert.equal((await created.get('/api/chats/orch-1/questions/Q3/resolve', token)).status, 405)
+    assert.deepEqual(resolved, [])
+  })
+
+  test('a refusal from the controller is passed through, and a host without the seam says so', async () => {
+    const refused = await questionsHarness(
+      seam({ resolveQuestion: async () => ({ ok: false, message: 'That question is not in this orchestration.' }) })
+    )
+    const response = await refused.post('/api/chats/orch-1/questions/Q9/resolve', '', refused.store.read().token)
+    assert.equal(response.status, 409)
+    assert.deepEqual(JSON.parse(response.body), { error: 'That question is not in this orchestration.' })
+
+    const bare = await questionsHarness({
+      checkpoint: async () => undefined,
+      continueSpawns: async () => ({ ok: true })
+    })
+    assert.equal((await bare.post('/api/chats/orch-1/questions/Q3/resolve', '', bare.store.read().token)).status, 503)
+  })
+})
+
+/**
  * Updating the desktop from a phone (#5): the host's own snapshot and check, and a restart the
  * phone confirms itself rather than leaving it to a desktop modal nobody may be looking at.
  */

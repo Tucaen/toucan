@@ -1058,6 +1058,22 @@ void app.whenReady().then(async () => {
           return { ok: false, message: 'That chat is not an orchestrator.' }
         const record = await orchestrationController.continueSpawns(session.key, chatId)
         return record ? { ok: true } : { ok: false, message: 'Toucan could not continue that orchestration.' }
+      },
+      openQuestions: async (chatId) => {
+        const session = await orchestrationSessionForNode(chatId)
+        if (!session || session.ticketNodeId !== undefined) return undefined
+        const record = await orchestrationController.state(session.key, chatId)
+        return record ? orchestrationControlState(record).openQuestions : undefined
+      },
+      resolveQuestion: async (chatId, questionId, note) => {
+        const session = await orchestrationSessionForNode(chatId)
+        if (!session || session.ticketNodeId !== undefined)
+          return { ok: false, message: 'That chat is not an orchestrator.' }
+        const record = await orchestrationController.resolveQuestion(session.key, chatId, questionId, note)
+        if (!record) return { ok: false, message: 'Toucan could not resolve that question.' }
+        return record.openQuestions?.some((question) => question.id === questionId)
+          ? { ok: true }
+          : { ok: false, message: 'That question is not in this orchestration.' }
       }
     },
     // Reading a chat on the phone has to retire its badge everywhere, and the attention records

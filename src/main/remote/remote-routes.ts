@@ -18,6 +18,8 @@ export type RemoteRoute =
   | { kind: 'create-chat' }
   /** The orchestrator's Continue (+20) at its spawn budget, for the chat named in the path. */
   | { kind: 'continue-spawns'; chatId: string }
+  /** The human resolving a pinned question (#2) of the orchestrator named in the path. */
+  | { kind: 'resolve-question'; chatId: string; questionId: string }
   /** The desktop's update state, exactly as its header chip reads it. See `remote-app-update.ts`. */
   | { kind: 'app-update' }
   /** Looks for an update now; a found one downloads on its own, as on the desktop. */
@@ -94,6 +96,12 @@ export function resolveRemoteRoute(method: string | undefined, target: string | 
       ? { kind: 'continue-spawns', chatId: continueSpawns[1] }
       : { kind: 'method-not-allowed', allow: 'POST' }
   }
+  const resolveQuestion = /^\/api\/chats\/([^/]+)\/questions\/([^/]+)\/resolve$/.exec(pathname)
+  if (resolveQuestion) {
+    return method === 'POST'
+      ? { kind: 'resolve-question', chatId: resolveQuestion[1], questionId: resolveQuestion[2] }
+      : { kind: 'method-not-allowed', allow: 'POST' }
+  }
   if (pathname === '/api/app-update/check') {
     return method === 'POST' ? { kind: 'app-update-check' } : { kind: 'method-not-allowed', allow: 'POST' }
   }
@@ -119,6 +127,7 @@ export function routeRequiresPairing(route: RemoteRoute): boolean {
     route.kind === 'pairing' ||
     route.kind === 'create-chat' ||
     route.kind === 'continue-spawns' ||
+    route.kind === 'resolve-question' ||
     route.kind === 'app-update' ||
     route.kind === 'app-update-check' ||
     route.kind === 'app-update-restart' ||
