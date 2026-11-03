@@ -216,6 +216,7 @@ const orchestratorApi: OrchestratorApi = {
   stopOrchestration: (request) => ipcRenderer.invoke(ORCHESTRATOR_CHANNELS.stop, request),
   continueSpawns: (request) => ipcRenderer.invoke(ORCHESTRATOR_CHANNELS.continueSpawns, request),
   forceStartTicket: (request) => ipcRenderer.invoke(ORCHESTRATOR_CHANNELS.forceStart, request),
+  resolveQuestion: (request) => ipcRenderer.invoke(ORCHESTRATOR_CHANNELS.resolveQuestion, request),
   onOrchestrationState: (callback) =>
     subscribe(ORCHESTRATOR_CHANNELS.changed, (state) => callback(state as Parameters<typeof callback>[0]))
 }

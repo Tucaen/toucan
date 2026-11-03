@@ -13,6 +13,7 @@ import {
   resolveOrchestrationQuestion,
   type OrchestrationRecord
 } from '../src/shared/orchestration'
+import { orchestrationControlState } from '../src/shared/ticket-session-spawn'
 
 // Pinned open questions (#2 of the pinned-questions plan): a question for the human is stored once,
 // verbatim, and referenced by its id afterwards, so its links and context never have to be repeated.
@@ -152,4 +153,14 @@ test('question inputs are validated; the markdown travels unchanged', () => {
   assert.deepEqual(parseQuestionListInput(undefined), { list: { all: false } })
   assert.deepEqual(parseQuestionListInput({ all: true }), { list: { all: true } })
   assert.match(parseQuestionListInput({ all: 'yes' }).error ?? '', /takes only/)
+})
+
+test('the control state the UI renders carries the open questions verbatim, resolved ones dropped', () => {
+  let record = addOrchestrationQuestion(planned(), { ticketId: '3', markdown }, 't1').record!
+  record = addOrchestrationQuestion(record, { markdown: 'b' }, 't2').record!
+  record = resolveOrchestrationQuestion(record, 'Q2', 't3', 'no').record!
+  assert.deepEqual(orchestrationControlState(record).openQuestions, [
+    { id: 'Q1', ticketId: '3', markdown, createdAt: 't1' }
+  ])
+  assert.deepEqual(orchestrationControlState(planned()).openQuestions, [])
 })

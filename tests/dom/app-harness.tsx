@@ -135,6 +135,7 @@ export function installWindowApis(options: AppHarnessOptions = {}): AppHarness {
       resumeOrchestration: vi.fn(async () => null),
       stopOrchestration: vi.fn(async () => null),
       continueSpawns: vi.fn(async () => null),
+      resolveQuestion: vi.fn(async () => null),
       onOrchestrationState: () => () => undefined
     }
   }

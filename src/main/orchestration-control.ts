@@ -3,10 +3,12 @@ import type { AgentProvider } from '../shared/agent-provider'
 import {
   continueSpawnBudget,
   pauseOrchestration,
+  resolveOrchestrationQuestion,
   resumeOrchestration,
   spawnBudget,
   SPAWNS_PER_CHECKPOINT,
   stopOrchestration,
+  type OrchestrationQuestion,
   type OrchestrationRecord
 } from '../shared/orchestration'
 import { toucanPrompt } from '../shared/toucan-prompt'
@@ -49,6 +51,17 @@ export interface OrchestrationController {
    * and nobody is woken.
    */
   continueSpawns(key: OrchestrationKey, orchestratorNodeId: string): Promise<OrchestrationRecord | undefined>
+  /**
+   * The human resolved a pinned question from the desktop or the phone (#2): records it and wakes
+   * the orchestrator with `questionResolvedPrompt`. Idempotent - an unknown or already resolved
+   * question returns the record as is, and nobody is woken.
+   */
+  resolveQuestion(
+    key: OrchestrationKey,
+    orchestratorNodeId: string,
+    questionId: string,
+    note?: string
+  ): Promise<OrchestrationRecord | undefined>
   stop(key: OrchestrationKey, orchestratorNodeId: string): Promise<OrchestrationRecord | undefined>
   mayWake(orchestratorNodeId: string): Promise<boolean>
   idle(): Promise<void>
@@ -91,6 +104,20 @@ export function continuePrompt(record: OrchestrationRecord): string {
     `user pressed Continue (+${SPAWNS_PER_CHECKPOINT})`,
     `The spawn budget is now ${spawnBudget(record)} (${record.spawnCount ?? 0} used). Reread \`status\` and ` +
       '`plan show`, then retry the spawn that was refused.'
+  )
+}
+
+/**
+ * What the orchestrator is told when the human resolves a pinned question. The question itself is
+ * not repeated: the orchestrator reads it with `question list --all` if it needs it again.
+ * @internal exported for tests
+ */
+export function questionResolvedPrompt(question: OrchestrationQuestion): string {
+  const about = question.ticketId ? ` It was ticket ${question.ticketId}'s question.` : ''
+  const note = question.resolution ? `Their note: ${question.resolution}` : 'They left no note.'
+  return toucanPrompt(
+    `user resolved ${question.id}`,
+    `${note}${about} Reread \`question list\` and \`status\`, then continue the work that waited on it.`
   )
 }
 
@@ -250,6 +277,28 @@ export function createOrchestrationController(options: OrchestrationControllerOp
           // Not awaited: a working orchestrator takes the wake only at its turn's end, and the
           // button must not wait that long. `idle()` still covers it.
           void track(deliver(orchestratorNodeId, continuePrompt(result.record)))
+          return result.record
+        })()
+      )
+    },
+
+    async resolveQuestion(key, orchestratorNodeId, questionId, note) {
+      if (!(await authorizeControl(key, orchestratorNodeId))) return undefined
+      knownOrchestrations.set(orchestratorNodeId, key)
+      return track(
+        (async () => {
+          const result = await options.records.update<{
+            record: OrchestrationRecord | undefined
+            question?: OrchestrationQuestion
+          }>(key, (current) => {
+            const resolved = current && resolveOrchestrationQuestion(current, questionId, nowIso(now()), note)
+            if (!current || !resolved?.changed) return { value: current, result: { record: current } }
+            return { value: resolved.record, result: { record: resolved.record, question: resolved.question } }
+          })
+          if (!result.record || !result.question) return result.record
+          options.changed?.(result.record)
+          // Not awaited, like Continue: a working orchestrator takes the wake only at its turn's end.
+          void track(deliver(orchestratorNodeId, questionResolvedPrompt(result.question)))
           return result.record
         })()
       )

@@ -3,11 +3,17 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'vitest'
-import { createOrchestrationController, orchestrationResetAt } from '../src/main/orchestration-control'
+import {
+  createOrchestrationController,
+  orchestrationResetAt,
+  questionResolvedPrompt
+} from '../src/main/orchestration-control'
 import { createOrchestrationStore } from '../src/main/orchestration-store'
 import {
+  addOrchestrationQuestion,
   applyPlan,
   deferOrchestration,
+  openOrchestrationQuestions,
   parsePlanInput,
   SPAWNS_PER_CHECKPOINT,
   type OrchestrationRecord
@@ -359,4 +365,47 @@ test('Continue below the budget changes nothing and wakes nobody', async () => {
   await controller.idle()
   assert.equal(prompts.length, 0)
   assert.equal(changes.length, 0)
+})
+
+test('the human resolving a pinned question records it, wakes the orchestrator once and names the note (#2)', async () => {
+  const { records, controller, prompts, changes } = harness()
+  const asked = addOrchestrationQuestion(record(), { ticketId: '1', markdown: 'Left or right?' }, 't1').record!
+  await records.update(key, () => ({
+    value: addOrchestrationQuestion(asked, { markdown: 'Ship today?' }, 't1').record!,
+    result: undefined
+  }))
+
+  // Only the orchestrator node's own controls may resolve; a ticket session or a stranger is refused.
+  assert.equal(await controller.resolveQuestion(key, 'ticket-1', 'Q1'), undefined)
+  assert.equal(await controller.resolveQuestion(key, 'stranger', 'Q1'), undefined)
+
+  const resolved = await controller.resolveQuestion(key, 'orchestrator', 'Q1', 'the left one')
+  const q1 = resolved?.openQuestions?.find((question) => question.id === 'Q1')
+  assert.equal(q1?.resolution, 'the left one')
+  assert.equal(q1?.resolvedAt, new Date(RESET - 60_000).toISOString())
+  assert.deepEqual(
+    openOrchestrationQuestions((await records.read(key))!).map((question) => question.id),
+    ['Q2']
+  )
+  assert.equal(changes.length, 1)
+  await controller.idle()
+  assert.deepEqual(
+    prompts.map((prompt) => prompt.nodeId),
+    ['orchestrator']
+  )
+  assert.equal(prompts[0].text, questionResolvedPrompt(q1!))
+  assert.match(prompts[0].text, /^\[Toucan: user resolved Q1\]\n/)
+  assert.match(prompts[0].text, /ticket 1/)
+  assert.match(prompts[0].text, /the left one/)
+
+  // Without a note the wake says so; a stale second press or an unknown id wakes nobody.
+  await controller.resolveQuestion(key, 'orchestrator', 'Q2')
+  await controller.idle()
+  assert.match(prompts[1].text, /^\[Toucan: user resolved Q2\]\n.*no note/s)
+  const stale = await controller.resolveQuestion(key, 'orchestrator', 'Q1', 'again')
+  assert.equal(stale?.openQuestions?.find((question) => question.id === 'Q1')?.resolution, 'the left one')
+  assert.equal((await controller.resolveQuestion(key, 'orchestrator', 'Q9'))?.conversationId, key.conversationId)
+  await controller.idle()
+  assert.equal(prompts.length, 2)
+  assert.equal(changes.length, 2)
 })

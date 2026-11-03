@@ -1,3 +1,12 @@
+import {
+  openOrchestrationQuestions,
+  pacingDeferral,
+  spawnBudget,
+  spawnBudgetReached,
+  startableTickets,
+  type OrchestrationQuestion,
+  type OrchestrationRecord
+} from './orchestration'
 import type { JevReachability } from './orchestration-routing'
 import { isAgentProvider, type AgentProvider } from './agent-provider'
 import { isRecord } from './record'
@@ -83,6 +92,55 @@ export interface OrchestrationControlState {
   spawnCheckpoint?: { used: number; budget: number }
   /** Tickets the user may start now, skipping provider pacing; see `startableTickets`. */
   startable?: Array<{ id: string; title: string }>
+  /**
+   * The questions pinned for the human and not yet resolved, oldest first (#2), each with its
+   * markdown verbatim. Resolving one goes through `resolveQuestion`, which wakes the orchestrator.
+   */
+  openQuestions?: OrchestrationOpenQuestion[]
+}
+
+/** An open pinned question as the orchestrator node and the phone render it. */
+export type OrchestrationOpenQuestion = Pick<OrchestrationQuestion, 'id' | 'ticketId' | 'markdown' | 'createdAt'>
+
+/**
+ * What the orchestrator node's controls and the phone read from a record: main's state, never the
+ * renderer's projection, published again on every change that moves one of its fields.
+ */
+export function orchestrationControlState(record: OrchestrationRecord): OrchestrationControlState {
+  const deferral = pacingDeferral(record)
+  return {
+    provider: record.provider,
+    conversationId: record.conversationId,
+    status: record.lifecycle?.status ?? 'running',
+    ...(record.lifecycle?.status === 'paused' && record.lifecycle.resetsAt !== undefined
+      ? { resetsAt: record.lifecycle.resetsAt }
+      : {}),
+    ...(deferral
+      ? {
+          pacing: {
+            state: deferral.state,
+            reason: deferral.reason,
+            ...(deferral.retryAt !== undefined ? { retryAt: deferral.retryAt } : {})
+          }
+        }
+      : {}),
+    ...(spawnBudgetReached(record)
+      ? { spawnCheckpoint: { used: record.spawnCount ?? 0, budget: spawnBudget(record) } }
+      : {}),
+    startable: startableTickets(record).map((ticket) => ({ id: ticket.id, title: ticket.title })),
+    openQuestions: openOrchestrationQuestions(record).map(({ id, ticketId, markdown, createdAt }) => ({
+      id,
+      ...(ticketId !== undefined ? { ticketId } : {}),
+      markdown,
+      createdAt
+    }))
+  }
+}
+
+/** The human resolving a pinned question, with an optional note the orchestrator is woken with. */
+export interface OrchestrationQuestionResolveRequest extends OrchestrationControlRequest {
+  questionId: string
+  note?: string
 }
 
 /** The orchestrator node's Start now: one forced spawn of one ticket, granted by the user. */
@@ -111,5 +169,10 @@ export interface OrchestratorApi {
   continueSpawns(request: OrchestrationControlRequest): Promise<OrchestrationControlState | null>
   /** Grants one forced spawn and asks the orchestrator to run it. */
   forceStartTicket(request: OrchestrationForceStartRequest): Promise<OrchestrationForceStartResult>
+  /**
+   * Resolves a pinned question and wakes the orchestrator with `[Toucan: user resolved Q<n>]`.
+   * A question already resolved changes nothing and wakes nobody.
+   */
+  resolveQuestion(request: OrchestrationQuestionResolveRequest): Promise<OrchestrationControlState | null>
   onOrchestrationState(callback: (state: OrchestrationControlState) => void): () => void
 }

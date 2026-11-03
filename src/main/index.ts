@@ -29,7 +29,7 @@ import {
   isTicketSessionCanvasResult,
   orchestratorProvider,
   type OrchestrationControlRequest,
-  type OrchestrationControlState,
+  orchestrationControlState,
   type TicketSessionCanvasRequest,
   type TicketSessionCanvasResult
 } from '../shared/ticket-session-spawn'
@@ -46,14 +46,7 @@ import { registerPluginIpc } from './plugin-ipc'
 import { registerOrchestrationSettingsIpc } from './orchestration-settings-ipc'
 import { createJevRouter } from './jev-router'
 import { createOrchestrationWaker } from './orchestration-wake'
-import {
-  ORCHESTRATOR_ROLE,
-  pacingDeferral,
-  spawnBudget,
-  spawnBudgetReached,
-  startableTickets,
-  type OrchestrationRecord
-} from '../shared/orchestration'
+import { ORCHESTRATOR_ROLE, type OrchestrationRecord } from '../shared/orchestration'
 import { createOrchestrationController, type OrchestrationSession } from './orchestration-control'
 import { createOrchestratorEndpoint } from './orchestrator-endpoint'
 import { createMessagingEndpoint } from './messaging-endpoint'
@@ -496,32 +489,8 @@ void app.whenReady().then(async () => {
     }
     return null
   }
-  const orchestrationState = (
-    record: OrchestrationRecord,
-    deferral = pacingDeferral(record)
-  ): OrchestrationControlState => ({
-    provider: record.provider,
-    conversationId: record.conversationId,
-    status: record.lifecycle?.status ?? 'running',
-    ...(record.lifecycle?.status === 'paused' && record.lifecycle.resetsAt !== undefined
-      ? { resetsAt: record.lifecycle.resetsAt }
-      : {}),
-    ...(deferral
-      ? {
-          pacing: {
-            state: deferral.state,
-            reason: deferral.reason,
-            ...(deferral.retryAt !== undefined ? { retryAt: deferral.retryAt } : {})
-          }
-        }
-      : {}),
-    ...(spawnBudgetReached(record)
-      ? { spawnCheckpoint: { used: record.spawnCount ?? 0, budget: spawnBudget(record) } }
-      : {}),
-    startable: startableTickets(record).map((ticket) => ({ id: ticket.id, title: ticket.title }))
-  })
   const publishOrchestrationState = (record: OrchestrationRecord): void => {
-    const state = orchestrationState(record)
+    const state = orchestrationControlState(record)
     for (const window of BrowserWindow.getAllWindows()) {
       if (!window.webContents.isDestroyed()) window.webContents.send(ORCHESTRATOR_CHANNELS.changed, state)
     }
@@ -861,25 +830,25 @@ void app.whenReady().then(async () => {
     const request = controlRequest(value)
     if (!request) return null
     const record = await orchestrationController.state(request, request.nodeId)
-    return record ? orchestrationState(record) : null
+    return record ? orchestrationControlState(record) : null
   })
   ipcMain.handle(ORCHESTRATOR_CHANNELS.resume, async (_event, value: unknown) => {
     const request = controlRequest(value)
     if (!request) return null
     const record = await orchestrationController.resumeNow(request, request.nodeId)
-    return record ? orchestrationState(record) : null
+    return record ? orchestrationControlState(record) : null
   })
   ipcMain.handle(ORCHESTRATOR_CHANNELS.continueSpawns, async (_event, value: unknown) => {
     const request = controlRequest(value)
     if (!request) return null
     const record = await orchestrationController.continueSpawns(request, request.nodeId)
-    return record ? orchestrationState(record) : null
+    return record ? orchestrationControlState(record) : null
   })
   ipcMain.handle(ORCHESTRATOR_CHANNELS.stop, async (_event, value: unknown) => {
     const request = controlRequest(value)
     if (!request) return null
     const record = await orchestrationController.stop(request, request.nodeId)
-    return record ? orchestrationState(record) : null
+    return record ? orchestrationControlState(record) : null
   })
   ipcMain.handle(ORCHESTRATOR_CHANNELS.forceStart, async (_event, value: unknown) => {
     const request = controlRequest(value)
@@ -888,6 +857,14 @@ void app.whenReady().then(async () => {
       return { ok: false, message: 'Invalid start request.' }
     }
     return orchestrationStartNow({ key: request, nodeId: request.nodeId, ticketId })
+  })
+  ipcMain.handle(ORCHESTRATOR_CHANNELS.resolveQuestion, async (_event, value: unknown) => {
+    const request = controlRequest(value)
+    const { questionId, note } = (value ?? {}) as { questionId?: unknown; note?: unknown }
+    if (!request || typeof questionId !== 'string' || questionId.length === 0) return null
+    const trimmed = typeof note === 'string' && note.trim() !== '' ? note.trim() : undefined
+    const record = await orchestrationController.resolveQuestion(request, request.nodeId, questionId, trimmed)
+    return record ? orchestrationControlState(record) : null
   })
   ipcMain.on(ORCHESTRATOR_CHANNELS.ticketSessionResult, (_event, requestId: unknown, result: unknown) => {
     if (typeof requestId === 'string' && isTicketSessionCanvasResult(result)) ticketSessions.complete(requestId, result)
@@ -1073,7 +1050,7 @@ void app.whenReady().then(async () => {
         const session = await orchestrationSessionForNode(chatId)
         if (!session || session.ticketNodeId !== undefined) return undefined
         const record = await orchestrationController.state(session.key, chatId)
-        return record ? orchestrationState(record).spawnCheckpoint : undefined
+        return record ? orchestrationControlState(record).spawnCheckpoint : undefined
       },
       continueSpawns: async (chatId) => {
         const session = await orchestrationSessionForNode(chatId)

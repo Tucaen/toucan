@@ -119,6 +119,8 @@ export const ORCHESTRATOR_CHANNELS = {
   continueSpawns: 'orchestrator:continue-spawns',
   /** The orchestrator node's Start now: a one-shot force grant for one ticket. */
   forceStart: 'orchestrator:force-start',
+  /** The human resolved a pinned question (#2); main wakes the orchestrator. */
+  resolveQuestion: 'orchestrator:resolve-question',
   changed: 'orchestrator:changed'
 } as const
 
