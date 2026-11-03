@@ -125,23 +125,25 @@ Never wait for a ticket session inside a tool call - a ticket can take an hour. 
 
 `completed (background work pending: N tasks)` means the turn ended with background work it started still running - a backgrounded shell or subagent. That work's result arrives in a further turn, which wakes you again; until then the outcome record is not final.
 
-Events that arrive close together come as one message. The message names the event and where to read more; it never carries a ticket session's transcript. A message that arrives while you are working reaches you at your next safe boundary. A provider-pacing reopen wake explicitly asks you to reread `usage`, `status` and `plan show`; it is the retry signal for a deferred spawn.
+Events that arrive close together come as one message. The message names the event and where to read more; it never carries a ticket session's transcript. A message that arrives while you are working reaches you at your next safe boundary. A provider-pacing reopen wake explicitly asks you to reread `usage`, `status` and `plan show`; it is the retry signal for a deferred spawn. When the human resolves a pinned question in the UI, the wake is `[Toucan: user resolved Q<n>]` with their note, if any; reread `question list` and `status`, then continue the work that waited on it.
 
 ## status
 
-`status` prints `{ ok: true, tickets, pacing, pendingPermissionPrompts }`. `pacing` is the durable proactive deferral or `null`; after a forced spawn it carries `forced: { ticketId, by, at, reason }`, alone when no deferral is pending. Each ticket has `id`, `title`, `blockedBy`, `attempts`, `mergeStatus`, `session` (or `null`), `route` (or `null`), and:
+`status` prints `{ ok: true, tickets, pacing, pendingPermissionPrompts, openQuestions }`. `pacing` is the durable proactive deferral or `null`; after a forced spawn it carries `forced: { ticketId, by, at, reason }`, alone when no deferral is pending. Each ticket has `id`, `title`, `blockedBy`, `attempts`, `mergeStatus`, `session` (or `null`), `route` (or `null`), and:
 
 - `state`: `not spawned`, `not running` (Toucan is not running its session, e.g. after a restart), or the live session's `starting`, `ready`, `working`, `auth_required`, `exited`.
 - `permissionPrompt`: `{ title, answeredBy: "human" }` while the session waits on a tool-permission prompt, else `null`.
 - `questions`: pending questions, each `{ id, message, questions: [{ id, question, options, input, ... }] }`.
 
-`pendingPermissionPrompts` lists the ticket ids waiting on the human; name them in your final answer.
+`pendingPermissionPrompts` lists the ticket ids waiting on the human; name them in your final answer. `openQuestions` are the pinned questions still waiting for the human, as `question list` prints them.
 
 `status` does not say whether a ticket has background work pending or a pre-merge `followup` running: that comes from the wakes and your own calls. The SKILL's ticket-state table says how to place each ticket from these fields.
 
 ## outcome
 
 `outcome --ticket <id>` prints `{ ok: true, ticket, path, fields }`: the path of the ticket session's session outcome record and its fields (`title`, `status`, `turns`, `commit`, `branch`, `filesTouched`, `failures`, `toolFailures`, `lastResult`, and the rest). Refused while the ticket has no session, or before the session's first turn end has written the record.
+
+`lastResult` and `mainResult` are excerpts, cut at a few hundred characters. `outcome --ticket <id> --full` adds `report`: the ticket session's latest final answer, untruncated, links included - the text to copy a question from. It needs the session running in Toucan; otherwise `report` is `null` and `reportUnavailable` says why.
 
 ## followup
 
@@ -153,6 +155,16 @@ Events that arrive close together come as one message. The message names the eve
 - `queued` - the session was working and takes the text when its turn ends.
 
 It never answers a tool-permission prompt. While a ticket session waits on one, `followup` is refused: that prompt waits for the human.
+
+## question
+
+A question only the human can answer is pinned once, verbatim, and shown to them above your chat on the desktop and the phone; after that, name it only by its id.
+
+- `question add [--ticket <id>] (--text <markdown> | --file <markdown file>)` prints `{ ok: true, question }`. The record keeps the markdown exactly as sent, `file:///` links included, up to 16,000 characters (save anything longer in the scratch folder and link it). `question.id` is `Q1`, `Q2`, ...: unique within this orchestration, never reused, kept across restarts and `plan set`. `--ticket` must name a ticket that is not yet merged or answered. Prefer `--file` for multi-line markdown: it is sent byte for byte, with no shell quoting in between.
+- `question resolve --id <Q<n>> [--note <text>]` prints `{ ok: true, question, changed }`. Resolving it again is `changed: false` and keeps the first resolution. Resolving here wakes nobody; the human's resolve in the UI wakes you (see Being woken).
+- `question list [--all]` prints `{ ok: true, questions }`: the open ones, oldest first, or every one with `--all`. Each is `{ id, ticketId?, markdown, createdAt, resolvedAt?, resolution? }`.
+
+A ticket recorded `merged` or `answered` (by `merge` or `ticket update`) resolves its open questions itself, with `resolution` `ticket <id> merged` or `ticket <id> answered`.
 
 ## report
 
