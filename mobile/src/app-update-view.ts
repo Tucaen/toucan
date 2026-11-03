@@ -21,6 +21,7 @@ export type PhoneRestart =
 export const NO_RESTART: PhoneRestart = { stage: 'none' }
 
 /**
+ * @internal exported for tests
  * How long a host may keep answering on its old version before the phone stops saying "restarting".
  * The installer replaces the app in seconds; a host still up and unchanged after this did not restart.
  */
