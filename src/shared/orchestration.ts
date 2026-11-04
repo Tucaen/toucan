@@ -536,6 +536,7 @@ export function applyTicketUpdate(
 /**
  * The longest question `question add` takes. It is refused rather than clipped, because the point
  * of the record is the verbatim text; a report longer than this belongs in a scratch file it links.
+ * @internal exported for tests
  */
 export const ORCHESTRATION_QUESTION_LIMIT = 16_000
 

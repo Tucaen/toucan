@@ -8039,7 +8039,7 @@ button.worktree-agent-unread:focus-visible {
 .orchestration-questions {
   position: sticky;
   top: 0;
-  z-index: 2;
+  z-index: var(--z-control);
   margin-bottom: 12px;
   max-height: 45%;
   overflow: auto;

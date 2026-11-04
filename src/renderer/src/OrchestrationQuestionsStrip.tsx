@@ -3,7 +3,10 @@ import { ChevronDown, ChevronRight } from 'lucide-react'
 import type { OrchestrationControlRequest, OrchestrationControlState } from '../../shared/ticket-session-spawn'
 import MarkdownMessage from './MarkdownMessage'
 
-/** The composer text `Antworten` leaves behind: the existing draft is kept, the reference starts a new line. */
+/**
+ * The composer text `Antworten` leaves behind: the existing draft is kept, the reference starts a new line.
+ * @internal exported for tests
+ */
 export function draftAnsweringQuestion(draft: string, questionId: string): string {
   const prefix = `Zu ${questionId}: `
   if (draft.trim() === '') return prefix
