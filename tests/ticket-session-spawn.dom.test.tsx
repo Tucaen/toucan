@@ -239,6 +239,32 @@ describe('a ticket session requested by an orchestrator', () => {
     expect(results).toHaveLength(0)
   })
 
+  // A Codex session has no conversation id until it opens, so one stopped at sign-in is reported
+  // failed. Signing in later must not hand that untracked session the ticket.
+  test('a session reported as failed never takes the ticket prompt afterwards', async () => {
+    const { agent, results, start } = await render(
+      {
+        create: vi.fn(async (created: AgentCreateRequest) =>
+          created.cwd === request.worktree.path
+            ? { ok: true, status: 'auth_required' as const }
+            : { ok: true, status: 'ready' as const, sessionId: `conversation-${created.id}` }
+        )
+      },
+      'codex'
+    )
+    start('ticket-1', { ...request, provider: 'codex', orchestratedBy: { ...orchestratorLink, provider: 'codex' } })
+    await waitFor(() => expect(results).toHaveLength(1))
+    expect(results[0].result.ok).toBe(false)
+    const nodeId = createRequests(agent).find((created) => created.cwd === request.worktree.path)!.id
+
+    await act(async () => {
+      agent.emit(nodeId, { type: 'session', sessionId: 'signed-in-conversation' })
+      agent.emit(nodeId, { type: 'status', status: 'ready' })
+    })
+    await act(async () => undefined)
+    expect(vi.mocked(agent.api.prompt).mock.calls.filter(([id]) => id === nodeId)).toHaveLength(0)
+  })
+
   test('a session that cannot start is reported as a failure', async () => {
     const { results, start } = await render({
       create: vi.fn(async () => ({ ok: false as const, status: 'error' as const, message: 'no adapter' }))

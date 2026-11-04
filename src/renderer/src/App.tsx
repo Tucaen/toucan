@@ -114,7 +114,7 @@ import { OrchestrationSettingsDialog } from './OrchestrationSettingsDialog'
 import { useRemoteAccess } from './use-remote-access'
 import type { RemoteChatSpawnRequest, RemoteChatSpawnResult } from '../../shared/remote-spawn'
 import type { OrchestratorLink, TicketSessionCanvasRequest } from '../../shared/ticket-session-spawn'
-import { useTicketSessionSpawns, type TicketSessionStart } from './use-ticket-session-spawns'
+import { useTicketSessionSpawns, type TicketSessionCanvas, type TicketSessionStart } from './use-ticket-session-spawns'
 import { ticketCleanupNodes } from './ticket-cleanup'
 import { backspaceChatShield } from './chat-backspace-shield'
 import { installTypingDeleteGuard } from './typing-delete-guard'
@@ -932,12 +932,7 @@ function Canvas(): JSX.Element {
 
   const handleNodesChange = useCallback(
     // `canvas` is the worktree whose inner canvas reported the changes; absent is the main canvas.
-    // `rememberClosed: false` is a removal the user did not make, so it leaves their reopen stack alone.
-    (
-      changes: NodeChange<CanvasNode>[],
-      canvas: string | null = null,
-      { rememberClosed = true }: { rememberClosed?: boolean } = {}
-    ): void => {
+    (changes: NodeChange<CanvasNode>[], canvas: string | null = null): void => {
       const removedIds = new Set(changes.flatMap((change) => (change.type === 'remove' ? [change.id] : [])))
       if (removedIds.size > 0) {
         const removedNodes = nodesRef.current
@@ -955,11 +950,9 @@ function Canvas(): JSX.Element {
         }
         // Everything that was removed, unfiltered: what a close means for each kind - a reopen
         // target, a stack wipe, or neither - is decided in one place inside that function.
-        if (rememberClosed) {
-          const next = rememberClosedSessionNodes(recentlyClosedNodesRef.current, removedNodes)
-          recentlyClosedNodesRef.current = next
-          setRecentlyClosedNodes(next)
-        }
+        const next = rememberClosedSessionNodes(recentlyClosedNodesRef.current, removedNodes)
+        recentlyClosedNodesRef.current = next
+        setRecentlyClosedNodes(next)
         setNodeStatuses((current) =>
           Object.fromEntries(Object.entries(current).filter(([nodeId]) => !removedIds.has(nodeId)))
         )
@@ -2567,13 +2560,22 @@ function Canvas(): JSX.Element {
     },
     [addSessionNode, centredDropPosition, registerCreatedWorktree]
   )
-  // A ticket session main gave up on (#1): its orchestrator was told the spawn failed, so the node
-  // goes - its unmount stops the session - and it is no reopen target, since nothing tracks it.
-  const closeTicketSession = useCallback(
-    (nodeId: string): void => handleNodesChange([{ type: 'remove', id: nodeId }], null, { rememberClosed: false }),
-    [handleNodesChange]
+  const ticketSessionCanvas = useMemo<TicketSessionCanvas>(
+    () => ({
+      start: startTicketSession,
+      close: (nodeId) => handleNodesChange([{ type: 'remove', id: nodeId }]),
+      dropPrompt: (nodeId) =>
+        setNodes((current) =>
+          current.map((node) =>
+            node.id === nodeId && isTerminalCanvasNode(node) && node.data.initialInput
+              ? { ...node, data: { ...node.data, initialInput: undefined } }
+              : node
+          )
+        )
+    }),
+    [handleNodesChange, setNodes, startTicketSession]
   )
-  useTicketSessionSpawns(startTicketSession, closeTicketSession, nodes, nodeStatuses)
+  useTicketSessionSpawns(ticketSessionCanvas, nodes, nodeStatuses)
   useEffect(
     () =>
       window.orchestratorApi.onCleanupTicket((requestId, request) => {

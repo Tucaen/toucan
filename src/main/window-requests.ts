@@ -31,10 +31,9 @@ export interface WindowRequestsOptions<Result> {
   refuse(message: string): Result
   timeoutMs: number
   /**
-   * Sent as `(requestId)` to the window that was asked once the timeout has answered for it. Set it
-   * when the caller acts on a timeout as a failure - an orchestrator retries one - so the window
-   * withdraws what it started rather than letting it finish unseen. Absent, a timed-out request may
-   * still complete on the canvas, and the timeout message has to say so.
+   * Sent as `(requestId)` to the window that was asked once the timeout has answered for it, so the
+   * window withdraws what it started. Absent, a timed-out request may still complete on the canvas,
+   * and the timeout message has to say so.
    */
   cancelChannel?: string
   requestId?: () => string

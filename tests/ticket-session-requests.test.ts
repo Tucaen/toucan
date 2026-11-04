@@ -76,7 +76,7 @@ test('a session that misses the timeout is withdrawn, and its late start is not 
 
 test('the timeout message says the session was closed rather than that it may still appear', () => {
   assert.doesNotMatch(TICKET_SESSION_TIMEOUT_MESSAGE, /may still appear/)
-  assert.match(TICKET_SESSION_TIMEOUT_MESSAGE, /closed/)
+  assert.match(TICKET_SESSION_TIMEOUT_MESSAGE, /closes it/)
 })
 
 test('a session that settles in time is never withdrawn', async () => {

@@ -75,7 +75,10 @@ interface Props {
   spawn: boolean
 }
 
-function renderSpawns(close: (nodeId: string) => void = () => undefined, initialProps?: Props) {
+function renderSpawns(
+  close: (nodeId: string) => void = () => undefined,
+  dropPrompt: (nodeId: string) => void = () => undefined
+) {
   const start = vi.fn(() => ({ ok: true as const, nodeId: 'ticket' }))
   const rendered = renderHook(
     ({ nodes, statuses, spawn }: Props) => {
@@ -83,9 +86,9 @@ function renderSpawns(close: (nodeId: string) => void = () => undefined, initial
       useLayoutEffect(() => {
         if (spawn) receive('request', request)
       }, [spawn])
-      useTicketSessionSpawns(start, close, nodes, statuses)
+      useTicketSessionSpawns({ start, close, dropPrompt }, nodes, statuses)
     },
-    { initialProps: initialProps ?? { nodes: [], statuses: {}, spawn: false } }
+    { initialProps: { nodes: [] as CanvasNode[], statuses: {}, spawn: false } }
   )
   return { ...rendered, start }
 }
@@ -131,6 +134,19 @@ test('a withdrawal that crosses the verdict in flight still closes the session',
   // Main's timeout fired before that verdict reached it, so the spawn was answered as failed.
   cancel('request')
   expect(close).toHaveBeenCalledExactlyOnceWith('ticket')
+  unmount()
+})
+
+test('a failure verdict drops the prompt of a node still on the canvas, so a later start cannot take it', () => {
+  const dropPrompt = vi.fn()
+  const { rerender, unmount } = renderSpawns(undefined, dropPrompt)
+  rerender({ nodes: [], statuses: {}, spawn: true })
+  rerender({ nodes: [ticket], statuses: { ticket: 'exited' }, spawn: true })
+  expect(complete).toHaveBeenCalledExactlyOnceWith('request', {
+    ok: false,
+    message: 'The ticket session could not be started on the desktop.'
+  })
+  expect(dropPrompt).toHaveBeenCalledExactlyOnceWith('ticket')
   unmount()
 })
 

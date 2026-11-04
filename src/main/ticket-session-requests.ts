@@ -1,28 +1,25 @@
 import { ORCHESTRATOR_CHANNELS } from '../shared/ipc-channels'
 import type { TicketSessionCanvasRequest, TicketSessionCanvasResult } from '../shared/ticket-session-spawn'
-import { createWindowRequests, type WindowRequests } from './window-requests'
+import { createWindowRequests, type WindowRequests, type WindowRequestsOptions } from './window-requests'
 
 /**
  * How long an orchestrator's `spawn` waits for the canvas to bring its ticket session up (#34),
- * counted from the moment the worktree is set up and the canvas is asked. A session normally
- * settles in seconds; this bounds a launch that stalls.
+ * counted from the moment the canvas is asked. A session normally settles in seconds.
  */
-export const TICKET_SESSION_START_TIMEOUT_MS = 90_000
+const START_TIMEOUT_MS = 90_000
 
 /**
- * What a timed-out spawn reports. The orchestrator acts on it as a failure and retries, so it is
- * made true rather than hedged (#1): the canvas is told to close the session it started, which is
- * what keeps a late start from taking the ticket prompt and working unseen beside the retry.
+ * What a timed-out spawn reports (#1). The orchestrator acts on it as a failure and retries, so the
+ * canvas is told to close the session rather than let it come up late and work the ticket unseen.
+ *
+ * @internal exported for tests
  */
 export const TICKET_SESSION_TIMEOUT_MESSAGE =
-  'The ticket session did not finish starting in time, so Toucan closed it before it could work on the ticket.'
+  'The ticket session did not finish starting in time, so Toucan closes it rather than let it work on the ticket.'
 
-export interface TicketSessionRequestsOptions {
-  timeoutMs?: number
-  requestId?: () => string
-  /** Injectable so tests do not wait in real time. */
-  schedule?: (run: () => void, delayMs: number) => { cancel(): void }
-}
+export type TicketSessionRequestsOptions = Partial<
+  Pick<WindowRequestsOptions<TicketSessionCanvasResult>, 'timeoutMs' | 'requestId' | 'schedule'>
+>
 
 /** The canvas half of a ticket spawn: main asks the newest live window, which answers once the session settles. */
 export function createTicketSessionRequests(
@@ -37,7 +34,7 @@ export function createTicketSessionRequests(
       timeout: TICKET_SESSION_TIMEOUT_MESSAGE
     },
     refuse: (message) => ({ ok: false, message }),
-    timeoutMs: options.timeoutMs ?? TICKET_SESSION_START_TIMEOUT_MS,
+    timeoutMs: options.timeoutMs ?? START_TIMEOUT_MS,
     requestId: options.requestId,
     schedule: options.schedule
   })
