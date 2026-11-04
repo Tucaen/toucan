@@ -158,6 +158,11 @@ export interface OrchestratorApi {
    */
   onStartTicketSession(callback: (requestId: string, request: TicketSessionCanvasRequest) => void): () => void
   completeTicketSession(requestId: string, result: TicketSessionCanvasResult): void
+  /**
+   * Main stopped waiting for that request and told the orchestrator it failed. The renderer closes
+   * the node it started for it, whether or not its session has come up since.
+   */
+  onCancelTicketSession(callback: (requestId: string) => void): () => void
   onCleanupTicket(callback: (requestId: string, request: TicketCleanupRequest) => void): () => void
   completeCleanupTicket(requestId: string, result: TicketCleanupResult): void
   /** Whether Jev can route this orchestrator's tickets (#36); never the key itself. */

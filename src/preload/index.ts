@@ -210,6 +210,8 @@ const orchestratorApi: OrchestratorApi = {
     ),
   completeTicketSession: (requestId, result) =>
     ipcRenderer.send(ORCHESTRATOR_CHANNELS.ticketSessionResult, requestId, result),
+  onCancelTicketSession: (callback) =>
+    subscribe(ORCHESTRATOR_CHANNELS.cancelTicketSession, (requestId: string) => callback(requestId)),
   jevReachability: () => ipcRenderer.invoke(ORCHESTRATOR_CHANNELS.jevReachability),
   orchestrationState: (request) => ipcRenderer.invoke(ORCHESTRATOR_CHANNELS.state, request),
   resumeOrchestration: (request) => ipcRenderer.invoke(ORCHESTRATOR_CHANNELS.resume, request),

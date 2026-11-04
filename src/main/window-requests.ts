@@ -30,6 +30,13 @@ export interface WindowRequestsOptions<Result> {
   /** How a refusal in one of `messages`' words is expressed as this request's result. */
   refuse(message: string): Result
   timeoutMs: number
+  /**
+   * Sent as `(requestId)` to the window that was asked once the timeout has answered for it. Set it
+   * when the caller acts on a timeout as a failure - an orchestrator retries one - so the window
+   * withdraws what it started rather than letting it finish unseen. Absent, a timed-out request may
+   * still complete on the canvas, and the timeout message has to say so.
+   */
+  cancelChannel?: string
   requestId?: () => string
   /** Injectable so tests do not wait in real time. */
   schedule?: (run: () => void, delayMs: number) => { cancel(): void }
@@ -93,6 +100,7 @@ export function createWindowRequests<Request, Result>(
         const timer = schedule(() => {
           if (!pending.delete(requestId)) return
           resolve(options.refuse(options.messages.timeout))
+          if (options.cancelChannel && !window.isDestroyed()) window.send(options.cancelChannel, requestId)
         }, options.timeoutMs)
         pending.set(requestId, {
           window,

@@ -130,6 +130,7 @@ export function installWindowApis(options: AppHarnessOptions = {}): AppHarness {
       completeCleanupTicket: vi.fn(),
       onStartTicketSession: () => () => undefined,
       completeTicketSession: vi.fn(),
+      onCancelTicketSession: () => () => undefined,
       jevReachability: vi.fn(async () => ({ state: 'reachable' as const })),
       orchestrationState: vi.fn(async () => null),
       resumeOrchestration: vi.fn(async () => null),

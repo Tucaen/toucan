@@ -62,6 +62,7 @@ import { installPushGuard } from './ticket-push-guard'
 import { ensureScratchDirectory } from './scratch-directory'
 import { createTicketSpawner, type TicketSpawner } from './ticket-spawner'
 import { createWindowRequests, type WindowRequests } from './window-requests'
+import { createTicketSessionRequests } from './ticket-session-requests'
 import { createAgentModelCatalogueStore } from './agent-model-catalogue-store'
 import { createAgentEffortCatalogueStore } from './agent-effort-catalogue-store'
 import { createAppUpdater, type AppUpdater } from './app-update'
@@ -803,16 +804,7 @@ void app.whenReady().then(async () => {
   const canvasRequests = createRemoteCanvasRequests()
   // An orchestrator's `spawn` (#34): main creates, guards and sets up the worktree, then asks the
   // canvas for the chat and waits for its session to come up.
-  const ticketSessions = createWindowRequests<TicketSessionCanvasRequest, TicketSessionCanvasResult>({
-    channel: ORCHESTRATOR_CHANNELS.startTicketSession,
-    messages: {
-      noWindow: 'Toucan has no window open, so there is no canvas to start the ticket session on.',
-      windowGone: 'The Toucan window closed before the ticket session was started.',
-      timeout: 'The ticket session did not finish starting in time. It may still appear on the canvas.'
-    },
-    refuse: (message) => ({ ok: false, message }),
-    timeoutMs: 90_000
-  })
+  const ticketSessions = createTicketSessionRequests()
   // Before an orchestrator's task is sent (#36): the service answering, never the key.
   ipcMain.handle(ORCHESTRATOR_CHANNELS.jevReachability, () => jevRouter.status())
   const controlRequest = (value: unknown): OrchestrationControlRequest | undefined => {

@@ -932,7 +932,12 @@ function Canvas(): JSX.Element {
 
   const handleNodesChange = useCallback(
     // `canvas` is the worktree whose inner canvas reported the changes; absent is the main canvas.
-    (changes: NodeChange<CanvasNode>[], canvas: string | null = null): void => {
+    // `rememberClosed: false` is a removal the user did not make, so it leaves their reopen stack alone.
+    (
+      changes: NodeChange<CanvasNode>[],
+      canvas: string | null = null,
+      { rememberClosed = true }: { rememberClosed?: boolean } = {}
+    ): void => {
       const removedIds = new Set(changes.flatMap((change) => (change.type === 'remove' ? [change.id] : [])))
       if (removedIds.size > 0) {
         const removedNodes = nodesRef.current
@@ -950,9 +955,11 @@ function Canvas(): JSX.Element {
         }
         // Everything that was removed, unfiltered: what a close means for each kind - a reopen
         // target, a stack wipe, or neither - is decided in one place inside that function.
-        const next = rememberClosedSessionNodes(recentlyClosedNodesRef.current, removedNodes)
-        recentlyClosedNodesRef.current = next
-        setRecentlyClosedNodes(next)
+        if (rememberClosed) {
+          const next = rememberClosedSessionNodes(recentlyClosedNodesRef.current, removedNodes)
+          recentlyClosedNodesRef.current = next
+          setRecentlyClosedNodes(next)
+        }
         setNodeStatuses((current) =>
           Object.fromEntries(Object.entries(current).filter(([nodeId]) => !removedIds.has(nodeId)))
         )
@@ -2560,7 +2567,13 @@ function Canvas(): JSX.Element {
     },
     [addSessionNode, centredDropPosition, registerCreatedWorktree]
   )
-  useTicketSessionSpawns(startTicketSession, nodes, nodeStatuses)
+  // A ticket session main gave up on (#1): its orchestrator was told the spawn failed, so the node
+  // goes - its unmount stops the session - and it is no reopen target, since nothing tracks it.
+  const closeTicketSession = useCallback(
+    (nodeId: string): void => handleNodesChange([{ type: 'remove', id: nodeId }], null, { rememberClosed: false }),
+    [handleNodesChange]
+  )
+  useTicketSessionSpawns(startTicketSession, closeTicketSession, nodes, nodeStatuses)
   useEffect(
     () =>
       window.orchestratorApi.onCleanupTicket((requestId, request) => {

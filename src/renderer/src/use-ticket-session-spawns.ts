@@ -14,29 +14,51 @@ const START_FAILED_MESSAGE = 'The ticket session could not be started on the des
  * verdict is never optimistic: the orchestrator records the session against its ticket, so a node
  * is reported only once its session has settled by `spawnSettlement`, and with the conversation id
  * the node carries - the one its transcript and outcome record are keyed by.
+ *
+ * Unlike a phone's, a request main stops waiting for is withdrawn (#1): the orchestrator was told
+ * the spawn failed and retries it, so `close` takes the node off the canvas - which stops its
+ * session - before it can come up and work the ticket unseen beside the retry.
  */
 export function useTicketSessionSpawns(
   start: (request: TicketSessionCanvasRequest) => TicketSessionStart,
+  close: (nodeId: string) => void,
   nodes: readonly CanvasNode[],
   statuses: Readonly<Record<string, TerminalNodeStatus>>
 ): void {
   // Requests whose node is on the canvas but whose session has not reported yet, by request id.
   const awaiting = useRef(new Map<string, string>())
+  // Every node this window started, settled or not: a withdrawal can cross its verdict in flight,
+  // and main, having answered the spawn already, ignores that verdict.
+  const started = useRef(new Map<string, string>())
   const starter = useRef(start)
   starter.current = start
+  const closer = useRef(close)
+  closer.current = close
   // Pair requests with the render that can see their nodes. A request arriving after render
   // must not be failed by that render's pending effect, whose nodes predate the spawn.
   const pending = [...awaiting.current]
 
-  useEffect(
-    () =>
-      window.orchestratorApi.onStartTicketSession((requestId, request) => {
-        const started = starter.current(request)
-        if (!started.ok) window.orchestratorApi.completeTicketSession(requestId, started)
-        else awaiting.current.set(requestId, started.nodeId)
-      }),
-    []
-  )
+  useEffect(() => {
+    const stopStarting = window.orchestratorApi.onStartTicketSession((requestId, request) => {
+      const result = starter.current(request)
+      if (!result.ok) {
+        window.orchestratorApi.completeTicketSession(requestId, result)
+        return
+      }
+      awaiting.current.set(requestId, result.nodeId)
+      started.current.set(requestId, result.nodeId)
+    })
+    const stopCancelling = window.orchestratorApi.onCancelTicketSession((requestId) => {
+      const nodeId = started.current.get(requestId)
+      awaiting.current.delete(requestId)
+      started.current.delete(requestId)
+      if (nodeId) closer.current(nodeId)
+    })
+    return () => {
+      stopStarting()
+      stopCancelling()
+    }
+  }, [])
 
   useEffect(() => {
     for (const [requestId, nodeId] of pending) {

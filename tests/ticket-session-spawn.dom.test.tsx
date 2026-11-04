@@ -48,6 +48,7 @@ async function render(agentOverrides: Partial<AgentApi> = {}, provider: AgentPro
   let cleanupTicket: ((requestId: string, request: TicketCleanupRequest) => void) | null = null
   const cleanupResults: TicketCleanupResult[] = []
   let requestTicketSession: ((requestId: string, request: TicketSessionCanvasRequest) => void) | null = null
+  let cancelTicketSession: ((requestId: string) => void) | null = null
   const results: { requestId: string; result: TicketSessionCanvasResult }[] = []
   const agent = createMockAgentApi({
     create: vi.fn(async ({ id }) => ({ ok: true, status: 'ready' as const, sessionId: `conversation-${id}` })),
@@ -72,7 +73,13 @@ async function render(agentOverrides: Partial<AgentApi> = {}, provider: AgentPro
           }
         },
         completeTicketSession: (requestId: string, result: TicketSessionCanvasResult) =>
-          results.push({ requestId, result })
+          results.push({ requestId, result }),
+        onCancelTicketSession: (callback: typeof cancelTicketSession) => {
+          cancelTicketSession = callback
+          return () => {
+            cancelTicketSession = null
+          }
+        }
       }
     }
   })
@@ -83,7 +90,8 @@ async function render(agentOverrides: Partial<AgentApi> = {}, provider: AgentPro
     results,
     cleanupResults,
     cleanup: (body: TicketCleanupRequest) => cleanupTicket!('cleanup', body),
-    start: (id: string, body = request) => requestTicketSession!(id, body)
+    start: (id: string, body = request) => requestTicketSession!(id, body),
+    cancel: (id: string) => cancelTicketSession!(id)
   }
 }
 
@@ -203,6 +211,32 @@ describe('a ticket session requested by an orchestrator', () => {
       expect(ticket?.orchestratedBy).toEqual(codexRequest.orchestratedBy)
       expect(ticket?.worktreeId).toBeTruthy()
     })
+  })
+
+  // Issue #1: main's timeout told the orchestrator the spawn failed, yet the session came up minutes
+  // later, took the ticket prompt and did the work unseen. Withdrawn, it is closed instead.
+  test('a session main stopped waiting for is closed and never takes the ticket prompt', async () => {
+    // The orchestrator opens at once; the ticket session stalls in its launch, as #14 did for minutes.
+    const stalled = new Map<string, () => void>()
+    const { agent, results, start, cancel } = await render({
+      create: vi.fn(async (created: AgentCreateRequest) => {
+        const opened = { ok: true, status: 'ready' as const, sessionId: `conversation-${created.id}` }
+        if (created.cwd !== request.worktree.path) return opened
+        return new Promise<typeof opened>((resolve) => stalled.set(created.id, () => resolve(opened)))
+      })
+    })
+    start('ticket-1')
+    await waitFor(() => expect(stalled.size).toBe(1))
+    const [[nodeId, finishStarting]] = [...stalled]
+    expect((await screen.findAllByText('#34 Spawn')).length).toBeGreaterThan(0)
+
+    await act(async () => cancel('ticket-1'))
+    await waitFor(() => expect(agent.api.kill).toHaveBeenCalledWith(nodeId))
+    expect(screen.queryAllByText('#34 Spawn')).toHaveLength(0)
+
+    await act(async () => finishStarting())
+    expect(vi.mocked(agent.api.prompt).mock.calls.filter(([id]) => id === nodeId)).toHaveLength(0)
+    expect(results).toHaveLength(0)
   })
 
   test('a session that cannot start is reported as a failure', async () => {

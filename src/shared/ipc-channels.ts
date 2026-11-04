@@ -110,6 +110,8 @@ export const ORCHESTRATOR_CHANNELS = {
   /** Main asks the renderer to put a ticket session on the canvas; the answer comes on `ticketSessionResult`. */
   startTicketSession: 'orchestrator:start-ticket-session',
   ticketSessionResult: 'orchestrator:ticket-session-result',
+  /** Main stopped waiting for a `startTicketSession`; the renderer closes whatever it started for it. */
+  cancelTicketSession: 'orchestrator:cancel-ticket-session',
   /** Whether Jev can route an orchestration, asked by an orchestrator node before its task is sent (#36). */
   jevReachability: 'orchestrator:jev-reachability',
   state: 'orchestrator:state',
