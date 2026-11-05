@@ -3,7 +3,8 @@ import type { TicketSession } from './orchestration'
 /** Retire the settled chat, preflight its canvas, then remove the chat and frame after Git succeeds. */
 export interface TicketCleanupRequest {
   projectPath: string
-  session: Required<TicketSession>
+  /** `conversationId` is absent for a live session no record names (an unrecorded attempt). */
+  session: Omit<Required<TicketSession>, 'conversationId'> & { conversationId?: string }
   phase: 'retire' | 'prepare' | 'remove'
 }
 
@@ -24,6 +25,8 @@ export interface UnrecordedAttempt {
   ahead: number | null
   /** Whether a live session runs in the worktree. */
   liveSession: boolean
+  /** The node of the live session running there that the record does not name, when there is one. */
+  nodeId?: string
 }
 
 /** A live agent session and the directory it runs in. */

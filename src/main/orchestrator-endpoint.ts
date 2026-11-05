@@ -26,6 +26,9 @@ import {
   parseSpawnInput,
   parseTicketUpdate,
   abandonTicketSession,
+  attemptLocation,
+  discardTicketRun,
+  parseDiscardInput,
   duplicateSpawnMessage,
   recordForcedSpawn,
   recordTicketRoute,
@@ -83,7 +86,7 @@ import type { TicketBinding } from './orchestration-wake'
 import { createPairingToken, pairingTokenMatches, presentedPairingToken } from './remote/pairing'
 import type { TicketSpawner } from './ticket-spawner'
 import type { UnrecordedAttempt } from '../shared/orchestration-cleanup'
-import type { OrchestrationCleanup } from './orchestration-cleanup'
+import type { DiscardTarget, OrchestrationCleanup } from './orchestration-cleanup'
 import type { OrchestrationMerge } from './orchestration-merge'
 import type { ProviderUsage, ProviderUsageReadResult } from './provider-usage'
 
@@ -461,6 +464,183 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
   })
 
   /**
+   * `spawn --adopt <worktree>` (#4): links an unrecorded worktree - and the live session running in
+   * it, if there is one - to the ticket as its current attempt. Nothing is created, so no spawn is
+   * counted and pacing is not consulted; the duplicate guard still applies, so an unresolved attempt
+   * has to be discarded (or replaced) first.
+   */
+  const adopt = async (grant: LiveGrant, key: OrchestrationKey, ticketId: string, worktree: string): Promise<Reply> => {
+    if (!options.cleanup) return refused(501, 'this Toucan cannot look for unrecorded ticket worktrees')
+    const own = await ownRecord(grant, key)
+    if ('status' in own) return own
+    const planned = ticketIn(own.record, ticketId)
+    if ('status' in planned) return planned
+    if (isTicketSettled(planned.mergeStatus))
+      return refused(409, `ticket ${ticketId} is already ${planned.mergeStatus}`)
+    const duplicate = duplicateAttempt(planned)
+    if (duplicate) return duplicateRefusal(ticketId, duplicate)
+    let found: UnrecordedAttempt | undefined
+    try {
+      found = (await options.cleanup.unrecorded(own.record)).find(
+        (attempt) => attempt.path !== undefined && pathIdentity(attempt.path) === pathIdentity(worktree)
+      )
+    } catch (error) {
+      return refused(502, `could not read the ticket worktrees: ${errorMessage(error)}`)
+    }
+    if (!found?.path) {
+      return refused(404, `${worktree} is not an unrecorded ticket worktree; status lists them under unrecorded`)
+    }
+    if (found.ticket !== ticketId) {
+      return refused(409, `${worktree} (branch ${found.branch}) belongs to ticket ${found.ticket}, not ${ticketId}`)
+    }
+    const session: TicketSession = {
+      ...(found.nodeId ? { nodeId: found.nodeId } : {}),
+      worktreePath: found.path,
+      branch: found.branch
+    }
+    const written = await options.records.update<{ refusal: Reply } | { record: OrchestrationRecord }>(
+      key,
+      (current) => {
+        const refuse = (reply: Reply) => ({ value: current, result: { refusal: reply } })
+        if (!current) return refuse(refused(404, 'there is no plan yet; run plan set first'))
+        const scope = outOfScope(grant, current)
+        if (scope) return refuse(refused(403, scope))
+        const latest = current.tickets.find((candidate) => candidate.id === ticketId)
+        if (!latest) return refuse(refused(400, `the plan has no ticket "${ticketId}"`))
+        // The guard again inside the write, so an adopt racing a spawn cannot both link.
+        const again = duplicateAttempt(latest)
+        if (again) return refuse(duplicateRefusal(ticketId, again))
+        const record = recordTicketSession(current, ticketId, session, now(), latest.route, 'started')
+        return { value: record, result: { record } }
+      }
+    )
+    if ('refusal' in written) return written.refusal
+    options.spawned?.(written.record)
+    if (session.nodeId) {
+      options.onTicketSpawned?.(session.nodeId, {
+        orchestratorNodeId: grant.nodeId,
+        ticketId,
+        provider: grant.provider
+      })
+    }
+    const adopted = written.record.tickets.find((candidate) => candidate.id === ticketId)
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        ticket: ticketId,
+        adopted: true,
+        attempt: Math.max(adopted?.runs?.length ?? 1, 1),
+        session,
+        liveSession: found.liveSession,
+        ahead: found.ahead
+      }
+    }
+  }
+
+  /**
+   * `discard` (#4): stops the attempt's session, removes its worktree and force-deletes its branch,
+   * unmerged commits included. A recorded attempt is addressed by `--ticket --attempt <n>` and
+   * recorded as discarded; an unrecorded one (status lists them) by `--branch`, with no record to
+   * mark - or by adopting it first.
+   */
+  const discard = async (grant: LiveGrant, key: OrchestrationKey, args: unknown): Promise<Reply> => {
+    const parsed = parseDiscardInput(args)
+    if (parsed.error !== undefined) return refused(400, parsed.error)
+    const own = await ownRecord(grant, key)
+    if ('status' in own) return own
+    const cleanup = options.cleanup
+    if (!cleanup) return refused(501, 'this Toucan cannot discard ticket attempts')
+    const request = parsed.discard
+    let target: DiscardTarget
+    let starting = false
+    let attempt: number | undefined
+    if ('branch' in request) {
+      let found: UnrecordedAttempt | undefined
+      try {
+        found = (await cleanup.unrecorded(own.record)).find((candidate) => candidate.branch === request.branch)
+      } catch (error) {
+        return refused(502, `could not read the ticket worktrees: ${errorMessage(error)}`)
+      }
+      if (!found) {
+        return refused(
+          404,
+          `${request.branch} is not an unrecorded attempt. A recorded attempt is discarded with --ticket <id> --attempt <n>`
+        )
+      }
+      target = {
+        ticket: found.ticket,
+        branch: found.branch,
+        ...(found.path ? { worktreePath: found.path } : {}),
+        ...(found.nodeId ? { nodeId: found.nodeId } : {})
+      }
+    } else {
+      const ticket = ticketIn(own.record, request.ticketId)
+      if ('status' in ticket) return ticket
+      if (isTicketSettled(ticket.mergeStatus)) {
+        return refused(409, `ticket ${ticket.id} is already ${ticket.mergeStatus}; use cleanup --ticket ${ticket.id}`)
+      }
+      const location = attemptLocation(ticket, request.attempt)
+      if (!location) return refused(404, `ticket ${ticket.id} has no attempt ${request.attempt}`)
+      if (location.discarded) {
+        return refused(409, `attempt ${request.attempt} of ticket ${ticket.id} is already discarded`)
+      }
+      if (!location.branch) {
+        return refused(
+          409,
+          `attempt ${request.attempt} of ticket ${ticket.id} has no recorded branch (it predates Toucan keeping it); discard it with --branch`
+        )
+      }
+      attempt = request.attempt
+      starting = location.state === 'starting'
+      target = {
+        ticket: ticket.id,
+        branch: location.branch,
+        ...(location.worktreePath ? { worktreePath: location.worktreePath } : {}),
+        ...(location.nodeId ? { nodeId: location.nodeId } : {}),
+        ...(location.conversationId ? { conversationId: location.conversationId } : {})
+      }
+    }
+    if (target.nodeId) {
+      if (options.ticketSessions?.state(target.nodeId) || starting) {
+        const stop = options.ticketSessions?.stop
+        if (!stop)
+          return refused(501, 'this Toucan cannot stop ticket sessions, so it cannot discard a running attempt')
+        stop(target.nodeId, { starting })
+      }
+      options.onTicketAbandoned?.(target.nodeId)
+    }
+    const result = await cleanup.discard(own.record, target)
+    if (!result.ok) {
+      return refused(
+        409,
+        `could not discard ${target.branch}: ${result.error}. Nothing was marked discarded; fix the cause and discard again`
+      )
+    }
+    if (attempt !== undefined) {
+      const discarded = attempt
+      const updated = await options.records.update(key, (current) => {
+        const value = current && discardTicketRun(current, target.ticket, discarded, now())
+        return { value, result: value }
+      })
+      if (updated) options.spawned?.(updated)
+    }
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        ticket: target.ticket,
+        ...(attempt !== undefined ? { attempt } : {}),
+        branch: target.branch,
+        ...(target.worktreePath ? { worktree: target.worktreePath } : {}),
+        removedWorktree: result.removedWorktree,
+        deletedBranch: result.deletedBranch,
+        discardedCommits: result.ahead
+      }
+    }
+  }
+
+  /**
    * One ticket session (#34). Everything that can be refused without creating anything is refused
    * first; then the spawn is counted against the record, and only then does the spawner create the
    * worktree and the session - so the cap also bounds spawns that fail halfway.
@@ -479,6 +659,7 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     if (request.provider !== undefined && request.provider !== grant.provider) {
       return refused(400, `ticket provider must match its orchestrator (${grant.provider})`)
     }
+    if (request.adopt !== undefined) return adopt(grant, key, request.ticketId, request.adopt)
     const spawner = options.spawner
     if (!spawner) return refused(501, 'this Toucan cannot spawn ticket sessions')
     const configured = await loadConfig(grant)
@@ -1182,6 +1363,7 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
       })
     }
     if (command === 'spawn') return spawn(grant, key, args)
+    if (command === 'discard') return discard(grant, key, args)
     if (command === 'route') return route(grant, key, args)
     if (command === 'escalate') return escalate(grant, key, args)
     if (command === 'report') return report(grant, args)

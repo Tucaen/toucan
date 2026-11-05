@@ -19,6 +19,8 @@ import {
   parseRouteInput,
   parseSpawnInput,
   parseTicketUpdate,
+  attemptLocation,
+  discardTicketRun,
   recordTicketSession,
   pauseOrchestration,
   resumeOrchestration,
@@ -595,8 +597,8 @@ test('every spawned session is kept as a run with the route it launched on (#40)
   const ticket = second.tickets.find((candidate) => candidate.id === '34')!
   assert.deepEqual(ticket.session, { nodeId: 'n-2', conversationId: 'c-2' })
   assert.deepEqual(ticket.runs, [
-    { conversationId: 'c-1', provider: 'claude', route: medium },
-    { conversationId: 'c-2', provider: 'claude', route: high }
+    { conversationId: 'c-1', nodeId: 'n-1', provider: 'claude', route: medium },
+    { conversationId: 'c-2', nodeId: 'n-2', provider: 'claude', route: high }
   ])
   assert.ok(isOrchestrationRecord(JSON.parse(JSON.stringify(second))))
   assert.equal(isOrchestrationRecord({ ...second, tickets: [{ ...ticket, runs: [{ route: 'x' }] }] }), false)
@@ -614,9 +616,35 @@ test('a session spawned before runs were kept joins the history, without a launc
   const high = { tier: 'high' as const, model: 'opus', routedBy: 'jev' as const, escalated: true }
   const next = recordTicketSession(legacy, '34', { nodeId: 'n-1', conversationId: 'c-1' }, LATER, high)
   assert.deepEqual(next.tickets.find((ticket) => ticket.id === '34')?.runs, [
-    { conversationId: 'c-0' },
-    { conversationId: 'c-1', provider: 'claude', route: high }
+    { conversationId: 'c-0', nodeId: 'n-0' },
+    { conversationId: 'c-1', nodeId: 'n-1', provider: 'claude', route: high }
   ])
+})
+
+test('a run keeps where its attempt ran; records without those fields still load, and a discard is recorded', () => {
+  const session = { nodeId: 'n-1', conversationId: 'c-1', worktreePath: 'D:\wt-1', branch: 'ticket/34' }
+  const recorded = recordTicketSession(recordFrom(twoTickets), '34', session, NOW)
+  const ticket = recorded.tickets.find((candidate) => candidate.id === '34')!
+  assert.deepEqual(attemptLocation(ticket, 1), { attempt: 1, ...session, discarded: false })
+  assert.equal(attemptLocation(ticket, 2), undefined)
+  assert.ok(isOrchestrationRecord(JSON.parse(JSON.stringify(recorded))))
+  // A record from before the fields existed: the latest attempt falls back to the session.
+  const legacy = {
+    ...recorded,
+    tickets: recorded.tickets.map((t) => (t.id === '34' ? { ...t, runs: [{ conversationId: 'c-1' }] } : t))
+  }
+  assert.ok(isOrchestrationRecord(legacy))
+  assert.equal(
+    attemptLocation(
+      legacy.tickets.find((t) => t.id === '34')!,
+      1
+    )?.branch,
+    'ticket/34'
+  )
+  const discarded = discardTicketRun(recorded, '34', 1, LATER).tickets.find((candidate) => candidate.id === '34')!
+  assert.equal(discarded.runs![0].discarded, true)
+  assert.equal(discarded.session, undefined)
+  assert.equal(unresolvedAttempt(discarded, { status: 'working' }), undefined)
 })
 
 test("a run names its orchestrator's provider; one recorded before the field reads as Claude's (#47)", () => {

@@ -59,6 +59,7 @@ export const ORCHESTRATOR_COMMANDS = [
   'escalate',
   'merge',
   'cleanup',
+  'discard',
   'report',
   'usage',
   'question add',
@@ -145,6 +146,15 @@ export interface TicketRun {
    */
   provider?: AgentProvider
   route?: TicketRoute
+  /**
+   * Where the attempt ran (#4), so `discard --attempt <n>` can find attempt n and the unrecorded
+   * detection counts every attempt's worktree and branch as recorded. Absent on runs recorded before.
+   */
+  nodeId?: string
+  worktreePath?: string
+  branch?: string
+  /** The attempt was discarded: its session stopped, worktree removed and branch deleted. */
+  discarded?: true
 }
 
 /**
@@ -686,6 +696,10 @@ function isTicketRun(value: unknown): value is TicketRun {
   return (
     isRecord(value) &&
     optionalString(value.conversationId) &&
+    optionalString(value.nodeId) &&
+    optionalString(value.worktreePath) &&
+    optionalString(value.branch) &&
+    (value.discarded === undefined || value.discarded === true) &&
     (value.state === undefined || value.state === 'starting' || value.state === 'started') &&
     (value.provider === undefined || isAgentProvider(value.provider)) &&
     (value.route === undefined || typeof parseRoute(value.route) !== 'string')
@@ -849,6 +863,11 @@ export interface SpawnInput {
   forceReason?: string
   /** Stop the ticket's unresolved attempt first instead of refusing as a duplicate (#2). */
   replace?: true
+  /**
+   * Link this unrecorded worktree (and its live session, if any) to the ticket as its current
+   * attempt instead of spawning (#4). Takes nothing else but the ticket.
+   */
+  adopt?: string
 }
 
 const tierError = (flag: string): string => `${flag} must be one of ${DIFFICULTY_TIERS.join(', ')}`
@@ -857,6 +876,22 @@ const tierError = (flag: string): string => `${flag} must be one of ${DIFFICULTY
 export function parseSpawnInput(value: unknown): Outcome<'spawn', SpawnInput> {
   const args = isRecord(value) ? value : {}
   if (!nonEmptyString(args.ticket)) return refuse('spawn needs --ticket <id>')
+  if (args.adopt !== undefined) {
+    if (!nonEmptyString(args.adopt)) return refuse('spawn --adopt needs the unrecorded worktree path')
+    if (!optionalString(args.project)) return refuse('--project must be a path')
+    const extra = ['model', 'tier', 'effort', 'provider', 'force', 'reason', 'replace'].filter(
+      (key) => args[key] !== undefined
+    )
+    if (extra.length > 0)
+      return refuse('spawn --adopt takes only --ticket <id> and the worktree path, not other spawn flags')
+    return {
+      spawn: {
+        ticketId: args.ticket.trim(),
+        adopt: args.adopt.trim(),
+        ...(nonEmptyString(args.project) ? { projectPath: args.project.trim() } : {})
+      }
+    }
+  }
   if (args.model !== undefined && args.tier !== undefined) {
     return refuse('spawn takes --model <id> --effort <level> or --tier <tier>, not both')
   }
@@ -1014,6 +1049,7 @@ export function unresolvedAttempt(
   if (!session || isTicketSettled(ticket.mergeStatus)) return undefined
   const runs = ticket.runs ?? []
   const last = runs[runs.length - 1]
+  if (last?.discarded) return undefined
   const starting = last?.state === 'starting'
   const state = live?.status ?? (starting ? 'starting' : undefined)
   if (state === undefined || state === 'exited') return undefined
@@ -1140,12 +1176,25 @@ export function recordTicketSession(
     ...(session.conversationId ? { conversationId: session.conversationId } : {}),
     ...(state === 'starting' ? { state } : {}),
     provider: record.provider,
-    ...(route ? { route } : {})
+    ...(route ? { route } : {}),
+    ...(session.nodeId ? { nodeId: session.nodeId } : {}),
+    ...(session.worktreePath ? { worktreePath: session.worktreePath } : {}),
+    ...(session.branch ? { branch: session.branch } : {})
   }
   // A session spawned before runs were kept (#40) joins the history without a launch route: by now
   // `route` is the new spawn's, so the report takes that session's route from its outcome record.
   const earlier = (ticket: OrchestrationTicket): TicketRun[] =>
-    ticket.runs ?? (ticket.session?.conversationId ? [{ conversationId: ticket.session.conversationId }] : [])
+    ticket.runs ??
+    (ticket.session?.conversationId
+      ? [
+          {
+            conversationId: ticket.session.conversationId,
+            ...(ticket.session.nodeId ? { nodeId: ticket.session.nodeId } : {}),
+            ...(ticket.session.worktreePath ? { worktreePath: ticket.session.worktreePath } : {}),
+            ...(ticket.session.branch ? { branch: ticket.session.branch } : {})
+          }
+        ]
+      : [])
   const tickets = record.tickets.map((ticket) =>
     ticket.id === ticketId ? { ...ticket, session, runs: [...earlier(ticket), run] } : ticket
   )
@@ -1176,7 +1225,10 @@ export function updateTicketSession(
             ...runs.slice(0, -1),
             {
               ...(state === 'starting' ? last : started),
-              ...(session.conversationId ? { conversationId: session.conversationId } : {})
+              ...(session.conversationId ? { conversationId: session.conversationId } : {}),
+              ...(session.nodeId ? { nodeId: session.nodeId } : {}),
+              ...(session.worktreePath ? { worktreePath: session.worktreePath } : {}),
+              ...(session.branch ? { branch: session.branch } : {})
             }
           ]
         : runs
@@ -1204,6 +1256,81 @@ export function abandonTicketSession(
       ...rest,
       ...(before.session ? { session: before.session } : {}),
       ...(before.runs ? { runs: before.runs } : {})
+    }
+  })
+  return { ...record, tickets, updatedAt: now }
+}
+
+/** Where one attempt of a ticket ran, as `discard --attempt <n>` needs it. */
+export interface AttemptLocation {
+  attempt: number
+  nodeId?: string
+  conversationId?: string
+  worktreePath?: string
+  branch?: string
+  state?: TicketRunState
+  discarded: boolean
+}
+
+/**
+ * Attempt `attempt` (one-based, over `runs`) of a ticket. A run recorded before it kept its
+ * location falls back to the ticket's `session` when it is the latest attempt, the only one that
+ * session can be; a ticket with a session but no runs has exactly that one attempt.
+ */
+export function attemptLocation(ticket: OrchestrationTicket, attempt: number): AttemptLocation | undefined {
+  const runs = ticket.runs ?? []
+  const count = Math.max(runs.length, ticket.session ? 1 : 0)
+  if (!Number.isInteger(attempt) || attempt < 1 || attempt > count) return undefined
+  const run = runs[attempt - 1]
+  const latest = attempt === count
+  const session = latest ? ticket.session : undefined
+  const pick = <K extends 'nodeId' | 'conversationId' | 'worktreePath' | 'branch'>(key: K): string | undefined =>
+    (run as Partial<Record<K, string>> | undefined)?.[key] ?? session?.[key]
+  return {
+    attempt,
+    ...(pick('nodeId') ? { nodeId: pick('nodeId') } : {}),
+    ...(pick('conversationId') ? { conversationId: pick('conversationId') } : {}),
+    ...(pick('worktreePath') ? { worktreePath: pick('worktreePath') } : {}),
+    ...(pick('branch') ? { branch: pick('branch') } : {}),
+    ...(run?.state ? { state: run.state } : {}),
+    discarded: run?.discarded === true
+  }
+}
+
+/**
+ * Records attempt `attempt` as discarded. When it is the ticket's latest, the session link is
+ * dropped as well, so the ticket reads as not spawned and a plain `spawn` is no duplicate.
+ */
+export function discardTicketRun(
+  record: OrchestrationRecord,
+  ticketId: string,
+  attempt: number,
+  now: string
+): OrchestrationRecord {
+  const tickets = record.tickets.map((ticket) => {
+    if (ticket.id !== ticketId) return ticket
+    const location = attemptLocation(ticket, attempt)
+    if (!location) return ticket
+    const runs = ticket.runs ?? []
+    // A session recorded before runs were kept is that ticket's one attempt.
+    const base: TicketRun[] = runs.length > 0 ? runs : ticket.session ? [{}] : []
+    const nextRuns = base.map((run, index) => {
+      if (index !== attempt - 1) return run
+      const { state: _state, ...rest } = run
+      return {
+        ...rest,
+        ...(location.nodeId ? { nodeId: location.nodeId } : {}),
+        ...(location.worktreePath ? { worktreePath: location.worktreePath } : {}),
+        ...(location.branch ? { branch: location.branch } : {}),
+        discarded: true as const
+      }
+    })
+    const { session, ...rest } = ticket
+    const latest = attempt === base.length
+    return {
+      ...rest,
+      ...(session && !latest ? { session } : {}),
+      ...(nextRuns.length > 0 ? { runs: nextRuns } : {})
     }
   })
   return { ...record, tickets, updatedAt: now }
@@ -1478,6 +1605,36 @@ export function parseCleanupInput(value: unknown): Outcome<'cleanup', { ticketId
   }
   if (!nonEmptyString(value.ticket)) return refuse('cleanup --ticket needs a ticket id')
   return { cleanup: { ticketId: value.ticket.trim() } }
+}
+
+export type DiscardInput = { ticketId: string; attempt: number } | { branch: string }
+
+/**
+ * Validates `discard`: `--ticket <id> --attempt <n>` for a recorded attempt, or `--branch <name>` for
+ * an unrecorded one `status` lists (#4).
+ */
+export function parseDiscardInput(value: unknown): Outcome<'discard', DiscardInput> {
+  const args = isRecord(value) ? value : {}
+  if (Object.keys(args).some((key) => key !== 'ticket' && key !== 'attempt' && key !== 'branch')) {
+    return refuse('discard takes --ticket <id> --attempt <n>, or --branch <name> for an unrecorded attempt')
+  }
+  if (args.branch !== undefined) {
+    if (args.ticket !== undefined || args.attempt !== undefined) {
+      return refuse('discard --branch takes neither --ticket nor --attempt')
+    }
+    if (!nonEmptyString(args.branch) || !args.branch.trim().startsWith('ticket/')) {
+      return refuse('discard --branch needs a ticket/* branch name, as status lists under unrecorded')
+    }
+    return { discard: { branch: args.branch.trim() } }
+  }
+  if (!nonEmptyString(args.ticket)) return refuse('discard needs --ticket <id> --attempt <n>')
+  const attempt = typeof args.attempt === 'string' ? Number(args.attempt) : args.attempt
+  if (typeof attempt !== 'number' || !Number.isInteger(attempt) || attempt < 1) {
+    return refuse(
+      'discard needs --attempt <n>, a positive whole number (the attempt as status or the duplicate refusal numbers it)'
+    )
+  }
+  return { discard: { ticketId: args.ticket.trim(), attempt } }
 }
 
 /** Validates `merge`'s `--ticket <id> --tested <commit>`: the commit the orchestrator verified (targeted tests or the full suite). */

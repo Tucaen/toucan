@@ -43,7 +43,24 @@ export interface OrchestrationCleanup {
    * those a live session works in that the record does not name. Read-only.
    */
   unrecorded(record: OrchestrationRecord): Promise<UnrecordedAttempt[]>
+  /**
+   * Throws an attempt away (#4): removes its worktree even with uncommitted or unpublished work,
+   * force-deletes its branch, and clears its canvas frame. The caller has stopped the session.
+   * Refuses only what is not a ticket worktree/branch of this project; never touches the target.
+   */
+  discard(record: OrchestrationRecord, target: DiscardTarget): Promise<DiscardResult>
 }
+
+export interface DiscardTarget {
+  ticket: string
+  branch: string
+  worktreePath?: string
+  nodeId?: string
+  conversationId?: string
+}
+
+export type DiscardResult =
+  { ok: true; removedWorktree: boolean; deletedBranch: boolean; ahead: number | null } | { ok: false; error: string }
 
 /** Why a sweep keeps an unrecorded attempt instead of judging it. */
 export const UNRECORDED_ATTEMPT_REASON = 'unrecorded attempt'
@@ -108,7 +125,12 @@ export function createOrchestrationCleanup(options: {
 
   const unrecorded = async (record: OrchestrationRecord): Promise<UnrecordedAttempt[]> => {
     const git = gitIn(record)
-    const sessions = record.tickets.flatMap((ticket) => (ticket.session ? [ticket.session] : []))
+    // Every attempt the record holds counts, not only each ticket's latest session; a discarded
+    // one is gone from Git, and one that somehow survives is exactly what should be reported.
+    const sessions = record.tickets.flatMap((ticket) => [
+      ...(ticket.session ? [ticket.session] : []),
+      ...(ticket.runs ?? []).filter((run) => !run.discarded)
+    ])
     const recordedPaths = new Set(sessions.flatMap((s) => (s.worktreePath ? [pathIdentity(s.worktreePath)] : [])))
     const recordedBranches = new Set(sessions.flatMap((s) => (s.branch ? [s.branch] : [])))
     const recordedNodes = new Set(sessions.flatMap((s) => (s.nodeId ? [s.nodeId] : [])))
@@ -121,13 +143,18 @@ export function createOrchestrationCleanup(options: {
         return null
       }
     }
-    const attempt = async (branch: string, path?: string): Promise<UnrecordedAttempt> => ({
-      ticket: ticketIdOfBranch(record, branch) ?? branch.replace(/^ticket\//, ''),
-      ...(path ? { path } : {}),
-      branch,
-      ahead: await ahead(branch),
-      liveSession: path ? liveIn(path).length > 0 : false
-    })
+    const attempt = async (branch: string, path?: string): Promise<UnrecordedAttempt> => {
+      const sessionsHere = path ? liveIn(path) : []
+      const unnamed = sessionsHere.find((session) => !recordedNodes.has(session.nodeId)) ?? sessionsHere[0]
+      return {
+        ticket: ticketIdOfBranch(record, branch) ?? branch.replace(/^ticket\//, ''),
+        ...(path ? { path } : {}),
+        branch,
+        ahead: await ahead(branch),
+        liveSession: sessionsHere.length > 0,
+        ...(unnamed ? { nodeId: unnamed.nodeId } : {})
+      }
+    }
 
     const found: UnrecordedAttempt[] = []
     const seen = new Set<string>()
@@ -327,6 +354,92 @@ export function createOrchestrationCleanup(options: {
       }
     },
     unrecorded,
+    async discard(record, target) {
+      const git = gitIn(record)
+      const { branch, worktreePath } = target
+      try {
+        if (!branch.startsWith('ticket/') || branch === record.targetBranch) {
+          return { ok: false, error: `${branch} is not a ticket branch` }
+        }
+        if (!(await options.containment.contains(record.projectPath))) {
+          return { ok: false, error: 'the project is no longer inside the registered workspace' }
+        }
+        if (worktreePath && !(await options.containment.contains(worktreePath))) {
+          return { ok: false, error: 'the worktree is no longer inside the registered workspace' }
+        }
+        const ref = `refs/heads/${branch}`
+        const hasBranch = (await git(['for-each-ref', '--format=%(refname)', ref])).split(/\r?\n/).includes(ref)
+        let ahead: number | null = null
+        if (hasBranch) {
+          try {
+            ahead = Number(await git(['rev-list', '--count', `refs/heads/${record.targetBranch}..${ref}`]))
+          } catch {
+            ahead = null
+          }
+        }
+        const registration = async () =>
+          worktreePath
+            ? parseWorktreeList(await git(['worktree', 'list', '--porcelain'])).find(
+                (item) => pathIdentity(item.path) === pathIdentity(worktreePath)
+              )
+            : undefined
+        let worktree = await registration()
+        if (worktree?.prunable) {
+          await git(['worktree', 'prune'])
+          worktree = await registration()
+        }
+        if (worktree && (worktree.isMain || worktree.branch !== branch)) {
+          return { ok: false, error: `${worktreePath} is not the worktree of ${branch}` }
+        }
+        const session =
+          worktreePath && target.nodeId
+            ? {
+                nodeId: target.nodeId,
+                worktreePath,
+                branch,
+                ...(target.conversationId ? { conversationId: target.conversationId } : {})
+              }
+            : undefined
+        if (session) {
+          const prepared = await options.canvas({ projectPath: record.projectPath, session, phase: 'prepare' })
+          if (!prepared.ok) return { ok: false, error: prepared.message }
+        }
+        let removedWorktree = false
+        if (worktreePath && worktree) {
+          const result = await options.worktrees.remove({
+            projectPath: record.projectPath,
+            path: worktreePath,
+            branch,
+            baseRef: record.targetBranch,
+            force: true
+          })
+          if (!result.ok) {
+            return {
+              ok: false,
+              error:
+                result.message || result.blockers.map((blocker) => blocker.kind).join(', ') || 'worktree removal failed'
+            }
+          }
+          removedWorktree = true
+        } else if (worktreePath && existsSync(worktreePath)) {
+          // Git no longer lists the folder (a half-failed removal, or one deleted by hand).
+          await removeTree(worktreePath)
+          removedWorktree = true
+        }
+        let deletedBranch = false
+        if (hasBranch) {
+          await git(['branch', '-D', '--', branch])
+          deletedBranch = true
+        }
+        if (session) {
+          const removed = await options.canvas({ projectPath: record.projectPath, session, phase: 'remove' })
+          if (!removed.ok) options.log?.(`discard of ${branch}: canvas cleanup failed: ${removed.message}`)
+        }
+        return { ok: true, removedWorktree, deletedBranch, ahead }
+      } catch (error) {
+        return { ok: false, error: errorMessage(error) }
+      }
+    },
     run: (record, ticketId) => sweep(record, ticketId)
   }
 }

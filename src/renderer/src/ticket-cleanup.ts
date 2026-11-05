@@ -28,7 +28,7 @@ export function ticketCleanupNodes(
   if (ticket) {
     if (
       !isTerminalCanvasNode(ticket) ||
-      ticket.data.conversationId !== session.conversationId ||
+      (session.conversationId !== undefined && ticket.data.conversationId !== session.conversationId) ||
       ticket.data.worktreeId !== worktree.data.worktreeId
     ) {
       return { ok: false, message: 'The ticket chat identity changed.' }

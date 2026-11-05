@@ -610,7 +610,8 @@ void app.whenReady().then(async () => {
     cleanup: {
       run: (record, ticketId) => orchestrationCleanup.run(record, ticketId),
       answeredRefusal: (record, ticket) => orchestrationCleanup.answeredRefusal(record, ticket),
-      unrecorded: (record) => orchestrationCleanup.unrecorded(record)
+      unrecorded: (record) => orchestrationCleanup.unrecorded(record),
+      discard: (record, target) => orchestrationCleanup.discard(record, target)
     },
     merge: createOrchestrationMerge({ runGit: runGitWithExecFile, containment }),
     ticketSessions: {

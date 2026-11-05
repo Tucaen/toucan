@@ -7,7 +7,7 @@ import { afterEach, test } from 'vitest'
 import { createWorktreeManager, runGitWithExecFile, type GitRunner } from '../src/main/git-worktree'
 import { createOrchestrationCleanup } from '../src/main/orchestration-cleanup'
 import { createWorkspaceContainment } from '../src/main/workspace-containment'
-import { applyPlan, recordTicketSession } from '../src/shared/orchestration'
+import { applyPlan, discardTicketRun, recordTicketSession } from '../src/shared/orchestration'
 
 // Real Git on Windows costs a process spawn per call, and the full suite runs these on a machine
 // every worker is saturating: measured at 6 s alone and 30 s+ in the full run for the same 80-odd
@@ -182,7 +182,7 @@ test(
     })
 
     assert.deepEqual(await cleanup.unrecorded(record), [
-      { ticket: '9', path: gitPath(path), branch: 'ticket/9', ahead: 2, liveSession: true },
+      { ticket: '9', path: gitPath(path), branch: 'ticket/9', ahead: 2, liveSession: true, nodeId: 'stray' },
       { ticket: '2', branch: 'ticket/2-2', ahead: 0, liveSession: false }
     ])
     const result = await cleanup.run(record)
@@ -220,7 +220,14 @@ test(
       })
     assert.deepEqual(await live(two.nodeId!, two.worktreePath!).unrecorded(record), [])
     assert.deepEqual(await live('stray', one.worktreePath!).unrecorded(record), [
-      { ticket: '1', path: gitPath(one.worktreePath!), branch: 'ticket/1', ahead: 1, liveSession: true }
+      {
+        ticket: '1',
+        path: gitPath(one.worktreePath!),
+        branch: 'ticket/1',
+        ahead: 1,
+        liveSession: true,
+        nodeId: 'stray'
+      }
     ])
     assert.ok(await git(['branch', '--list', 'ticket/1']))
   },
@@ -707,6 +714,77 @@ test.skipIf(process.platform !== 'win32')(
     assert.deepEqual(result.retained, [])
     assert.equal(existsSync(path), false)
     assert.equal(await context.git(['branch', '--list', 'ticket/1']), '')
+  },
+  GIT_FIXTURE_TIMEOUT
+)
+
+test(
+  'a worktree or branch any recorded attempt names is recorded, not only the latest session; a discarded one is not',
+  async () => {
+    const { project, record, cleanup } = await fixture()
+    const ticket = record.tickets[1]
+    // The ticket was respawned elsewhere: attempt 1 (ticket/2 in its worktree) is no longer the session.
+    const respawned = recordTicketSession(
+      record,
+      ticket.id,
+      {
+        nodeId: 'node-2b',
+        conversationId: 'c-2b',
+        worktreePath: join(project, '..', 'ticket-2b'),
+        branch: 'ticket/2-2'
+      },
+      'later'
+    )
+    const names = (await cleanup.unrecorded(respawned)).map((attempt) => attempt.branch)
+    assert.ok(!names.includes('ticket/2'), 'the first attempt still counts as recorded')
+    assert.ok(!names.includes('ticket/1'))
+    const discarded = discardTicketRun(respawned, ticket.id, 1, 'later')
+    const after = (await cleanup.unrecorded(discarded)).map((attempt) => attempt.branch)
+    assert.deepEqual(after, ['ticket/2'])
+  },
+  GIT_FIXTURE_TIMEOUT
+)
+
+test(
+  'discard removes the worktree with its uncommitted work and force-deletes the unmerged branch',
+  async () => {
+    const { root, git, record, canvas, cleanup } = await fixture()
+    const session = record.tickets[1].session!
+    writeFileSync(join(session.worktreePath!, 'scratch.txt'), 'unsaved work')
+    await git(['commit', '--allow-empty', '-m', 'unmerged'], session.worktreePath)
+    const result = await cleanup.discard(record, {
+      ticket: '2',
+      branch: session.branch!,
+      worktreePath: session.worktreePath,
+      nodeId: session.nodeId,
+      conversationId: session.conversationId
+    })
+    assert.deepEqual(result, { ok: true, removedWorktree: true, deletedBranch: true, ahead: 2 })
+    assert.equal(existsSync(session.worktreePath!), false)
+    assert.equal(await git(['branch', '--list', 'ticket/2']), '')
+    assert.ok(await git(['branch', '--list', 'ticket/1']), 'other attempts are untouched')
+    assert.ok(existsSync(join(root, 'ticket-1')))
+    assert.deepEqual(canvas, ['prepare:node-2', 'remove:node-2'])
+  },
+  GIT_FIXTURE_TIMEOUT
+)
+
+test(
+  'discard refuses anything but a ticket branch, and finishes a branch no worktree has checked out',
+  async () => {
+    const { git, record, cleanup } = await fixture()
+    assert.deepEqual(await cleanup.discard(record, { ticket: '2', branch: 'main' }), {
+      ok: false,
+      error: 'main is not a ticket branch'
+    })
+    await git(['branch', 'ticket/7', 'main'])
+    assert.deepEqual(await cleanup.discard(record, { ticket: '7', branch: 'ticket/7' }), {
+      ok: true,
+      removedWorktree: false,
+      deletedBranch: true,
+      ahead: 0
+    })
+    assert.equal(await git(['branch', '--list', 'ticket/7']), '')
   },
   GIT_FIXTURE_TIMEOUT
 )
