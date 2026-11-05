@@ -29,13 +29,24 @@ export interface OrchestrationConfig {
   tiers: TierMapping
   /** What a ticket session's prompt opens with, before the ticket and the ticket contract. */
   implementationSkill: string
+  /** How long a spawn waits for its session to show life before answering `pending`; see `DEFAULT_START_TIMEOUT_SECONDS`. */
+  startTimeoutSeconds?: number
 }
 
 /** One provider's entry in the user file or a project's override. */
 export interface ProviderOrchestrationConfigFile {
   tiers?: Partial<TierMapping>
   implementationSkill?: string
+  startTimeoutSeconds?: number
 }
+
+/**
+ * How long a spawn waits for its ticket session to start (#1) when the project says nothing. Slow
+ * setups - a Windows adapter launch, an engine's first import - used to outlast the 90 s it was.
+ */
+export const DEFAULT_START_TIMEOUT_SECONDS = 300
+/** The bounds a configured start timeout must stay within, in seconds. */
+export const START_TIMEOUT_SECONDS_RANGE = { min: 10, max: 3600 } as const
 
 /**
  * One configuration file. Provider entries coexist so a Codex mapping can never reinterpret or
@@ -77,6 +88,12 @@ function parseProviderConfig(value: unknown, prefix = ''): Outcome<'config', Pro
     if (key === 'implementationSkill') {
       if (!nonEmptyString(field)) return { error: `${prefix}implementationSkill must be a non-empty string` }
       config.implementationSkill = field.trim()
+    } else if (key === 'startTimeoutSeconds') {
+      const { min, max } = START_TIMEOUT_SECONDS_RANGE
+      if (typeof field !== 'number' || !Number.isInteger(field) || field < min || field > max) {
+        return { error: `${prefix}startTimeoutSeconds must be a whole number of seconds from ${min} to ${max}` }
+      }
+      config.startTimeoutSeconds = field
     } else if (key === 'tiers') {
       if (!isRecord(field)) return { error: `${prefix}tiers must be an object keyed by tier` }
       const tiers: Partial<TierMapping> = {}
@@ -103,7 +120,9 @@ function parseProviderConfig(value: unknown, prefix = ''): Outcome<'config', Pro
       }
       config.tiers = tiers
     } else {
-      return { error: `${prefix}unknown field "${key}"; a provider entry holds tiers and implementationSkill` }
+      return {
+        error: `${prefix}unknown field "${key}"; a provider entry holds tiers, implementationSkill and startTimeoutSeconds`
+      }
     }
   }
   return { config }
@@ -165,7 +184,10 @@ export function effectiveOrchestrationConfig(
     implementationSkill:
       projectEntry?.implementationSkill ??
       userEntry?.implementationSkill ??
-      DEFAULT_ORCHESTRATION_CONFIG.implementationSkill
+      DEFAULT_ORCHESTRATION_CONFIG.implementationSkill,
+    ...(projectEntry?.startTimeoutSeconds !== undefined || userEntry?.startTimeoutSeconds !== undefined
+      ? { startTimeoutSeconds: projectEntry?.startTimeoutSeconds ?? userEntry?.startTimeoutSeconds }
+      : {})
   }
 }
 

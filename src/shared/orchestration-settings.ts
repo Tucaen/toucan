@@ -119,7 +119,12 @@ export function userDraft(
 function providerFileFromDraft(draft: ProviderOrchestrationConfigFile): ProviderOrchestrationConfigFile {
   const skill = draft.implementationSkill?.trim()
   const tiers = draft.tiers && Object.keys(draft.tiers).length > 0 ? draft.tiers : undefined
-  return { ...(tiers ? { tiers } : {}), ...(skill ? { implementationSkill: skill } : {}) }
+  return {
+    ...(tiers ? { tiers } : {}),
+    ...(skill ? { implementationSkill: skill } : {}),
+    // Edited in the file, not the panel; saving the panel must not drop it.
+    ...(draft.startTimeoutSeconds !== undefined ? { startTimeoutSeconds: draft.startTimeoutSeconds } : {})
+  }
 }
 
 /** Normalizes both provider entries while preserving whichever provider the open panel is not editing. */
@@ -129,7 +134,9 @@ export function orchestrationFileFromDraft(draft: OrchestrationConfigFile): Orch
     const entry = draft[provider]
     if (!entry) continue
     const normalized = providerFileFromDraft(entry)
-    if (normalized.tiers || normalized.implementationSkill) file[provider] = normalized
+    if (normalized.tiers || normalized.implementationSkill || normalized.startTimeoutSeconds !== undefined) {
+      file[provider] = normalized
+    }
   }
   return file
 }

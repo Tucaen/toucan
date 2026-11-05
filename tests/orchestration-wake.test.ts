@@ -279,3 +279,26 @@ test('wakes that two deliveries both left undelivered are retried in the order t
   assert.equal(delivered.length, 3)
   assert.ok(delivered[2].indexOf('#12') < delivered[2].indexOf('#13'), delivered[2])
 })
+
+// Issue #1: a spawn that answered pending reports how its start settled, and a session Toucan
+// stopped and unlinked stops being the orchestrator's news.
+
+test('a start that settled after spawn answered pending wakes the orchestrator with how', async () => {
+  const { waker, delivered, fold } = harness()
+  waker.report(bindings['ticket-a'], { kind: 'started' })
+  waker.report(bindings['ticket-b'], { kind: 'start-failed', reason: 'The ticket session could not be started.' })
+  await fold()
+  assert.equal(delivered.length, 1)
+  assert.match(delivered[0].text, /#12 finished starting/)
+  assert.match(delivered[0].text, /#13 could not be started: The ticket session could not be started\./)
+  assert.match(delivered[0].text, /spawn the ticket again/)
+})
+
+test('an unlinked session raises nothing for its orchestrator', async () => {
+  const { waker, delivered, fold } = harness()
+  waker.bind('ticket-a', bindings['ticket-a'])
+  waker.unbind('ticket-a')
+  waker.observe('ticket-a', complete)
+  await fold()
+  assert.deepEqual(delivered, [])
+})

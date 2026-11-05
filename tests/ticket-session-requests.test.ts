@@ -6,10 +6,9 @@ import { ORCHESTRATOR_CHANNELS } from '../src/shared/ipc-channels'
 import type { TicketSessionCanvasRequest } from '../src/shared/ticket-session-spawn'
 
 /**
- * Issue #1: `spawn` reported a ticket session as failed after the canvas timeout, yet the session
- * came up minutes later, took the ticket prompt and did the work, unseen by its orchestrator. A
- * timeout is a verdict the orchestrator acts on - it retries - so it has to be made true: the
- * window that was asked is told to withdraw the session, and nothing it says afterwards counts.
+ * Issue #1: a ticket session that outlasts `spawn`'s wait is not a failure. The orchestrator is told
+ * `pending` with the session the canvas reported, the session stays open, and what it settles to
+ * later is handed to whoever asked - instead of being closed behind the orchestrator's back.
  */
 
 const request: TicketSessionCanvasRequest = {
@@ -36,14 +35,21 @@ function fakeWindow(): DesktopWindow & { sent: { channel: string; args: unknown[
   }
 }
 
-function manualClock(): { schedule: (run: () => void, delayMs: number) => { cancel(): void }; fire(): void } {
+function manualClock(): {
+  schedule: (run: () => void, delayMs: number) => { cancel(): void }
+  fire(): void
+  delays: number[]
+} {
   let pending: (() => void) | null = null
+  const delays: number[] = []
   return {
-    schedule: (run) => {
+    delays,
+    schedule: (run, delayMs) => {
       pending = run
+      delays.push(delayMs)
       return {
         cancel: () => {
-          pending = null
+          if (pending === run) pending = null
         }
       }
     },
@@ -55,60 +61,127 @@ function manualClock(): { schedule: (run: () => void, delayMs: number) => { canc
   }
 }
 
-test('a session that misses the timeout is withdrawn, and its late start is not news', async () => {
+const ticketSession = { nodeId: 'ticket', conversationId: 'ticket-conversation' }
+
+test('a session that misses the wait is answered pending with its node, and is not withdrawn', async () => {
   const clock = manualClock()
   const requests = createTicketSessionRequests({ requestId: () => 'req-1', schedule: clock.schedule })
   const window = fakeWindow()
   requests.attach(window)
+  const late: unknown[] = []
 
-  const pending = requests.request(request)
+  const answer = requests.request(request, { late: (result) => late.push(result) })
+  requests.progress('req-1', { nodeId: 'ticket' })
   clock.fire()
 
-  assert.deepEqual(await pending, { ok: false, message: TICKET_SESSION_TIMEOUT_MESSAGE })
-  assert.deepEqual(window.sent, [
-    { channel: ORCHESTRATOR_CHANNELS.startTicketSession, args: ['req-1', request] },
-    { channel: ORCHESTRATOR_CHANNELS.cancelTicketSession, args: ['req-1'] }
-  ])
-  // The session comes up after all: the spawn has been answered and stays answered.
-  requests.complete('req-1', { ok: true, nodeId: 'ticket', conversationId: 'ticket-conversation' })
-  assert.equal(window.sent.length, 2)
+  assert.deepEqual(await answer, {
+    ok: false,
+    pending: true,
+    message: TICKET_SESSION_TIMEOUT_MESSAGE,
+    nodeId: 'ticket'
+  })
+  // Nothing is sent to close it: it keeps starting.
+  assert.deepEqual(
+    window.sent.map((message) => message.channel),
+    [ORCHESTRATOR_CHANNELS.startTicketSession]
+  )
+  assert.deepEqual(late, [])
+
+  // It comes up after all: that is news for whoever asked.
+  requests.complete('req-1', { ok: true, ...ticketSession })
+  assert.deepEqual(late, [{ ok: true, ...ticketSession }])
 })
 
-test('the timeout message says the session was closed rather than that it may still appear', () => {
-  assert.doesNotMatch(TICKET_SESSION_TIMEOUT_MESSAGE, /may still appear/)
-  assert.match(TICKET_SESSION_TIMEOUT_MESSAGE, /closes it/)
+test('a pending session that then fails reports the failure to whoever asked', async () => {
+  const clock = manualClock()
+  const requests = createTicketSessionRequests({ requestId: () => 'req-1', schedule: clock.schedule })
+  requests.attach(fakeWindow())
+  const late: unknown[] = []
+
+  const answer = requests.request(request, { late: (result) => late.push(result) })
+  requests.progress('req-1', { nodeId: 'ticket' })
+  clock.fire()
+  await answer
+  requests.complete('req-1', { ok: false, message: 'The ticket session could not be started on the desktop.' })
+
+  assert.deepEqual(late, [{ ok: false, message: 'The ticket session could not be started on the desktop.' }])
 })
 
-test('a session that settles in time is never withdrawn', async () => {
+test('a pending session whose window closes reports that, not silence', async () => {
+  const clock = manualClock()
+  const requests = createTicketSessionRequests({ requestId: () => 'req-1', schedule: clock.schedule })
+  const detach = requests.attach(fakeWindow())
+  const late: unknown[] = []
+
+  const answer = requests.request(request, { late: (result) => late.push(result) })
+  requests.progress('req-1', { nodeId: 'ticket' })
+  clock.fire()
+  await answer
+  detach()
+
+  assert.deepEqual(late, [{ ok: false, message: 'The Toucan window closed before the ticket session was started.' }])
+})
+
+test('the wait restarts on every sign of life, and a project can set how long it is', async () => {
+  const clock = manualClock()
+  const requests = createTicketSessionRequests({ requestId: () => 'req-1', schedule: clock.schedule })
+  requests.attach(fakeWindow())
+
+  const answer = requests.request(request, { timeoutMs: 600_000 })
+  requests.progress('req-1', { nodeId: 'ticket' })
+  // The session prints something while starting (adapter progress, a first message).
+  requests.activity('ticket')
+  assert.deepEqual(clock.delays, [600_000, 600_000, 600_000])
+
+  clock.fire()
+  assert.equal(((await answer) as { pending?: boolean }).pending, true)
+})
+
+test('an unconfigured wait is longer than the 90 seconds that kept timing out slow setups', () => {
+  const clock = manualClock()
+  const requests = createTicketSessionRequests({ requestId: () => 'req-1', schedule: clock.schedule })
+  requests.attach(fakeWindow())
+  void requests.request(request)
+  assert.ok(clock.delays[0] > 90_000)
+})
+
+test('a node main cancels is closed by its node id, on the window that is open now', () => {
+  const requests = createTicketSessionRequests()
+  const window = fakeWindow()
+  requests.attach(window)
+  requests.cancel('ticket')
+  assert.deepEqual(window.sent, [{ channel: ORCHESTRATOR_CHANNELS.cancelTicketSession, args: ['ticket'] }])
+})
+
+test('a session that settles in time is answered, never pending, and not reported late', async () => {
   const clock = manualClock()
   const requests = createTicketSessionRequests({ requestId: () => 'req-1', schedule: clock.schedule })
   const window = fakeWindow()
   requests.attach(window)
+  const late: unknown[] = []
 
-  const pending = requests.request(request)
-  requests.complete('req-1', { ok: true, nodeId: 'ticket', conversationId: 'ticket-conversation' })
+  const answer = requests.request(request, { late: (result) => late.push(result) })
+  requests.complete('req-1', { ok: true, ...ticketSession })
   clock.fire()
 
-  assert.deepEqual(await pending, { ok: true, nodeId: 'ticket', conversationId: 'ticket-conversation' })
+  assert.deepEqual(await answer, { ok: true, ...ticketSession })
+  assert.deepEqual(late, [])
   assert.deepEqual(
     window.sent.map((message) => message.channel),
     [ORCHESTRATOR_CHANNELS.startTicketSession]
   )
 })
 
-test('a window destroyed before the timeout is not written to', async () => {
-  const clock = manualClock()
-  const requests = createTicketSessionRequests({ requestId: () => 'req-1', schedule: clock.schedule })
-  const window = fakeWindow()
-  requests.attach(window)
+test('there is no window to ask, or it closes first: a refusal, not a pending session', async () => {
+  const none = createTicketSessionRequests()
+  assert.equal(((await none.request(request)) as { ok: boolean }).ok, false)
 
-  const pending = requests.request(request)
-  window.destroy()
-  clock.fire()
-
-  assert.deepEqual(await pending, { ok: false, message: TICKET_SESSION_TIMEOUT_MESSAGE })
-  assert.deepEqual(
-    window.sent.map((message) => message.channel),
-    [ORCHESTRATOR_CHANNELS.startTicketSession]
-  )
+  const requests = createTicketSessionRequests({ requestId: () => 'req-1' })
+  const detach = requests.attach(fakeWindow())
+  const answer = requests.request(request)
+  detach()
+  assert.deepEqual(await answer, {
+    ok: false,
+    message: 'The Toucan window closed before the ticket session was started.'
+  })
 })

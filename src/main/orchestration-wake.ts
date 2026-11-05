@@ -50,8 +50,15 @@ export interface OrchestrationWakerOptions {
 export interface OrchestrationWaker {
   /** Every session event, from the broker's observer. */
   observe(nodeId: string, event: AgentEvent): void
-  /** A ticket session the endpoint just spawned; replays what it raised before `spawn` returned. */
+  /** A ticket session the endpoint just linked; replays what it raised before it was. */
   bind(nodeId: string, binding: TicketBinding): void
+  /** A session Toucan stopped and unlinked from its ticket: nothing it raises is the orchestrator's news. */
+  unbind(nodeId: string): void
+  /**
+   * Something about a linked ticket session that is not a session event - its start settled after
+   * `spawn` answered `pending` - to wake the orchestrator with like one.
+   */
+  report(binding: TicketBinding, event: { kind: 'started' | 'start-failed'; reason?: string }): void
   /** Settles once every lookup and delivery started so far has; for tests. */
   idle(): Promise<void>
 }
@@ -201,6 +208,15 @@ export function createOrchestrationWaker(options: OrchestrationWakerOptions): Or
       const held = unbound.get(nodeId)
       unbound.delete(nodeId)
       for (const item of held?.items ?? []) enqueue(binding, item)
+    },
+
+    unbind(nodeId) {
+      bindings.set(nodeId, null)
+      unbound.delete(nodeId)
+    },
+
+    report(binding, event) {
+      enqueue(binding, event)
     },
 
     async idle() {

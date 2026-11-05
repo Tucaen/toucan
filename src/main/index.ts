@@ -27,6 +27,7 @@ import { latestTurnAnswer } from '../shared/session-messaging'
 import { pathIdentity } from '../shared/paths'
 import {
   isTicketSessionCanvasResult,
+  isTicketSessionProgress,
   orchestratorProvider,
   type OrchestrationControlRequest,
   orchestrationControlState,
@@ -632,6 +633,13 @@ void app.whenReady().then(async () => {
       }
     },
     onTicketSpawned: (nodeId, binding) => orchestrationWaker.bind(nodeId, binding),
+    onTicketAbandoned: (nodeId) => orchestrationWaker.unbind(nodeId),
+    // A failed start's session is unbound by then, so the wake is addressed by its own binding.
+    onTicketStartSettled: (binding, outcome) =>
+      orchestrationWaker.report(
+        binding,
+        outcome.ok ? { kind: 'started' } : { kind: 'start-failed', reason: outcome.error }
+      ),
     spawned: publishOrchestrationState,
     questionsChanged: publishOrchestrationState,
     resumePaused: (key, orchestratorNodeId) => orchestrationController.resumeForForce(key, orchestratorNodeId),
@@ -735,6 +743,9 @@ void app.whenReady().then(async () => {
     orchestrationController.observe(id, event)
     orchestrationWaker.observe(id, event)
     sessionMessenger.observe(id, event)
+    // Output from a ticket session still starting (adapter progress, a first message) is a sign of
+    // life: its spawn keeps waiting rather than timing out on a slow setup (#1).
+    ticketSessions.activity(id)
     if (event.type === 'status' && event.status === 'ready') orchestratorEndpoint.pacingSessionReady(id)
     if (event.type === 'status' && event.status === 'exited') {
       void orchestrationSessionForNode(id)
@@ -861,6 +872,9 @@ void app.whenReady().then(async () => {
   ipcMain.on(ORCHESTRATOR_CHANNELS.ticketSessionResult, (_event, requestId: unknown, result: unknown) => {
     if (typeof requestId === 'string' && isTicketSessionCanvasResult(result)) ticketSessions.complete(requestId, result)
   })
+  ipcMain.on(ORCHESTRATOR_CHANNELS.ticketSessionProgress, (_event, requestId: unknown, progress: unknown) => {
+    if (typeof requestId === 'string' && isTicketSessionProgress(progress)) ticketSessions.progress(requestId, progress)
+  })
   const runSetupCommand = createSetupCommandRunner({ shell: terminalShell })
   const ticketCleanup = createWindowRequests<TicketCleanupRequest, TicketCleanupResult>({
     channel: ORCHESTRATOR_CHANNELS.cleanupTicket,
@@ -913,7 +927,10 @@ void app.whenReady().then(async () => {
       return project && { id: project.id, setupCommand: project.setupCommand }
     },
     runSetup: runSetupCommand,
-    canvas: { startTicketSession: (request) => ticketSessions.request(request) },
+    canvas: {
+      startTicketSession: (request, observer) => ticketSessions.request(request, observer),
+      cancelTicketSession: (nodeId) => ticketSessions.cancel(nodeId)
+    },
     session: (nodeId) => {
       const snapshot = agentEvents.snapshot(nodeId)
       return snapshot

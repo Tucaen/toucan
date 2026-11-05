@@ -124,6 +124,8 @@ export interface TicketSession {
   branch?: string
 }
 
+export type TicketRunState = 'starting' | 'started'
+
 /**
  * One ticket session a ticket was run in and the route it launched on (#40). `session` is only the
  * latest; the routing report needs every attempt, because an escalated ticket's failure belongs to
@@ -131,6 +133,11 @@ export interface TicketSession {
  */
 export interface TicketRun {
   conversationId?: string
+  /**
+   * `starting` from the moment the canvas holds the session until it reports in (#1). Absent
+   * once it has - and on every run recorded before this existed, which all had started.
+   */
+  state?: TicketRunState
   /**
    * The provider whose session ran it - the orchestrator's, since ticket sessions are
    * provider-homogeneous (#44). Absent on runs recorded before #47: read it through
@@ -679,6 +686,7 @@ function isTicketRun(value: unknown): value is TicketRun {
   return (
     isRecord(value) &&
     optionalString(value.conversationId) &&
+    (value.state === undefined || value.state === 'starting' || value.state === 'started') &&
     (value.provider === undefined || isAgentProvider(value.provider)) &&
     (value.route === undefined || typeof parseRoute(value.route) !== 'string')
   )
@@ -1048,18 +1056,21 @@ export function stopOrchestration(record: OrchestrationRecord, now: string): Orc
 }
 
 /**
- * Records the ticket session Toucan spawned and the route it launched on; the one write to `session`
- * and `runs`, which `ticket update` refuses.
+ * Records the ticket session Toucan spawned and the route it launched on; with `updateTicketSession`
+ * and `abandonTicketSession` the only writes to `session` and `runs`, which `ticket update` refuses.
+ * A spawn records its session as soon as the canvas holds it (`starting`), before it is ready (#1).
  */
 export function recordTicketSession(
   record: OrchestrationRecord,
   ticketId: string,
   session: TicketSession,
   now: string,
-  route?: TicketRoute
+  route?: TicketRoute,
+  state: TicketRunState = 'started'
 ): OrchestrationRecord {
   const run: TicketRun = {
     ...(session.conversationId ? { conversationId: session.conversationId } : {}),
+    ...(state === 'starting' ? { state } : {}),
     provider: record.provider,
     ...(route ? { route } : {})
   }
@@ -1070,6 +1081,63 @@ export function recordTicketSession(
   const tickets = record.tickets.map((ticket) =>
     ticket.id === ticketId ? { ...ticket, session, runs: [...earlier(ticket), run] } : ticket
   )
+  return { ...record, tickets, updatedAt: now }
+}
+
+/**
+ * Fills in what a recorded session learned since (its conversation id, that it is `started`). Only
+ * the session this node is: a ticket already respawned onto another node is left alone.
+ */
+export function updateTicketSession(
+  record: OrchestrationRecord,
+  ticketId: string,
+  session: TicketSession,
+  now: string,
+  state: TicketRunState
+): OrchestrationRecord {
+  const tickets = record.tickets.map((ticket) => {
+    if (ticket.id !== ticketId || !ticket.session || ticket.session.nodeId !== session.nodeId) return ticket
+    const runs = ticket.runs ?? []
+    const last = runs[runs.length - 1]
+    const { state: _state, ...started } = last ?? {}
+    return {
+      ...ticket,
+      session: { ...ticket.session, ...session },
+      runs: last
+        ? [
+            ...runs.slice(0, -1),
+            {
+              ...(state === 'starting' ? last : started),
+              ...(session.conversationId ? { conversationId: session.conversationId } : {})
+            }
+          ]
+        : runs
+    }
+  })
+  return { ...record, tickets, updatedAt: now }
+}
+
+/**
+ * Takes back the session a spawn recorded early once its start has failed, restoring the session and
+ * runs the ticket had before: a retry must find the ticket as it was, never linked to a session
+ * Toucan stopped. A ticket already respawned onto another node is left alone.
+ */
+export function abandonTicketSession(
+  record: OrchestrationRecord,
+  ticketId: string,
+  nodeId: string,
+  before: Pick<OrchestrationTicket, 'session' | 'runs'>,
+  now: string
+): OrchestrationRecord {
+  const tickets = record.tickets.map((ticket) => {
+    if (ticket.id !== ticketId || ticket.session?.nodeId !== nodeId) return ticket
+    const { session: _session, runs: _runs, ...rest } = ticket
+    return {
+      ...rest,
+      ...(before.session ? { session: before.session } : {}),
+      ...(before.runs ? { runs: before.runs } : {})
+    }
+  })
   return { ...record, tickets, updatedAt: now }
 }
 
@@ -1215,9 +1283,12 @@ export function orchestratorInstruction(paths: { cliPath: string; skillPath: str
 /**
  * What happened in a ticket session that the orchestrator is woken for (#35): its turn ended one of
  * three ways, or it raised something only an answer unblocks - a question the orchestrator may
- * answer with `followup`, or a tool-permission prompt that stays with the human.
+ * answer with `followup`, or a tool-permission prompt that stays with the human. A spawn that
+ * answered `pending` (#1) adds the two ways its start then settles: `started`, or `start-failed`
+ * (Toucan stopped the session, so the ticket is free to spawn again).
  */
-export type TicketWakeKind = 'completed' | 'failed' | 'cancelled' | 'question' | 'permission'
+export type TicketWakeKind =
+  'completed' | 'failed' | 'cancelled' | 'question' | 'permission' | 'started' | 'start-failed'
 
 export interface TicketWakeEvent {
   ticketId: string
@@ -1269,6 +1340,12 @@ function wakeLine(event: TicketWakeEvent): string {
       const shown =
         reason && reason.length > WAKE_REASON_LIMIT ? `${reason.slice(0, WAKE_REASON_LIMIT - 3)}...` : reason
       return `${ticket} ${event.kind}${shown ? `: ${shown}` : ''}${outcome}`
+    }
+    case 'started':
+      return `${ticket} finished starting - its session is up and works the ticket; wait for its next wake`
+    case 'start-failed': {
+      const reason = event.reason?.replace(/\s+/g, ' ').trim().slice(0, WAKE_REASON_LIMIT)
+      return `${ticket} could not be started${reason ? `: ${reason}` : ''} - Toucan stopped the session and unlinked it; spawn the ticket again`
     }
     case 'question':
       return `${ticket} asks a question - read it with status, answer it with followup --ticket ${event.ticketId} --text <answer>`

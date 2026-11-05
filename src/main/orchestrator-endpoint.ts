@@ -25,6 +25,7 @@ import {
   parseRouteInput,
   parseSpawnInput,
   parseTicketUpdate,
+  abandonTicketSession,
   recordForcedSpawn,
   recordTicketRoute,
   recordTicketSession,
@@ -33,6 +34,7 @@ import {
   resumeOrchestration,
   spawnBudget,
   ticketRunProvider,
+  updateTicketSession,
   type DifficultyTier,
   type OrchestrationPacingForced,
   type OrchestrationRecord,
@@ -40,7 +42,9 @@ import {
   type OrchestratorCommand,
   type SpawnInput,
   type SpawnReservation,
-  type TicketRoute
+  type TicketRoute,
+  type TicketRunState,
+  type TicketSession
 } from '../shared/orchestration'
 import type { OrchestratorUsageResponse } from '../shared/orchestrator-usage'
 import {
@@ -189,8 +193,19 @@ export interface OrchestratorEndpointOptions {
   merge?: OrchestrationMerge
   /** Absent, `status` reports no live state and `outcome` and `followup` are refused as unavailable. */
   ticketSessions?: TicketSessionControl
-  /** A ticket session was spawned: the orchestrator wake starts reporting its events. */
+  /**
+   * A ticket session is linked to its ticket - as soon as the canvas holds it, before it is up
+   * (#1) - so the orchestrator wake starts reporting its events. Called again once its
+   * conversation id is known; the binding replaces the earlier one.
+   */
   onTicketSpawned?(nodeId: string, binding: TicketBinding): void
+  /** A start Toucan treated as failed was unlinked: the wake stops reporting that session. */
+  onTicketAbandoned?(nodeId: string): void
+  /**
+   * A spawn that answered `pending` has settled: the orchestrator is woken with how, since its
+   * `spawn` call returned long ago.
+   */
+  onTicketStartSettled?(binding: TicketBinding, outcome: { ok: true } | { ok: false; error: string }): void
   /** A spawn wrote its session into the record or hit its budget; the orchestrator node's controls re-read it. */
   spawned?(record: OrchestrationRecord): void
   /** A question was pinned or resolved, by a command or a settled ticket; the pinned strip re-reads it. */
@@ -530,6 +545,48 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
       const reserved = reservation.record
       const ticket = reserved.tickets.find((candidate) => candidate.id === request.ticketId)!
       const { route: spawnedRoute, warnings: routeWarnings } = routed!
+      // The session is recorded the moment the canvas holds it, not once it is ready (#1): a start
+      // that outlasts its wait, or that Toucan then gives up on, must not be an unlinked session.
+      const before = { session: ticket.session, runs: ticket.runs }
+      let recorded = false
+      let linkedNodeId: string | undefined
+      let linking: Promise<unknown> = Promise.resolve()
+      const bindingFor = (session: TicketSession): TicketBinding => ({
+        orchestratorNodeId: grant.nodeId,
+        ticketId: ticket.id,
+        provider: grant.provider,
+        ...(session.conversationId ? { conversationId: session.conversationId } : {})
+      })
+      const link = (session: TicketSession, state: TicketRunState): Promise<void> => {
+        const write = async (): Promise<void> => {
+          linkedNodeId = session.nodeId
+          const written = await options.records.update(key, (current) => {
+            const value =
+              current &&
+              (recorded
+                ? updateTicketSession(current, ticket.id, session, now(), state)
+                : recordTicketSession(current, ticket.id, session, now(), spawnedRoute, state))
+            return { value, result: value }
+          })
+          recorded = true
+          if (written) options.spawned?.(written)
+          options.onTicketSpawned?.(session.nodeId!, bindingFor(session))
+        }
+        // One write at a time, in the order the canvas reported them.
+        const next = linking.then(write)
+        linking = next.catch(() => undefined)
+        return next
+      }
+      const abandon = async (nodeId: string): Promise<void> => {
+        await linking
+        if (!recorded) return
+        const restored = await options.records.update(key, (current) => {
+          const value = current && abandonTicketSession(current, ticket.id, nodeId, before, now())
+          return { value, result: value }
+        })
+        if (restored) options.spawned?.(restored)
+        options.onTicketAbandoned?.(nodeId)
+      }
       const spawned = await spawner.spawn({
         orchestrator: { nodeId: grant.nodeId, conversationId: key.conversationId, provider: grant.provider },
         projectPath: grant.projectPath,
@@ -537,21 +594,45 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
         ticket,
         model: spawnedRoute.model,
         effort: spawnedRoute.effort,
-        ...(configured.config ? { implementationSkill: configured.config.implementationSkill } : {})
+        ...(configured.config ? { implementationSkill: configured.config.implementationSkill } : {}),
+        ...(configured.config?.startTimeoutSeconds !== undefined
+          ? { startTimeoutMs: configured.config.startTimeoutSeconds * 1_000 }
+          : {}),
+        onSession: (session) => link(session, 'starting'),
+        // The spawn call has long returned `pending`: what its start came to is recorded here and
+        // the orchestrator is woken with it.
+        onSettled: (outcome) => {
+          void (async () => {
+            if (outcome.ok) {
+              await link(outcome.session, 'started')
+              options.onTicketStartSettled?.(bindingFor(outcome.session), { ok: true })
+            } else if (linkedNodeId) {
+              await abandon(linkedNodeId)
+              options.onTicketStartSettled?.(bindingFor({}), outcome)
+            }
+          })().catch((error) => options.log?.(`could not settle the pending ticket session: ${errorMessage(error)}`))
+        }
       })
       const spawnsLeft = spawnBudget(reserved) - (reserved.spawnCount ?? 0)
-      if (!spawned.ok) return { status: 502, body: { ok: false, error: spawned.error } }
-      const settled = await options.records.update(key, (current) => {
-        const value = current && recordTicketSession(current, ticket.id, spawned.session, now(), spawnedRoute)
-        return { value, result: value }
-      })
-      if (settled) options.spawned?.(settled)
-      options.onTicketSpawned?.(spawned.session.nodeId, {
-        orchestratorNodeId: grant.nodeId,
-        ticketId: ticket.id,
-        provider: grant.provider,
-        conversationId: spawned.session.conversationId
-      })
+      if ('pending' in spawned) {
+        return {
+          status: 202,
+          body: {
+            ok: false,
+            pending: true,
+            ticket: ticket.id,
+            session: spawned.session,
+            error: spawned.error,
+            spawnsLeft
+          }
+        }
+      }
+      if (!spawned.ok) {
+        // Toucan stopped the session (or never had one): the ticket is free to spawn again.
+        if (linkedNodeId) await abandon(linkedNodeId)
+        return { status: 502, body: { ok: false, error: spawned.error } }
+      }
+      await link(spawned.session, 'started')
       return {
         status: 200,
         body: {
@@ -869,7 +950,11 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
         mergeStatus: ticket.mergeStatus,
         session: ticket.session ?? null,
         route: ticket.route ?? null,
-        state: !ticket.session ? 'not spawned' : (live?.status ?? 'not running'),
+        // A session recorded while its canvas node is still coming up has no live status yet.
+        state: !ticket.session
+          ? 'not spawned'
+          : (live?.status ??
+            (ticket.runs?.[ticket.runs.length - 1]?.state === 'starting' ? 'starting' : 'not running')),
         permissionPrompt: live?.permission ? { title: live.permission.title, answeredBy: 'human' } : null,
         questions: live?.questions ?? []
       }

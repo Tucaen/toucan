@@ -50,8 +50,23 @@ export interface TicketSessionCanvasRequest {
   prompt: string
 }
 
-export type TicketSessionCanvasResult =
+/** What the canvas knows of a ticket session the moment its node exists, before it is up (#1). */
+export interface TicketSessionProgress {
+  nodeId: string
+  /** Absent until the session has opened its conversation. */
+  conversationId?: string
+}
+
+/** The renderer's verdict on a ticket session: up, or failed. */
+export type TicketSessionCanvasAnswer =
   { ok: true; nodeId: string; conversationId: string } | { ok: false; message: string }
+
+/**
+ * What main learns of the start: the renderer's verdict, or `pending` - the wait ran out with the
+ * session still coming up. Pending is not a failure: the node stays and its verdict arrives later.
+ */
+export type TicketSessionCanvasResult =
+  TicketSessionCanvasAnswer | ({ ok: false; pending: true; message: string } & Partial<TicketSessionProgress>)
 
 export function isOrchestratorLink(value: unknown): value is OrchestratorLink {
   return (
@@ -63,10 +78,20 @@ export function isOrchestratorLink(value: unknown): value is OrchestratorLink {
 }
 
 /** Narrows the renderer's answer, which crosses IPC unvalidated. */
-export function isTicketSessionCanvasResult(value: unknown): value is TicketSessionCanvasResult {
+export function isTicketSessionCanvasResult(value: unknown): value is TicketSessionCanvasAnswer {
   if (!isRecord(value)) return false
   if (value.ok === true) return typeof value.nodeId === 'string' && typeof value.conversationId === 'string'
-  return value.ok === false && typeof value.message === 'string'
+  // `pending` is main's own word for a wait that ran out; the renderer never says it.
+  return value.ok === false && value.pending === undefined && typeof value.message === 'string'
+}
+
+export function isTicketSessionProgress(value: unknown): value is TicketSessionProgress {
+  return (
+    isRecord(value) &&
+    typeof value.nodeId === 'string' &&
+    value.nodeId.length > 0 &&
+    (value.conversationId === undefined || typeof value.conversationId === 'string')
+  )
 }
 
 export interface OrchestrationControlRequest {
@@ -157,12 +182,17 @@ export interface OrchestratorApi {
    * once the session is up or has failed; the orchestrator's `spawn` call is waiting on it.
    */
   onStartTicketSession(callback: (requestId: string, request: TicketSessionCanvasRequest) => void): () => void
-  completeTicketSession(requestId: string, result: TicketSessionCanvasResult): void
+  completeTicketSession(requestId: string, result: TicketSessionCanvasAnswer): void
   /**
-   * Main stopped waiting for that request and told the orchestrator it failed. The renderer closes
-   * the node it started for it, whether or not its session has come up since.
+   * The node exists but its session is not up yet (and again once it has a conversation id), so
+   * main can link it to its ticket at once and a spawn that outlasts its wait stays tracked (#1).
    */
-  onCancelTicketSession(callback: (requestId: string) => void): () => void
+  progressTicketSession(requestId: string, progress: TicketSessionProgress): void
+  /**
+   * Main treats the start of this node's session as failed, however it got there. The renderer
+   * closes the node, which stops the session whether or not it has come up since.
+   */
+  onCancelTicketSession(callback: (nodeId: string) => void): () => void
   onCleanupTicket(callback: (requestId: string, request: TicketCleanupRequest) => void): () => void
   completeCleanupTicket(requestId: string, result: TicketCleanupResult): void
   /** Whether Jev can route this orchestrator's tickets (#36); never the key itself. */

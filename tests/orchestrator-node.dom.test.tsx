@@ -79,6 +79,7 @@ test('an orchestrator carries its badge and launches asking for the orchestrator
   window.orchestratorApi = {
     onStartTicketSession: () => () => undefined,
     completeTicketSession: vi.fn(),
+    progressTicketSession: vi.fn(),
     onCancelTicketSession: () => () => undefined,
     jevReachability: vi.fn(async () => ({ state: 'reachable' as const }))
   }
@@ -103,6 +104,7 @@ test('an orchestrator shows before its task whether Jev is reachable', async () 
   window.orchestratorApi = {
     onStartTicketSession: () => () => undefined,
     completeTicketSession: vi.fn(),
+    progressTicketSession: vi.fn(),
     onCancelTicketSession: () => () => undefined,
     jevReachability: vi.fn(async () => ({ state: 'no-key' as const }))
   }
@@ -119,6 +121,7 @@ test('a reachable Jev says so, and an ordinary chat never asks', async () => {
   window.orchestratorApi = {
     onStartTicketSession: () => () => undefined,
     completeTicketSession: vi.fn(),
+    progressTicketSession: vi.fn(),
     onCancelTicketSession: () => () => undefined,
     jevReachability
   }
@@ -149,6 +152,7 @@ test('a paused Codex orchestrator authorizes Resume now and Stop orchestration w
   window.orchestratorApi = {
     onStartTicketSession: () => () => undefined,
     completeTicketSession: vi.fn(),
+    progressTicketSession: vi.fn(),
     onCancelTicketSession: () => () => undefined,
     jevReachability: vi.fn(async () => ({ state: 'reachable' as const })),
     orchestrationState: vi.fn(async () => ({
@@ -187,6 +191,7 @@ test('an enforced provider pacing deferral shows its state and reason without a 
   window.orchestratorApi = {
     onStartTicketSession: () => () => undefined,
     completeTicketSession: vi.fn(),
+    progressTicketSession: vi.fn(),
     onCancelTicketSession: () => () => undefined,
     jevReachability: vi.fn(async () => ({ state: 'reachable' as const })),
     orchestrationState: vi.fn(async () => ({
@@ -221,6 +226,7 @@ test('Start now asks main for a one-shot force grant on the chosen pending ticke
   window.orchestratorApi = {
     onStartTicketSession: () => () => undefined,
     completeTicketSession: vi.fn(),
+    progressTicketSession: vi.fn(),
     onCancelTicketSession: () => () => undefined,
     jevReachability: vi.fn(async () => ({ state: 'reachable' as const })),
     orchestrationState: vi.fn(async () => ({
@@ -274,6 +280,7 @@ test('a spawn checkpoint waits for the human, offers Continue (+20) instead of S
   window.orchestratorApi = {
     onStartTicketSession: () => () => undefined,
     completeTicketSession: vi.fn(),
+    progressTicketSession: vi.fn(),
     onCancelTicketSession: () => () => undefined,
     jevReachability: vi.fn(async () => ({ state: 'reachable' as const })),
     orchestrationState: vi.fn(async () => ({
@@ -316,6 +323,7 @@ test('an orchestrator pins its open questions and Antworten prefills the draft',
   window.orchestratorApi = {
     onStartTicketSession: () => () => undefined,
     completeTicketSession: vi.fn(),
+    progressTicketSession: vi.fn(),
     onCancelTicketSession: () => () => undefined,
     jevReachability: vi.fn(async () => ({ state: 'reachable' as const })),
     orchestrationState: vi.fn(async () => ({

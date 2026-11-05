@@ -3,7 +3,7 @@ import { test } from 'vitest'
 import type { GitResult } from '../src/main/git-worktree'
 import { createTicketSpawner, type TicketSpawnerOptions } from '../src/main/ticket-spawner'
 import type { OrchestrationTicket } from '../src/shared/orchestration'
-import type { TicketSessionCanvasRequest } from '../src/shared/ticket-session-spawn'
+import type { TicketSessionCanvasRequest, TicketSessionCanvasResult } from '../src/shared/ticket-session-spawn'
 import type { WorktreeCreateRequest } from '../src/shared/worktree'
 
 // The ticket spawner (#34): worktree through the worktree manager, push guard, the project's setup
@@ -320,4 +320,161 @@ test('a clean-up git refuses is reported with what it left behind', async () => 
   })
   const result = await spawner.spawn(request)
   assert.match(!result.ok ? result.error : '', /could not be removed and stays at D:\\project-ticket\/34/)
+})
+
+// Issue #1: the spawner reports the node to its caller the moment the canvas holds it, a wait that
+// runs out is `pending` rather than a failure, and a start Toucan gives up on is stopped.
+
+test('the session is reported as soon as the canvas holds it, before the canvas answers', async () => {
+  const seen: string[] = []
+  const { spawner } = harness({
+    canvas: {
+      async startTicketSession(_request, observer) {
+        observer?.progress?.({ nodeId: 'ticket-node-1' })
+        observer?.progress?.({ nodeId: 'ticket-node-1', conversationId: 'ticket-conversation-1' })
+        seen.push('canvas answered')
+        return { ok: true, nodeId: 'ticket-node-1', conversationId: 'ticket-conversation-1' }
+      }
+    }
+  })
+  const result = await spawner.spawn({
+    ...request,
+    onSession: (session) => void seen.push(`linked ${session.nodeId} ${session.conversationId ?? '-'}`)
+  })
+  assert.ok(result.ok)
+  assert.deepEqual(seen, ['canvas answered', 'linked ticket-node-1 -', 'linked ticket-node-1 ticket-conversation-1'])
+})
+
+test('the start wait the caller names reaches the canvas', async () => {
+  let timeoutMs: number | undefined
+  const { spawner } = harness({
+    canvas: {
+      async startTicketSession(_request, observer) {
+        timeoutMs = observer?.timeoutMs
+        return { ok: true, nodeId: 'ticket-node-1', conversationId: 'ticket-conversation-1' }
+      }
+    }
+  })
+  await spawner.spawn({ ...request, startTimeoutMs: 600_000 })
+  assert.equal(timeoutMs, 600_000)
+})
+
+test('a canvas wait that ran out is pending with the session, and its verdict is delivered later', async () => {
+  const settled: unknown[] = []
+  const cancelled: string[] = []
+  let late: ((result: TicketSessionCanvasResult) => void) | undefined
+  const { spawner } = harness({
+    canvas: {
+      async startTicketSession(_request, observer) {
+        observer?.progress?.({ nodeId: 'ticket-node-1', conversationId: 'ticket-conversation-1' })
+        late = observer?.late
+        return { ok: false, pending: true, message: 'still starting', nodeId: 'ticket-node-1' }
+      },
+      cancelTicketSession: (nodeId) => cancelled.push(nodeId)
+    }
+  })
+  const result = await spawner.spawn({ ...request, onSettled: (outcome) => settled.push(outcome) })
+  assert.deepEqual(result, {
+    ok: false,
+    pending: true,
+    session: {
+      nodeId: 'ticket-node-1',
+      conversationId: 'ticket-conversation-1',
+      worktreePath: 'D:\\project-ticket/34',
+      branch: 'ticket/34'
+    },
+    error: 'still starting'
+  })
+  // Pending is not failure: the session is not stopped.
+  assert.deepEqual(cancelled, [])
+
+  late!({ ok: true, nodeId: 'ticket-node-1', conversationId: 'ticket-conversation-1' })
+  await new Promise((resolve) => setTimeout(resolve))
+  assert.deepEqual(settled, [
+    {
+      ok: true,
+      session: {
+        nodeId: 'ticket-node-1',
+        conversationId: 'ticket-conversation-1',
+        worktreePath: 'D:\\project-ticket/34',
+        branch: 'ticket/34'
+      },
+      model: 'claude-opus-5-5',
+      effort: 'high',
+      warnings: []
+    }
+  ])
+})
+
+test('a start that fails after the wait ran out is reported failed', async () => {
+  const settled: unknown[] = []
+  let late: ((result: TicketSessionCanvasResult) => void) | undefined
+  const { spawner } = harness({
+    canvas: {
+      async startTicketSession(_request, observer) {
+        observer?.progress?.({ nodeId: 'ticket-node-1' })
+        late = observer?.late
+        return { ok: false, pending: true, message: 'still starting', nodeId: 'ticket-node-1' }
+      }
+    }
+  })
+  await spawner.spawn({ ...request, onSettled: (outcome) => settled.push(outcome) })
+  late!({ ok: false, message: 'The ticket session could not be started on the desktop.' })
+  await new Promise((resolve) => setTimeout(resolve))
+  assert.deepEqual(settled, [{ ok: false, error: 'The ticket session could not be started on the desktop.' }])
+})
+
+test('a session that cannot be recorded is stopped and fails the spawn', async () => {
+  const cancelled: string[] = []
+  const { spawner } = harness({
+    canvas: {
+      async startTicketSession(_request, observer) {
+        observer?.progress?.({ nodeId: 'ticket-node-1' })
+        return { ok: true, nodeId: 'ticket-node-1', conversationId: 'ticket-conversation-1' }
+      },
+      cancelTicketSession: (nodeId) => cancelled.push(nodeId)
+    }
+  })
+  const result = await spawner.spawn({
+    ...request,
+    onSession: () => {
+      throw new Error('disk full')
+    }
+  })
+  assert.match(!result.ok ? result.error : '', /disk full/)
+  assert.deepEqual(cancelled, ['ticket-node-1'])
+})
+
+test('a canvas that throws after reporting the node stops that node', async () => {
+  const cancelled: string[] = []
+  const { spawner } = harness({
+    canvas: {
+      async startTicketSession(_request, observer) {
+        observer?.progress?.({ nodeId: 'ticket-node-1' })
+        throw new Error('ipc closed')
+      },
+      cancelTicketSession: (nodeId) => cancelled.push(nodeId)
+    }
+  })
+  const result = await spawner.spawn(request)
+  assert.match(!result.ok ? result.error : '', /ipc closed/)
+  assert.deepEqual(cancelled, ['ticket-node-1'])
+})
+
+test('a late start the caller was never told about is withdrawn rather than left working', async () => {
+  const cancelled: string[] = []
+  let late: ((result: TicketSessionCanvasResult) => void) | undefined
+  const { spawner } = harness({
+    canvas: {
+      async startTicketSession(_request, observer) {
+        late = observer?.late
+        return { ok: false, message: 'The Toucan window closed before the ticket session was started.' }
+      },
+      cancelTicketSession: (nodeId) => cancelled.push(nodeId)
+    }
+  })
+  const result = await spawner.spawn(request)
+  assert.equal(result.ok, false)
+  late!({ ok: true, nodeId: 'ticket-node-9', conversationId: 'c' })
+  assert.deepEqual(cancelled, ['ticket-node-9'])
 })

@@ -1,7 +1,11 @@
 import { act, screen, waitFor } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
 import type { AgentApi, AgentCreateRequest, AgentProvider } from '../src/shared/agent'
-import type { TicketSessionCanvasRequest, TicketSessionCanvasResult } from '../src/shared/ticket-session-spawn'
+import type {
+  TicketSessionCanvasAnswer,
+  TicketSessionCanvasRequest,
+  TicketSessionProgress
+} from '../src/shared/ticket-session-spawn'
 import type { WorkspaceState } from '../src/shared/workspace'
 import type { TicketCleanupRequest, TicketCleanupResult } from '../src/shared/orchestration-cleanup'
 import { createMockAgentApi } from './dom/agent-api-mock'
@@ -48,8 +52,9 @@ async function render(agentOverrides: Partial<AgentApi> = {}, provider: AgentPro
   let cleanupTicket: ((requestId: string, request: TicketCleanupRequest) => void) | null = null
   const cleanupResults: TicketCleanupResult[] = []
   let requestTicketSession: ((requestId: string, request: TicketSessionCanvasRequest) => void) | null = null
-  let cancelTicketSession: ((requestId: string) => void) | null = null
-  const results: { requestId: string; result: TicketSessionCanvasResult }[] = []
+  let cancelTicketSession: ((nodeId: string) => void) | null = null
+  const progress: { requestId: string; progress: TicketSessionProgress }[] = []
+  const results: { requestId: string; result: TicketSessionCanvasAnswer }[] = []
   const agent = createMockAgentApi({
     create: vi.fn(async ({ id }) => ({ ok: true, status: 'ready' as const, sessionId: `conversation-${id}` })),
     ...agentOverrides
@@ -72,8 +77,10 @@ async function render(agentOverrides: Partial<AgentApi> = {}, provider: AgentPro
             requestTicketSession = null
           }
         },
-        completeTicketSession: (requestId: string, result: TicketSessionCanvasResult) =>
+        completeTicketSession: (requestId: string, result: TicketSessionCanvasAnswer) =>
           results.push({ requestId, result }),
+        progressTicketSession: (requestId: string, reported: TicketSessionProgress) =>
+          progress.push({ requestId, progress: reported }),
         onCancelTicketSession: (callback: typeof cancelTicketSession) => {
           cancelTicketSession = callback
           return () => {
@@ -88,10 +95,11 @@ async function render(agentOverrides: Partial<AgentApi> = {}, provider: AgentPro
     harness,
     agent,
     results,
+    progress,
     cleanupResults,
     cleanup: (body: TicketCleanupRequest) => cleanupTicket!('cleanup', body),
     start: (id: string, body = request) => requestTicketSession!(id, body),
-    cancel: (id: string) => cancelTicketSession!(id)
+    cancel: (nodeId: string) => cancelTicketSession!(nodeId)
   }
 }
 
@@ -213,12 +221,12 @@ describe('a ticket session requested by an orchestrator', () => {
     })
   })
 
-  // Issue #1: main's timeout told the orchestrator the spawn failed, yet the session came up minutes
-  // later, took the ticket prompt and did the work unseen. Withdrawn, it is closed instead.
-  test('a session main stopped waiting for is closed and never takes the ticket prompt', async () => {
+  // Issue #1: a session main treats as failed must not come up later, take the ticket prompt and
+  // do the work unseen. Main's cancel closes it instead.
+  test('a session main cancels is closed and never takes the ticket prompt', async () => {
     // The orchestrator opens at once; the ticket session stalls in its launch, as #14 did for minutes.
     const stalled = new Map<string, () => void>()
-    const { agent, results, start, cancel } = await render({
+    const { agent, results, progress, start, cancel } = await render({
       create: vi.fn(async (created: AgentCreateRequest) => {
         const opened = { ok: true, status: 'ready' as const, sessionId: `conversation-${created.id}` }
         if (created.cwd !== request.worktree.path) return opened
@@ -229,8 +237,11 @@ describe('a ticket session requested by an orchestrator', () => {
     await waitFor(() => expect(stalled.size).toBe(1))
     const [[nodeId, finishStarting]] = [...stalled]
     expect((await screen.findAllByText('#34 Spawn')).length).toBeGreaterThan(0)
+    // The node is reported the moment it exists, long before its session is up.
+    expect(progress[0]).toEqual({ requestId: 'ticket-1', progress: { nodeId } })
+    expect(progress.every((entry) => entry.progress.nodeId === nodeId)).toBe(true)
 
-    await act(async () => cancel('ticket-1'))
+    await act(async () => cancel(nodeId))
     await waitFor(() => expect(agent.api.kill).toHaveBeenCalledWith(nodeId))
     expect(screen.queryAllByText('#34 Spawn')).toHaveLength(0)
 

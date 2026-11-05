@@ -10,12 +10,14 @@ import {
   orchestratorProvider,
   type OrchestratorLink,
   type TicketSessionCanvasRequest,
-  type TicketSessionCanvasResult
+  type TicketSessionCanvasResult,
+  type TicketSessionProgress
 } from '../shared/ticket-session-spawn'
 import type { AgentProvider } from '../shared/agent-provider'
 import type { GitRunner, WorktreeManager } from './git-worktree'
 import type { ScratchDirectoryResult } from './scratch-directory'
 import type { PushGuardResult } from './ticket-push-guard'
+import type { TicketSessionObserver } from './ticket-session-requests'
 
 /**
  * What the orchestrator endpoint asks for once a `spawn` is authorized and counted (#34; plan in
@@ -33,9 +35,23 @@ export interface TicketSpawnRequest {
   effort: string
   /** What the prompt opens with (#36); the default skill when absent. */
   implementationSkill?: string
+  /** How long to wait for the session to show life before answering `pending`; the default when absent. */
+  startTimeoutMs?: number
+  /**
+   * The canvas holds the session's node and it is not up yet (#1), and again once it has a
+   * conversation id: the caller records it against the ticket now, so a start that outlasts the
+   * wait - or never finishes - leaves a linked session rather than an invisible one.
+   */
+  onSession?(session: LinkedTicketSession): Promise<void> | void
+  /** How a spawn that answered `pending` settled, once it has. */
+  onSettled?(outcome: TicketSpawnSettlement): void
 }
 
-export type TicketSpawnResult =
+/** A ticket session as far as is known: the conversation comes with the session's first output. */
+export type LinkedTicketSession = Omit<Required<TicketSession>, 'conversationId'> & { conversationId?: string }
+
+/** A spawn's final verdict: what a result says once it is not `pending`. */
+export type TicketSpawnSettlement =
   | {
       ok: true
       session: Required<TicketSession>
@@ -46,6 +62,16 @@ export type TicketSpawnResult =
       warnings: string[]
     }
   | { ok: false; error: string }
+
+export type TicketSpawnResult =
+  | TicketSpawnSettlement
+  | {
+      ok: false
+      /** The session did not show life in time but is neither failed nor closed; `onSettled` follows. */
+      pending: true
+      session: LinkedTicketSession
+      error: string
+    }
 
 export interface TicketSpawner {
   /** Never rejects: every failure is `{ ok: false }` with the reason the CLI prints. */
@@ -67,7 +93,14 @@ export interface TicketSpawnerOptions {
   /** The workspace project behind a checkout path, with its setup command. */
   project(projectPath: string): Promise<{ id: string; setupCommand?: string } | undefined>
   runSetup(command: string, cwd: string): Promise<{ ok: true } | { ok: false; error: string }>
-  canvas: { startTicketSession(request: TicketSessionCanvasRequest): Promise<TicketSessionCanvasResult> }
+  canvas: {
+    startTicketSession(
+      request: TicketSessionCanvasRequest,
+      observer?: TicketSessionObserver
+    ): Promise<TicketSessionCanvasResult>
+    /** Toucan treats this node's start as failed: its session is stopped, not only left in its worktree. */
+    cancelTicketSession?(nodeId: string): void
+  }
   /** A live session's settings by node id, from the event broker's snapshot. */
   session(nodeId: string): SessionSettings | undefined
   /** The provider's picker catalogue; empty until a session advertises it. */
@@ -170,7 +203,7 @@ export function createTicketSpawner(options: TicketSpawnerOptions): TicketSpawne
       else warnings.push(`${scratch.error}; the session was not told where to save files for you`)
     }
 
-    const started = await options.canvas.startTicketSession({
+    const canvasRequest: TicketSessionCanvasRequest = {
       provider,
       projectId: project.id,
       worktree,
@@ -180,31 +213,102 @@ export function createTicketSpawner(options: TicketSpawnerOptions): TicketSpawne
       ...(permissionMode ? { permissionMode } : {}),
       orchestratedBy: { ...request.orchestrator, provider },
       prompt: ticketSessionPrompt(request.ticket, worktree, request.implementationSkill, scratchPath)
+    }
+    const linked = (progress: TicketSessionProgress): LinkedTicketSession => ({
+      nodeId: progress.nodeId,
+      ...(progress.conversationId ? { conversationId: progress.conversationId } : {}),
+      worktreePath: worktree.path,
+      branch: worktree.branch
     })
-    if (!started.ok) {
-      return { ok: false, error: `${started.message} The worktree stays at ${worktree.path} on ${worktree.branch}.` }
+    /** The node as far as the canvas has reported it, so a failure after that can stop its session. */
+    let node: TicketSessionProgress | undefined
+    /** Whether the caller was answered `pending`, which hands the verdict to `onSettled`. */
+    let answeredPending = false
+    // The caller's records of the session, in the order the canvas reported it: a verdict is
+    // never reported before the link it settles.
+    let linking: Promise<void> = Promise.resolve()
+    let linkFailure: { error: unknown } | undefined
+    const stop = (nodeId: string | undefined): void => {
+      if (nodeId) options.canvas.cancelTicketSession?.(nodeId)
     }
 
     // Confirmed, not requested: what the session reports is what the caller is told.
-    const running = options.session(started.nodeId)
-    if (running?.model && running.model !== request.model) {
-      warnings.push(`the session runs on model "${running.model}", not "${request.model}"`)
+    const settle = (answer: { nodeId: string; conversationId: string }): TicketSpawnSettlement => {
+      const running = options.session(answer.nodeId)
+      const confirmed = [...warnings]
+      if (running?.model && running.model !== request.model) {
+        confirmed.push(`the session runs on model "${running.model}", not "${request.model}"`)
+      }
+      if (running?.effort && running.effort !== request.effort) {
+        confirmed.push(`the session runs at effort "${running.effort}", not "${request.effort}"`)
+      }
+      return {
+        ok: true,
+        session: {
+          nodeId: answer.nodeId,
+          conversationId: answer.conversationId,
+          worktreePath: worktree.path,
+          branch: worktree.branch
+        },
+        ...(running?.model ? { model: running.model } : {}),
+        ...(running?.effort ? { effort: running.effort } : {}),
+        warnings: confirmed
+      }
     }
-    if (running?.effort && running.effort !== request.effort) {
-      warnings.push(`the session runs at effort "${running.effort}", not "${request.effort}"`)
+
+    let started: TicketSessionCanvasResult
+    try {
+      started = await options.canvas.startTicketSession(canvasRequest, {
+        ...(request.startTimeoutMs !== undefined ? { timeoutMs: request.startTimeoutMs } : {}),
+        progress: (progress) => {
+          node = progress
+          linking = linking
+            .then(() => request.onSession?.(linked(progress)))
+            .catch((error) => {
+              linkFailure ??= { error }
+            })
+        },
+        // What the canvas settles after the caller was told `pending`. Without that answer nobody
+        // is tracking the session, so one that comes up anyway is withdrawn rather than left working.
+        late: (result) => {
+          if (!answeredPending) {
+            if (result.ok) stop(result.nodeId)
+            return
+          }
+          void linking.then(() => {
+            if (linkFailure) {
+              stop(node?.nodeId)
+              request.onSettled?.({
+                ok: false,
+                error: `the session could not be recorded: ${errorMessage(linkFailure.error)}`
+              })
+            } else if (result.ok) request.onSettled?.(settle(result))
+            else request.onSettled?.({ ok: false, error: result.message })
+          })
+        }
+      })
+      await linking
+      if (linkFailure) throw linkFailure.error
+    } catch (error) {
+      // Toucan treats this start as failed, so its session is stopped, not only left in its worktree.
+      stop(node?.nodeId)
+      throw error
     }
-    return {
-      ok: true,
-      session: {
-        nodeId: started.nodeId,
-        conversationId: started.conversationId,
-        worktreePath: worktree.path,
-        branch: worktree.branch
-      },
-      ...(running?.model ? { model: running.model } : {}),
-      ...(running?.effort ? { effort: running.effort } : {}),
-      warnings
+    if (started.ok) return settle(started)
+    if ('pending' in started) {
+      const nodeId = started.nodeId ?? node?.nodeId
+      if (nodeId) {
+        answeredPending = true
+        return {
+          ok: false,
+          pending: true,
+          session: linked({ nodeId, conversationId: started.conversationId ?? node?.conversationId }),
+          error: started.message
+        }
+      }
     }
+    // A failure verdict means the canvas has already dropped the session's prompt and shows why.
+    return { ok: false, error: `${started.message} The worktree stays at ${worktree.path} on ${worktree.branch}.` }
   }
 
   return {

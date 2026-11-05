@@ -96,3 +96,10 @@ it('summarises nothing the binding ticket contract does not say', () => {
     expect(contract).toContain(rule)
   }
 })
+
+it('keeps a start timeout the panel does not edit when it saves', () => {
+  expect(userFileFromDraft({ claude: { startTimeoutSeconds: 600 } })).toEqual({ claude: { startTimeoutSeconds: 600 } })
+  expect(projectFileFromDraft({ claude: { implementationSkill: '/implement', startTimeoutSeconds: 600 } })).toEqual({
+    claude: { implementationSkill: '/implement', startTimeoutSeconds: 600 }
+  })
+})

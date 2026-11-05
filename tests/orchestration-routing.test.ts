@@ -2,6 +2,7 @@ import { strict as assert } from 'node:assert'
 import { test } from 'vitest'
 import {
   DEFAULT_ORCHESTRATION_CONFIG,
+  DEFAULT_START_TIMEOUT_SECONDS,
   depthEffort,
   effectiveOrchestrationConfig,
   escalateRoute,
@@ -214,4 +215,24 @@ test('escalation past frontier, or of a ticket with no tier, is refused', () => 
 
 test('the review threshold is the one the router experiment used', () => {
   assert.equal(ROUTE_REVIEW_CONFIDENCE, 0.6)
+})
+
+test('a project can set how long a spawn waits for its session, within bounds, and the project wins', () => {
+  const parsed = parseOrchestrationConfig({ claude: { startTimeoutSeconds: 900 } })
+  assert.deepEqual(parsed.config, { claude: { startTimeoutSeconds: 900 } })
+  assert.equal(effectiveOrchestrationConfig('claude', parsed.config, undefined)?.startTimeoutSeconds, 900)
+  assert.equal(
+    effectiveOrchestrationConfig('claude', parsed.config, { claude: { startTimeoutSeconds: 120 } })
+      ?.startTimeoutSeconds,
+    120
+  )
+  // Unset stays unset: the default belongs to the spawn, so a project that says nothing follows it.
+  assert.equal(effectiveOrchestrationConfig('claude', {}, undefined)?.startTimeoutSeconds, undefined)
+  assert.ok(DEFAULT_START_TIMEOUT_SECONDS > 90)
+  for (const bad of [0, 5, 3601, 90.5, '90', null]) {
+    assert.match(
+      parseOrchestrationConfig({ claude: { startTimeoutSeconds: bad } }).error ?? '',
+      /startTimeoutSeconds must be a whole number of seconds from 10 to 3600/
+    )
+  }
 })
