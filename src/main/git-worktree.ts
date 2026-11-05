@@ -37,7 +37,7 @@ import {
 } from '../shared/git-branch'
 import type { GitDiffRequest, GitDiffSummary, GitFileDiff, GitFileDiffRequest } from '../shared/git-diff'
 import { changedFilesFromGit, parseUnifiedDiff } from '../shared/git-diff'
-import { describeRemovalFailure, removeTree } from './worktree-leftover'
+import { describeRemovalFailure, detachLinks, removeTree } from './worktree-leftover'
 
 /**
  * Claims are a hint written by an agent, so every failure mode - missing file, malformed
@@ -434,6 +434,8 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
         const refused = request.force ? blockers.filter((blocker) => !isForcibleBlocker(blocker)) : blockers
         if (refused.length > 0) return { ok: false, blockers: refused }
 
+        // Past every blocker check: git for Windows would follow a junction into its target.
+        detachLinks(request.path)
         const removed = await runGit(
           ['worktree', 'remove', ...(request.force ? ['--force'] : []), request.path],
           request.projectPath

@@ -100,7 +100,8 @@ const orphan: UnrecordedAttempt = {
   branch: 'ticket/4',
   ahead: 3,
   liveSession: true,
-  nodeId: 'orphan-node'
+  nodeId: 'orphan-node',
+  conversationId: 'orphan-conversation'
 }
 
 test('adopt links an unrecorded worktree and its live session as the ticket attempt', async () => {
@@ -111,10 +112,21 @@ test('adopt links an unrecorded worktree and its live session as the ticket atte
     assert.equal(reply.body.adopted, true)
     assert.equal(reply.body.attempt, 1)
     const ticket = (await w.read()).tickets[0]
-    assert.deepEqual(ticket.session, { nodeId: 'orphan-node', worktreePath: 'D:\\project-orphan', branch: 'ticket/4' })
+    const where = {
+      nodeId: 'orphan-node',
+      conversationId: 'orphan-conversation',
+      worktreePath: 'D:\\project-orphan',
+      branch: 'ticket/4'
+    }
+    assert.deepEqual(ticket.session, where)
     assert.deepEqual(
-      ticket.runs?.map(({ nodeId, worktreePath, branch }) => ({ nodeId, worktreePath, branch })),
-      [{ nodeId: 'orphan-node', worktreePath: 'D:\\project-orphan', branch: 'ticket/4' }]
+      ticket.runs?.map(({ nodeId, conversationId, worktreePath, branch }) => ({
+        nodeId,
+        conversationId,
+        worktreePath,
+        branch
+      })),
+      [where]
     )
     assert.deepEqual(w.bound, ['orphan-node'])
     // Adoption creates nothing, so it costs no spawn.

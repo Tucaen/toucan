@@ -152,7 +152,8 @@ export function createOrchestrationCleanup(options: {
         branch,
         ahead: await ahead(branch),
         liveSession: sessionsHere.length > 0,
-        ...(unnamed ? { nodeId: unnamed.nodeId } : {})
+        ...(unnamed ? { nodeId: unnamed.nodeId } : {}),
+        ...(unnamed?.conversationId ? { conversationId: unnamed.conversationId } : {})
       }
     }
 

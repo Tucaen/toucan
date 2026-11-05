@@ -27,10 +27,14 @@ export interface UnrecordedAttempt {
   liveSession: boolean
   /** The node of the live session running there that the record does not name, when there is one. */
   nodeId?: string
+  /** That session's conversation id, when it has opened one. */
+  conversationId?: string
 }
 
 /** A live agent session and the directory it runs in. */
 export interface LiveSessionLocation {
   nodeId: string
   cwd: string
+  /** The provider conversation the session has opened, once it has. */
+  conversationId?: string
 }

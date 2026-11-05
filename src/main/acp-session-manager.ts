@@ -1416,7 +1416,7 @@ export interface AcpSessionManager {
    */
   workingSessions(): string[]
   /** Every live session and the directory it runs in, for matching sessions to worktrees. */
-  liveSessions(): { nodeId: string; cwd: string }[]
+  liveSessions(): { nodeId: string; cwd: string; conversationId?: string }[]
   cancel(id: string): void
   kill(id: string): void
   killOwned(owner: AgentEventOwner): void
@@ -2830,7 +2830,12 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
     workingSessions: () =>
       [...agents].filter(([, running]) => running.busy || running.autonomousTurn).map(([id]) => id),
 
-    liveSessions: () => [...agents].map(([nodeId, running]) => ({ nodeId, cwd: running.request.cwd })),
+    liveSessions: () =>
+      [...agents].map(([nodeId, running]) => ({
+        nodeId,
+        cwd: running.request.cwd,
+        ...(running.sessionId ? { conversationId: running.sessionId } : {})
+      })),
 
     cancel(id): void {
       const running = agents.get(id)

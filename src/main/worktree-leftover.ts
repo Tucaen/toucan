@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { existsSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, rmdirSync, statSync, unlinkSync } from 'node:fs'
 import { readdir, rm } from 'node:fs/promises'
 import { isAbsolute, join, parse, resolve } from 'node:path'
 import { errorMessage } from '../shared/text'
@@ -57,6 +57,41 @@ const RM_RETRY_DELAY_MS = 200
  * on an EPERM it cannot fix - a folder whose ACL denies the user, as a sandboxed agent's temp
  * output does - and so left the remove dialog waiting forever.
  */
+/**
+ * Removes every symlink and junction below `folder` - the links themselves, never what they point
+ * at - and returns their paths. Git for Windows follows a junction when it deletes a worktree
+ * (`git worktree remove --force` emptied the junction's target), so a worktree holding one (a
+ * `node_modules` linked to another checkout) must lose it before git deletes the folder. Windows only:
+ * elsewhere git unlinks a symlink without following it. `.git` is left alone.
+ */
+export function detachLinks(folder: string, platform: NodeJS.Platform = process.platform): string[] {
+  if (platform !== 'win32') return []
+  const detached: string[] = []
+  const pending = [folder]
+  while (pending.length > 0) {
+    const directory = pending.pop()!
+    let entries
+    try {
+      entries = readdirSync(extendedLengthPath(directory), { withFileTypes: true })
+    } catch {
+      continue
+    }
+    for (const entry of entries) {
+      const path = join(directory, entry.name)
+      if (entry.isSymbolicLink()) {
+        // rmdir takes a junction or directory symlink as the link; unlink a file symlink.
+        try {
+          rmdirSync(extendedLengthPath(path))
+        } catch {
+          unlinkSync(extendedLengthPath(path))
+        }
+        detached.push(path)
+      } else if (entry.isDirectory() && !(directory === folder && entry.name === '.git')) pending.push(path)
+    }
+  }
+  return detached
+}
+
 export async function removeTree(path: string): Promise<void> {
   const absolute = assertDeletable(path)
   let failure: unknown

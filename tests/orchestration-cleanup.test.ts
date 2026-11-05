@@ -1,6 +1,15 @@
 import { strict as assert } from 'node:assert'
 import { spawn, type ChildProcess } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, test } from 'vitest'
@@ -785,6 +794,53 @@ test(
       ahead: 0
     })
     assert.equal(await git(['branch', '--list', 'ticket/7']), '')
+  },
+  GIT_FIXTURE_TIMEOUT
+)
+
+// Git for Windows follows a junction when it deletes a worktree: `worktree remove --force` emptied
+// the junction's target. A worktree's `node_modules` linked to another checkout must lose only the link.
+function junctionIntoSharedTarget(root: string, worktreePath: string): string {
+  const target = join(root, 'shared-target')
+  mkdirSync(join(target, 'sub'), { recursive: true })
+  writeFileSync(join(target, 'sub', 'keep.txt'), 'must survive')
+  symlinkSync(target, join(worktreePath, 'linked-modules'), 'junction')
+  return target
+}
+
+test.skipIf(process.platform !== 'win32')(
+  'discard removes a worktree holding a junction without emptying what it points at',
+  async () => {
+    const { root, git, record, cleanup } = await fixture()
+    const session = record.tickets[1].session!
+    await git(['config', 'core.excludesFile', join(root, 'ignore')])
+    writeFileSync(join(root, 'ignore'), 'linked-modules\n')
+    const target = junctionIntoSharedTarget(root, session.worktreePath!)
+    const result = await cleanup.discard(record, {
+      ticket: '2',
+      branch: session.branch!,
+      worktreePath: session.worktreePath
+    })
+    assert.equal(result.ok, true)
+    assert.equal(existsSync(session.worktreePath!), false)
+    assert.equal(readFileSync(join(target, 'sub', 'keep.txt'), 'utf8'), 'must survive')
+  },
+  GIT_FIXTURE_TIMEOUT
+)
+
+test.skipIf(process.platform !== 'win32')(
+  "a merged ticket's cleanup removes a worktree holding a junction without emptying what it points at",
+  async () => {
+    const { root, git, record, cleanup } = await fixture()
+    await git(['config', 'core.excludesFile', join(root, 'ignore')])
+    writeFileSync(join(root, 'ignore'), 'linked-modules\n')
+    await git(['merge', '--ff-only', 'ticket/1'])
+    await git(['push'])
+    const target = junctionIntoSharedTarget(root, record.tickets[0].session!.worktreePath!)
+    const result = await cleanup.run(record, '1')
+    assert.deepEqual(result.retained, [])
+    assert.equal(existsSync(record.tickets[0].session!.worktreePath!), false)
+    assert.equal(readFileSync(join(target, 'sub', 'keep.txt'), 'utf8'), 'must survive')
   },
   GIT_FIXTURE_TIMEOUT
 )

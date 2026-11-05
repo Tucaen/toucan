@@ -495,6 +495,7 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     }
     const session: TicketSession = {
       ...(found.nodeId ? { nodeId: found.nodeId } : {}),
+      ...(found.conversationId ? { conversationId: found.conversationId } : {}),
       worktreePath: found.path,
       branch: found.branch
     }
@@ -520,7 +521,8 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
       options.onTicketSpawned?.(session.nodeId, {
         orchestratorNodeId: grant.nodeId,
         ticketId,
-        provider: grant.provider
+        provider: grant.provider,
+        ...(session.conversationId ? { conversationId: session.conversationId } : {})
       })
     }
     const adopted = written.record.tickets.find((candidate) => candidate.id === ticketId)
@@ -572,7 +574,8 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
         ticket: found.ticket,
         branch: found.branch,
         ...(found.path ? { worktreePath: found.path } : {}),
-        ...(found.nodeId ? { nodeId: found.nodeId } : {})
+        ...(found.nodeId ? { nodeId: found.nodeId } : {}),
+        ...(found.conversationId ? { conversationId: found.conversationId } : {})
       }
     } else {
       const ticket = ticketIn(own.record, request.ticketId)
