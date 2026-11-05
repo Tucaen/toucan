@@ -70,12 +70,19 @@ function harness() {
       return () => undefined
     }
   })
-  /** What the orchestrator was woken with, once the folding window has passed. */
-  const wake = async (): Promise<string[]> => {
-    await new Promise((resolve) => setTimeout(resolve, 20))
-    await waker.idle()
-    for (const timer of timers.splice(0)) timer()
-    await waker.idle()
+  /**
+   * What the orchestrator was woken with: waits for the first wake to be queued (they are folded
+   * over a window and written after async records), or - when none is expected - for long enough
+   * that one would have been.
+   */
+  const wake = async (expected = true): Promise<string[]> => {
+    for (let attempt = 0; attempt < (expected ? 200 : 10); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      await waker.idle()
+      for (const timer of timers.splice(0)) timer()
+      await waker.idle()
+      if (delivered.length > 0) break
+    }
     return delivered.splice(0)
   }
 
@@ -255,7 +262,7 @@ test('a pending session that then fails is unlinked, and the orchestrator is tol
 
     // The dead session's events are no longer the orchestrator's news.
     world.waker.observe(NODE, { type: 'turn_failed', message: 'adapter exited' } as AgentEvent)
-    assert.deepEqual(await world.wake(), [])
+    assert.deepEqual(await world.wake(false), [])
   } finally {
     await world.endpoint.close()
   }
