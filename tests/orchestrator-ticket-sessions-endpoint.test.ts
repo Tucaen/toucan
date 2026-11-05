@@ -191,6 +191,36 @@ test('status reads a ticket session Toucan is not running as not running', async
   }
 })
 
+test('status lists the unrecorded ticket worktrees Git holds, and says so when it could not look', async () => {
+  const unrecorded = [{ ticket: '9', path: 'D:\\project-9', branch: 'ticket/9', ahead: 2, liveSession: true }]
+  let failure: string | undefined
+  const endpoint = createOrchestratorEndpoint({
+    records: createOrchestrationStore({ directory: mkdtempSync(join(tmpdir(), 'toucan-orchestrator-unrecorded-')) }),
+    cleanup: {
+      run: async () => ({ removed: [], retained: [] }),
+      answeredRefusal: async () => undefined,
+      unrecorded: async () => {
+        if (failure) throw new Error(failure)
+        return unrecorded
+      }
+    }
+  })
+  const grant = (await endpoint.grant('orchestrator-1', { provider: 'claude', projectPath: 'D:\\project' }))!
+  grant.setConversation('conversation-1')
+  try {
+    assert.equal((await call(grant, 'plan set', plan)).status, 200)
+    const reply = await call(grant, 'status')
+    assert.deepEqual(reply.body.unrecorded, unrecorded)
+    assert.equal(reply.body.unrecordedError, undefined)
+    failure = 'git is gone'
+    const failed = await call(grant, 'status')
+    assert.deepEqual(failed.body.unrecorded, [])
+    assert.equal(failed.body.unrecordedError, 'git is gone')
+  } finally {
+    await endpoint.close()
+  }
+})
+
 test('a restarted Codex endpoint recovers status, outcome and followup through the durable session identity', async () => {
   const records = createOrchestrationStore({ directory: mkdtempSync(join(tmpdir(), 'toucan-codex-restart-')) })
   const beforeRestart = createOrchestratorEndpoint({ records, spawner })

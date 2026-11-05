@@ -609,7 +609,8 @@ void app.whenReady().then(async () => {
     spawner: { spawn: (request) => ticketSpawner.spawn(request) },
     cleanup: {
       run: (record, ticketId) => orchestrationCleanup.run(record, ticketId),
-      answeredRefusal: (record, ticket) => orchestrationCleanup.answeredRefusal(record, ticket)
+      answeredRefusal: (record, ticket) => orchestrationCleanup.answeredRefusal(record, ticket),
+      unrecorded: (record) => orchestrationCleanup.unrecorded(record)
     },
     merge: createOrchestrationMerge({ runGit: runGitWithExecFile, containment }),
     ticketSessions: {
@@ -916,6 +917,7 @@ void app.whenReady().then(async () => {
       if (result.ok && request.phase === 'retire') agentManager.kill(request.session.nodeId)
       return result
     },
+    liveSessions: () => agentManager.liveSessions(),
     // A killed agent's shells and installs can keep their cwd in the folder for minutes.
     folderRetry: { schedule: (retry, ms) => void setTimeout(() => void retry(), ms) },
     log: mainLog('orchestration cleanup')

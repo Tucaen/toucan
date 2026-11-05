@@ -1209,6 +1209,29 @@ export function abandonTicketSession(
   return { ...record, tickets, updatedAt: now }
 }
 
+/** The part of `ticket/<slug>` a ticket id becomes. */
+export function ticketBranchSlug(ticketId: string): string {
+  return (
+    ticketId
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 48)
+      .replace(/-+$/, '') || 'ticket'
+  )
+}
+
+/**
+ * The record ticket a `ticket/*` branch name belongs to - `ticket/3` and a retry's `ticket/3-2`
+ * both read as ticket 3 - or undefined when no ticket's slug matches.
+ */
+export function ticketIdOfBranch(record: Pick<OrchestrationRecord, 'tickets'>, branch: string): string | undefined {
+  const slug = branch.replace(/^ticket\//, '')
+  const bare = slug.replace(/-\d+$/, '')
+  const bySlug = (candidate: string) => record.tickets.find((ticket) => ticketBranchSlug(ticket.id) === candidate)
+  return (bySlug(slug) ?? bySlug(bare))?.id
+}
+
 /**
  * Local branch names for a ticket's worktree, in the order they are tried: a retry gets a fresh
  * branch rather than reusing the one a failed attempt left behind. Endless, because the spawn
@@ -1216,13 +1239,7 @@ export function abandonTicketSession(
  * any count); the caller stops at the first name git accepts or a failure that is not a conflict.
  */
 export function* ticketBranchCandidates(ticketId: string): Generator<string, never> {
-  const slug =
-    ticketId
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 48)
-      .replace(/-+$/, '') || 'ticket'
+  const slug = ticketBranchSlug(ticketId)
   yield `ticket/${slug}`
   for (let attempt = 2; ; attempt += 1) yield `ticket/${slug}-${attempt}`
 }

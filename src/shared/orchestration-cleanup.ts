@@ -8,3 +8,26 @@ export interface TicketCleanupRequest {
 }
 
 export type TicketCleanupResult = { ok: true } | { ok: false; message: string }
+
+/**
+ * A ticket worktree or `ticket/*` branch the record holds no attempt for, or one a live session
+ * works in that the record does not name (Requirement 5 of the unrecorded-attempt work). Never
+ * deleted: it is somebody's work that Toucan lost track of.
+ */
+export interface UnrecordedAttempt {
+  /** The ticket the branch name belongs to: a record ticket's id when its slug matches, else the bare slug. */
+  ticket: string
+  /** Absent for a branch no worktree has checked out. */
+  path?: string
+  branch: string
+  /** Commits on the branch the target lacks; null when git could not count them. */
+  ahead: number | null
+  /** Whether a live session runs in the worktree. */
+  liveSession: boolean
+}
+
+/** A live agent session and the directory it runs in. */
+export interface LiveSessionLocation {
+  nodeId: string
+  cwd: string
+}

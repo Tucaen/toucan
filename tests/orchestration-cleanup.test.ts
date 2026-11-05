@@ -157,6 +157,76 @@ test(
   GIT_FIXTURE_TIMEOUT
 )
 
+// `git worktree list` reports forward slashes on Windows too.
+const gitPath = (path: string) => path.replaceAll('\\', '/')
+
+test(
+  'a ticket worktree with commits and no recorded attempt is reported unrecorded and retained, never deleted',
+  async () => {
+    const { root, git, record, canvas } = await fixture()
+    const path = join(root, 'ticket-9')
+    await git(['worktree', 'add', '-b', 'ticket/9', path, 'main'])
+    await git(['commit', '--allow-empty', '-m', 'lost 1'], path)
+    await git(['commit', '--allow-empty', '-m', 'lost 2'], path)
+    // A retry's branch for a recorded ticket, and a branch no worktree has checked out.
+    await git(['branch', 'ticket/2-2', 'main'])
+    const cleanup = createOrchestrationCleanup({
+      containment: createWorkspaceContainment({ roots: () => [root] }),
+      runGit: runGitWithExecFile,
+      worktrees: createWorktreeManager(),
+      liveSessions: () => [{ nodeId: 'stray', cwd: path }],
+      canvas: async (request) => {
+        canvas.push(`${request.phase}:${request.session.nodeId}`)
+        return { ok: true }
+      }
+    })
+
+    assert.deepEqual(await cleanup.unrecorded(record), [
+      { ticket: '9', path: gitPath(path), branch: 'ticket/9', ahead: 2, liveSession: true },
+      { ticket: '2', branch: 'ticket/2-2', ahead: 0, liveSession: false }
+    ])
+    const result = await cleanup.run(record)
+    assert.deepEqual(
+      result.retained.filter((entry) => entry.reason === 'unrecorded attempt'),
+      [
+        { ticket: '9', worktree: gitPath(path), branch: 'ticket/9', reason: 'unrecorded attempt' },
+        { ticket: '2', worktree: undefined, branch: 'ticket/2-2', reason: 'unrecorded attempt' }
+      ]
+    )
+    assert.deepEqual(
+      (await cleanup.run(record, '9')).retained.map((entry) => entry.ticket),
+      ['9']
+    )
+    assert.equal(existsSync(path), true)
+    assert.ok(await git(['branch', '--list', 'ticket/9']))
+    assert.ok(await git(['branch', '--list', 'ticket/2-2']))
+    assert.deepEqual(canvas, [])
+  },
+  GIT_FIXTURE_TIMEOUT
+)
+
+test(
+  'a live session the record does not name makes its recorded worktree unrecorded; the recorded one does not',
+  async () => {
+    const { project, git, record } = await fixture()
+    const [one, two] = record.tickets.map((ticket) => ticket.session!)
+    const live = (nodeId: string, cwd: string) =>
+      createOrchestrationCleanup({
+        containment: createWorkspaceContainment({ roots: () => [project] }),
+        runGit: runGitWithExecFile,
+        worktrees: createWorktreeManager(),
+        liveSessions: () => [{ nodeId, cwd }],
+        canvas: async () => ({ ok: true })
+      })
+    assert.deepEqual(await live(two.nodeId!, two.worktreePath!).unrecorded(record), [])
+    assert.deepEqual(await live('stray', one.worktreePath!).unrecorded(record), [
+      { ticket: '1', path: gitPath(one.worktreePath!), branch: 'ticket/1', ahead: 1, liveSession: true }
+    ])
+    assert.ok(await git(['branch', '--list', 'ticket/1']))
+  },
+  GIT_FIXTURE_TIMEOUT
+)
+
 test(
   'ticket-scoped cleanup removes a published merge without reporting unrelated pending tickets',
   async () => {

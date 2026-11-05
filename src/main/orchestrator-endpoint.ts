@@ -82,6 +82,7 @@ import {
 import type { TicketBinding } from './orchestration-wake'
 import { createPairingToken, pairingTokenMatches, presentedPairingToken } from './remote/pairing'
 import type { TicketSpawner } from './ticket-spawner'
+import type { UnrecordedAttempt } from '../shared/orchestration-cleanup'
 import type { OrchestrationCleanup } from './orchestration-cleanup'
 import type { OrchestrationMerge } from './orchestration-merge'
 import type { ProviderUsage, ProviderUsageReadResult } from './provider-usage'
@@ -975,7 +976,16 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     return evidence ? refused(409, evidence) : undefined
   }
 
-  const status = (record: OrchestrationRecord): Reply => {
+  const status = async (record: OrchestrationRecord): Promise<Reply> => {
+    // Git's view against the record's: worktrees and branches no recorded attempt accounts for.
+    let unrecorded: UnrecordedAttempt[] = []
+    let unrecordedError: string | undefined
+    try {
+      unrecorded = (await options.cleanup?.unrecorded(record)) ?? []
+    } catch (error) {
+      unrecordedError = errorMessage(error)
+      options.log?.(`status could not look for unrecorded ticket worktrees: ${unrecordedError}`)
+    }
     const tickets = record.tickets.map((ticket) => {
       const live = ticket.session?.nodeId ? options.ticketSessions?.state(ticket.session.nodeId) : undefined
       return {
@@ -1000,6 +1010,8 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
       body: {
         ok: true,
         tickets,
+        unrecorded,
+        ...(unrecordedError ? { unrecordedError } : {}),
         pacing: record.pacing ?? null,
         pendingPermissionPrompts: tickets.filter((ticket) => ticket.permissionPrompt).map((ticket) => ticket.id),
         openQuestions: openOrchestrationQuestions(record)
@@ -1197,7 +1209,7 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     if (command === 'status' || command === 'outcome' || command === 'followup') {
       const own = await ownRecord(grant, key)
       if ('status' in own) return own
-      if (command === 'status') return status(own.record)
+      if (command === 'status') return await status(own.record)
       return command === 'outcome' ? outcome(own.record, args) : followup(own.record, args)
     }
     const update = isRecord(args) ? args : {}

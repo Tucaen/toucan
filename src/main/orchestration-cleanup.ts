@@ -1,6 +1,16 @@
 import { existsSync } from 'node:fs'
-import { isTicketSettled, type OrchestrationRecord, type OrchestrationTicket } from '../shared/orchestration'
-import type { TicketCleanupRequest, TicketCleanupResult } from '../shared/orchestration-cleanup'
+import {
+  isTicketSettled,
+  ticketIdOfBranch,
+  type OrchestrationRecord,
+  type OrchestrationTicket
+} from '../shared/orchestration'
+import type {
+  LiveSessionLocation,
+  TicketCleanupRequest,
+  TicketCleanupResult,
+  UnrecordedAttempt
+} from '../shared/orchestration-cleanup'
 import { pathIdentity } from '../shared/paths'
 import { errorMessage } from '../shared/text'
 import { parseWorktreeList } from '../shared/worktree'
@@ -28,7 +38,15 @@ export interface OrchestrationCleanup {
    * clean and its branch holds no commit the target lacks.
    */
   answeredRefusal(record: OrchestrationRecord, ticket: OrchestrationTicket): Promise<string | undefined>
+  /**
+   * The ticket worktrees and `ticket/*` branches Git holds that the record has no attempt for, plus
+   * those a live session works in that the record does not name. Read-only.
+   */
+  unrecorded(record: OrchestrationRecord): Promise<UnrecordedAttempt[]>
 }
+
+/** Why a sweep keeps an unrecorded attempt instead of judging it. */
+export const UNRECORDED_ATTEMPT_REASON = 'unrecorded attempt'
 
 /** How long a folder a process still holds gets to be let go: about 21 minutes in all. */
 export const FOLDER_RETRY_DELAYS_MS: readonly number[] = [15_000, 60_000, 5 * 60_000, 15 * 60_000]
@@ -46,6 +64,8 @@ export function createOrchestrationCleanup(options: {
    * given; absent, a later sweep is the retry.
    */
   folderRetry?: { schedule(retry: () => Promise<void>, ms: number): void; delaysMs?: readonly number[] }
+  /** The live agent sessions and where they run; absent, no unrecorded attempt reads as live. */
+  liveSessions?(): LiveSessionLocation[]
   log?(message: string): void
 }): OrchestrationCleanup {
   const gitIn =
@@ -84,6 +104,47 @@ export function createOrchestrationCleanup(options: {
       }
     }, delays[attempt])
     return true
+  }
+
+  const unrecorded = async (record: OrchestrationRecord): Promise<UnrecordedAttempt[]> => {
+    const git = gitIn(record)
+    const sessions = record.tickets.flatMap((ticket) => (ticket.session ? [ticket.session] : []))
+    const recordedPaths = new Set(sessions.flatMap((s) => (s.worktreePath ? [pathIdentity(s.worktreePath)] : [])))
+    const recordedBranches = new Set(sessions.flatMap((s) => (s.branch ? [s.branch] : [])))
+    const recordedNodes = new Set(sessions.flatMap((s) => (s.nodeId ? [s.nodeId] : [])))
+    const live = options.liveSessions?.() ?? []
+    const liveIn = (path: string) => live.filter((session) => pathIdentity(session.cwd) === pathIdentity(path))
+    const ahead = async (branch: string): Promise<number | null> => {
+      try {
+        return Number(await git(['rev-list', '--count', `refs/heads/${record.targetBranch}..refs/heads/${branch}`]))
+      } catch {
+        return null
+      }
+    }
+    const attempt = async (branch: string, path?: string): Promise<UnrecordedAttempt> => ({
+      ticket: ticketIdOfBranch(record, branch) ?? branch.replace(/^ticket\//, ''),
+      ...(path ? { path } : {}),
+      branch,
+      ahead: await ahead(branch),
+      liveSession: path ? liveIn(path).length > 0 : false
+    })
+
+    const found: UnrecordedAttempt[] = []
+    const seen = new Set<string>()
+    const registered = parseWorktreeList(await git(['worktree', 'list', '--porcelain']))
+    for (const item of registered) {
+      if (item.isMain || !item.branch.startsWith('ticket/') || item.branch === record.targetBranch) continue
+      seen.add(item.branch)
+      const unnamedSession = liveIn(item.path).some((session) => !recordedNodes.has(session.nodeId))
+      const recorded = recordedPaths.has(pathIdentity(item.path)) || recordedBranches.has(item.branch)
+      if (!recorded || unnamedSession) found.push(await attempt(item.branch, item.path))
+    }
+    const heads = await git(['for-each-ref', '--format=%(refname:short)', 'refs/heads/ticket/'])
+    for (const branch of heads.split(/\r?\n/).filter(Boolean)) {
+      if (seen.has(branch) || branch === record.targetBranch || recordedBranches.has(branch)) continue
+      found.push(await attempt(branch))
+    }
+    return found
   }
 
   /** `retry` is the index of the folder retry this sweep is; a sweep anyone asked for has none. */
@@ -228,6 +289,22 @@ export function createOrchestrationCleanup(options: {
         retained.push({ ...entry, reason: errorMessage(error) })
       }
     }
+    // A folder retry only finishes one ticket's leftover; what the record lacks is for a sweep to name.
+    if (retry === undefined) {
+      try {
+        for (const attempt of await unrecorded(record)) {
+          if (ticketId !== undefined && attempt.ticket !== ticketId) continue
+          retained.push({
+            ticket: attempt.ticket,
+            worktree: attempt.path,
+            branch: attempt.branch,
+            reason: UNRECORDED_ATTEMPT_REASON
+          })
+        }
+      } catch (error) {
+        options.log?.(`could not look for unrecorded ticket worktrees: ${errorMessage(error)}`)
+      }
+    }
     return { removed, retained }
   }
 
@@ -249,6 +326,7 @@ export function createOrchestrationCleanup(options: {
         return `could not verify ticket ${ticket.id} as answered: ${errorMessage(error)}`
       }
     },
+    unrecorded,
     run: (record, ticketId) => sweep(record, ticketId)
   }
 }
