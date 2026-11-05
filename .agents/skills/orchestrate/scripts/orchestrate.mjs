@@ -13,7 +13,9 @@ const USAGE = [
   '| ticket update <id> (--json <fields> | --file <fields.json>)',
   '| route [--ticket <id> --tier <tier>]',
   '| escalate --ticket <id>',
-  '| spawn --ticket <id> [--model <id> --effort <level> | --tier <tier> [--effort <level>]] [--provider <provider>] [--project <path>] [--force --reason <why>]',
+  '| spawn --ticket <id> [--model <id> --effort <level> | --tier <tier> [--effort <level>]] [--provider <provider>] [--project <path>] [--force --reason <why>] [--replace]',
+  '| spawn --ticket <id> --adopt <worktree-path> [--project <path>]',
+  '| discard (--ticket <id> --attempt <n> | --branch <ticket/branch>)',
   '| status',
   '| usage',
   '| merge --ticket <id> --tested <commit>',
@@ -129,11 +131,20 @@ async function message(words) {
   if (first === 'spawn') {
     const { flags, positionals } = parseFlags(
       words.slice(1),
-      ['ticket', 'model', 'tier', 'effort', 'provider', 'project', 'reason'],
-      ['force']
+      ['ticket', 'model', 'tier', 'effort', 'provider', 'project', 'reason', 'adopt'],
+      ['force', 'replace']
     )
     if (positionals.length > 0) usage('spawn takes no positional arguments')
     return { command: 'spawn', args: flags }
+  }
+  if (first === 'discard') {
+    const { flags, positionals } = parseFlags(words.slice(1), ['ticket', 'attempt', 'branch'])
+    if (positionals.length > 0) usage('discard takes no positional arguments')
+    const recorded = flags.ticket !== undefined && flags.attempt !== undefined
+    if (flags.branch === undefined ? !recorded : Object.keys(flags).length !== 1) {
+      usage('discard needs --ticket <id> --attempt <n>, or --branch <ticket/branch> alone')
+    }
+    return { command: 'discard', args: flags }
   }
   if (first === 'route') {
     const { flags, positionals } = parseFlags(words.slice(1), ['ticket', 'tier'])

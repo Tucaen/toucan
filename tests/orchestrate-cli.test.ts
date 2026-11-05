@@ -4,8 +4,15 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'vitest'
+import type { DiscardTarget } from '../src/main/orchestration-cleanup'
 import { createOrchestrationStore } from '../src/main/orchestration-store'
-import { createOrchestratorEndpoint, type OrchestratorGrant } from '../src/main/orchestrator-endpoint'
+import {
+  createOrchestratorEndpoint,
+  type OrchestratorGrant,
+  type TicketSessionControl,
+  type TicketSessionState
+} from '../src/main/orchestrator-endpoint'
+import type { UnrecordedAttempt } from '../src/shared/orchestration-cleanup'
 import type { TicketSpawnRequest } from '../src/main/ticket-spawner'
 import { PROJECT_SKILLS_DIRECTORY } from '../src/shared/project-skills'
 import { ORCHESTRATE_CLI_PATH, ORCHESTRATOR_TOKEN_ENV, ORCHESTRATOR_URL_ENV } from '../src/shared/orchestration'
@@ -37,13 +44,27 @@ function run(args: string[], environment: Record<string, string | undefined>): P
   })
 }
 
-async function harness() {
+async function harness({ liveSessions = false }: { liveSessions?: boolean } = {}) {
   const calls: TicketSpawnRequest[] = []
   const cleanupCalls: Array<string | undefined> = []
   const mergeCalls: Array<{ ticket: string; tested: string }> = []
+  const unrecorded: UnrecordedAttempt[] = []
+  const discards: DiscardTarget[] = []
+  const stops: string[] = []
+  const live = new Map<string, TicketSessionState>()
   const records = createOrchestrationStore({ directory: mkdtempSync(join(tmpdir(), 'toucan-orchestrate-cli-')) })
   const endpoint = createOrchestratorEndpoint({
     records,
+    // Only the cases that need the duplicate guard or a discard run with live sessions: elsewhere an
+    // absent control keeps `status`, `outcome` and `followup` on their no-session answers.
+    ...(liveSessions
+      ? {
+          ticketSessions: {
+            state: (nodeId: string) => live.get(nodeId),
+            stop: (nodeId: string) => void stops.push(nodeId)
+          } as unknown as TicketSessionControl
+        }
+      : {}),
     merge: {
       run: async (_record, ticket, tested) => {
         mergeCalls.push({ ticket: ticket.id, tested })
@@ -54,6 +75,12 @@ async function harness() {
       run: async (_record, ticketId) => {
         cleanupCalls.push(ticketId)
         return { removed: [{ ticket: ticketId ?? '34' }], retained: [] }
+      },
+      answeredRefusal: async () => undefined,
+      unrecorded: async () => unrecorded,
+      discard: async (_record, target) => {
+        discards.push(target)
+        return { ok: true, removedWorktree: true, deletedBranch: true, ahead: 2 }
       }
     },
     spawner: {
@@ -79,7 +106,18 @@ async function harness() {
     projectPath: 'D:\\project'
   })) as OrchestratorGrant
   grant.setConversation('conversation-1')
-  return { endpoint, grant, calls, cleanupCalls, mergeCalls, environment: grant.environment }
+  return {
+    endpoint,
+    grant,
+    calls,
+    cleanupCalls,
+    mergeCalls,
+    unrecorded,
+    discards,
+    stops,
+    live,
+    environment: grant.environment
+  }
 }
 
 test('without an orchestrator environment the CLI refuses clearly and calls nothing', async () => {
@@ -321,6 +359,117 @@ test('spawn --force is a switch that needs --reason', async () => {
     assert.equal((forced.output.forced as { reason: string }).reason, 'the user asked')
     assert.equal(calls.length, 1)
     assert.equal((await run(['spawn', '--ticket', '34', '--force', '--force'], environment)).code, 2)
+  } finally {
+    await endpoint.close()
+  }
+})
+
+const planOf = (...ids: string[]): string[] => [
+  'plan',
+  'set',
+  '--json',
+  JSON.stringify({ task: 't', targetBranch: 'main', tickets: ids.map((id) => ({ id, title: `Ticket ${id}` })) })
+]
+
+test('spawn refuses a duplicate of a live attempt and --replace stops it first (#2)', async () => {
+  const { endpoint, environment, calls, stops, live } = await harness({ liveSessions: true })
+  try {
+    await run(planOf('34'), environment)
+    const spawn34 = ['spawn', '--ticket', '34', '--model', 'm', '--effort', 'high']
+    assert.equal((await run(spawn34, environment)).code, 0)
+    live.set('ticket-node', { status: 'working', questions: [] })
+
+    const duplicate = await run(spawn34, environment)
+    assert.equal(duplicate.code, 1)
+    assert.equal(duplicate.output.duplicate, true)
+    assert.match(duplicate.output.error ?? '', /--replace/)
+    assert.deepEqual([calls.length, stops.length], [1, 0])
+
+    const replaced = await run([...spawn34, '--replace'], environment)
+    assert.equal(replaced.code, 0)
+    assert.deepEqual([calls.length, stops], [2, ['ticket-node']])
+    assert.equal((await run([...spawn34, '--replace', '--replace'], environment)).code, 2)
+  } finally {
+    await endpoint.close()
+  }
+})
+
+test('spawn --adopt links an unrecorded worktree and takes no other spawn flag (#4)', async () => {
+  const { endpoint, environment, calls, unrecorded } = await harness({ liveSessions: true })
+  try {
+    await run(planOf('34'), environment)
+    unrecorded.push({ ticket: '34', path: 'D:\\w34', branch: 'ticket/34', ahead: 1, liveSession: false })
+
+    const mixed = await run(['spawn', '--ticket', '34', '--adopt', 'D:\\w34', '--model', 'm'], environment)
+    assert.equal(mixed.code, 1)
+    assert.match(mixed.output.error ?? '', /spawn --adopt takes only/)
+    assert.equal((await run(['spawn', '--adopt', 'D:\\w34'], environment)).code, 1)
+    assert.equal((await run(['spawn', '--ticket', '34', '--adopt'], environment)).code, 2)
+
+    const adopted = await run(['spawn', '--ticket', '34', '--adopt', 'D:\\w34'], environment)
+    assert.equal(adopted.code, 0)
+    assert.deepEqual([adopted.output.adopted, adopted.output.attempt, calls.length], [true, 1, 0])
+    assert.equal((adopted.output.session as { worktreePath: string }).worktreePath, 'D:\\w34')
+
+    const status = await run(['status'], environment)
+    assert.deepEqual(status.output.unrecorded, unrecorded)
+  } finally {
+    await endpoint.close()
+  }
+})
+
+test('discard throws a recorded attempt away by number, an unrecorded one by branch (#4)', async () => {
+  const { endpoint, environment, discards, unrecorded } = await harness({ liveSessions: true })
+  try {
+    await run(planOf('34'), environment)
+    await run(['spawn', '--ticket', '34', '--model', 'm', '--effort', 'high'], environment)
+
+    const missing = await run(['discard', '--ticket', '34', '--attempt', '2'], environment)
+    assert.equal(missing.code, 1)
+    assert.match(missing.output.error ?? '', /no attempt 2/)
+
+    const discarded = await run(['discard', '--ticket', '34', '--attempt', '1'], environment)
+    assert.equal(discarded.code, 0)
+    assert.deepEqual(
+      [discarded.output.attempt, discarded.output.branch, discarded.output.discardedCommits],
+      [1, 'ticket/34', 2]
+    )
+    assert.deepEqual(
+      discards.map((target) => [target.ticket, target.branch, target.worktreePath]),
+      [['34', 'ticket/34', 'D:\\w']]
+    )
+    const again = await run(['discard', '--ticket', '34', '--attempt', '1'], environment)
+    assert.equal(again.code, 1)
+    assert.match(again.output.error ?? '', /already discarded/)
+
+    const unknown = await run(['discard', '--branch', 'ticket/99-nothing'], environment)
+    assert.equal(unknown.code, 1)
+    assert.match(unknown.output.error ?? '', /not an unrecorded attempt/)
+    unrecorded.push({ ticket: '35', branch: 'ticket/35-lost', ahead: 3, liveSession: false })
+    const byBranch = await run(['discard', '--branch', 'ticket/35-lost'], environment)
+    assert.equal(byBranch.code, 0)
+    assert.equal(discards[discards.length - 1].branch, 'ticket/35-lost')
+  } finally {
+    await endpoint.close()
+  }
+})
+
+test('discard needs --ticket with --attempt, or --branch alone', async () => {
+  const { endpoint, environment, discards } = await harness()
+  try {
+    for (const args of [
+      ['discard'],
+      ['discard', '--ticket', '34'],
+      ['discard', '--attempt', '1'],
+      ['discard', '--branch', 'ticket/34', '--ticket', '34'],
+      ['discard', '--branch', 'ticket/34', '--attempt', '1'],
+      ['discard', '34', '--attempt', '1'],
+      ['discard', '--ticket', '34', '--attempt', '1', '--attempt', '2'],
+      ['discard', '--force']
+    ]) {
+      assert.equal((await run(args, environment)).code, 2, args.join(' '))
+    }
+    assert.equal(discards.length, 0)
   } finally {
     await endpoint.close()
   }
