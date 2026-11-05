@@ -34,8 +34,9 @@ function harness() {
 
   // The wait runs out when the test says so.
   let expire: (() => void) | null = null
+  let requestCount = 0
   const requests = createTicketSessionRequests({
-    requestId: () => 'request-1',
+    requestId: () => `request-${++requestCount}`,
     schedule: (run) => {
       expire = run
       return {
@@ -55,6 +56,7 @@ function harness() {
   const live = new Map<string, { status: string }>()
   const cancelled: string[] = []
   const stopped: string[] = []
+  const killed: Array<{ nodeId: string; starting: boolean }> = []
 
   const delivered: string[] = []
   const timers: Array<() => void> = []
@@ -123,7 +125,11 @@ function harness() {
       startPrompt: () => ({ ok: true }),
       promptWhenIdle: async () => ({ ok: true }),
       answerQuestion: () => ({ ok: true }),
-      outcome: async () => undefined
+      outcome: async () => undefined,
+      stop: (nodeId, options) => {
+        killed.push({ nodeId, ...options })
+        live.delete(nodeId)
+      }
     },
     onTicketSpawned: (nodeId, binding) => waker.bind(nodeId, binding),
     onTicketAbandoned: (nodeId) => {
@@ -142,16 +148,19 @@ function harness() {
     live,
     cancelled,
     stopped,
+    killed,
     waker,
     wake,
     expire: () => expire?.(),
-    /** The renderer's side of the conversation. */
+    /** The renderer's side of the conversation; `request` is the one-based spawn it answers. */
     renderer: {
       requestOf: () =>
         sent.find((message) => message.channel === ORCHESTRATOR_CHANNELS.startTicketSession)!
           .args[1] as TicketSessionCanvasRequest,
-      reportNode: () => requests.progress('request-1', { nodeId: NODE, conversationId: CONVERSATION }),
-      answer: (result: Parameters<typeof requests.complete>[1]) => requests.complete('request-1', result)
+      reportNode: (node = NODE, conversation = CONVERSATION, request = 1) =>
+        requests.progress(`request-${request}`, { nodeId: node, conversationId: conversation }),
+      answer: (result: Parameters<typeof requests.complete>[1], request = 1) =>
+        requests.complete(`request-${request}`, result)
     }
   }
 }
@@ -303,6 +312,123 @@ test('a session that comes up after the spawn was refused is withdrawn, not left
 
     world.renderer.answer({ ok: true, nodeId: NODE, conversationId: CONVERSATION })
     assert.deepEqual(world.cancelled, [NODE])
+  } finally {
+    await world.endpoint.close()
+  }
+})
+
+/** Spawns once and lets the wait run out, leaving the ticket linked to a session that is still starting. */
+async function pendingSpawn(world: Awaited<ReturnType<typeof planned>>) {
+  const spawning = call(world.grant, 'spawn', spawn)
+  await waitFor(() => world.sent.length === 1)
+  world.renderer.reportNode()
+  await waitFor(async () => (await world.ticketOf()).session?.nodeId === NODE)
+  world.expire()
+  assert.equal((await spawning).body.pending, true)
+}
+
+test('a second plain spawn while the first attempt is still starting is refused and names that attempt', async () => {
+  const world = await planned()
+  try {
+    await pendingSpawn(world)
+    const spawnsBefore = (await world.read()).spawnCount
+
+    const reply = await call(world.grant, 'spawn', spawn)
+    assert.equal(reply.status, 409)
+    assert.equal(reply.body.ok, false)
+    assert.equal(reply.body.duplicate, true)
+    assert.deepEqual(reply.body.attempt, {
+      attempt: 1,
+      nodeId: NODE,
+      branch: 'ticket/1',
+      worktreePath: 'D:\\project-ticket/1',
+      state: 'starting'
+    })
+    assert.match(
+      String(reply.body.error),
+      /attempt 1, branch ticket\/1, worktree D:\\project-ticket\/1, state starting/
+    )
+    assert.match(String(reply.body.error), /--replace/)
+
+    // Nothing was created or counted, and the first attempt is untouched.
+    assert.equal(world.sent.length, 1)
+    assert.equal((await world.read()).spawnCount, spawnsBefore)
+    assert.deepEqual(world.killed, [])
+    assert.equal((await world.ticketOf()).session?.nodeId, NODE)
+  } finally {
+    await world.endpoint.close()
+  }
+})
+
+test('a settled session awaiting review still blocks a plain spawn; an exited one does not', async () => {
+  const world = await planned()
+  try {
+    await pendingSpawn(world)
+    world.renderer.answer({ ok: true, nodeId: NODE, conversationId: CONVERSATION })
+    await waitFor(async () => (await world.ticketOf()).runs?.at(-1)?.state === undefined)
+
+    world.live.set(NODE, { status: 'ready' })
+    const refused = await call(world.grant, 'spawn', spawn)
+    assert.equal(refused.status, 409)
+    assert.equal((refused.body.attempt as { state: string }).state, 'ready')
+
+    world.live.set(NODE, { status: 'exited' })
+    const second = call(world.grant, 'spawn', spawn)
+    await waitFor(() => world.sent.length === 2)
+    world.live.set('node-2', { status: 'working' })
+    world.renderer.reportNode('node-2', 'conversation-2', 2)
+    world.renderer.answer({ ok: true, nodeId: 'node-2', conversationId: 'conversation-2' }, 2)
+    assert.equal((await second).status, 200)
+    assert.deepEqual(world.killed, [])
+  } finally {
+    await world.endpoint.close()
+  }
+})
+
+test('--replace stops the old attempt first, then spawns the new one', async () => {
+  const world = await planned()
+  try {
+    await pendingSpawn(world)
+
+    const replacing = call(world.grant, 'spawn', { ...spawn, replace: true })
+    await waitFor(() => world.sent.length === 2)
+    // The old session was stopped (and closed on the canvas, being unreported) before the new one began.
+    assert.deepEqual(world.killed, [{ nodeId: NODE, starting: true }])
+    assert.deepEqual(world.stopped, [NODE])
+
+    world.live.set('node-2', { status: 'working' })
+    world.renderer.reportNode('node-2', 'conversation-2', 2)
+    world.renderer.answer({ ok: true, nodeId: 'node-2', conversationId: 'conversation-2' }, 2)
+    const reply = await replacing
+    assert.equal(reply.status, 200)
+
+    const ticket = await world.ticketOf()
+    assert.equal(ticket.session?.nodeId, 'node-2')
+    assert.equal(ticket.runs?.length, 2)
+    assert.equal(ticket.runs?.at(-1)?.conversationId, 'conversation-2')
+    assert.equal((await world.read()).spawnCount, 2)
+  } finally {
+    await world.endpoint.close()
+  }
+})
+
+test('--replace with nothing unresolved just spawns, and a refused replace does not stop the old attempt', async () => {
+  const world = await planned()
+  try {
+    const first = call(world.grant, 'spawn', { ...spawn, replace: true })
+    await waitFor(() => world.sent.length === 1)
+    world.live.set(NODE, { status: 'working' })
+    world.renderer.reportNode()
+    world.renderer.answer({ ok: true, nodeId: NODE, conversationId: CONVERSATION })
+    assert.equal((await first).status, 200)
+    assert.deepEqual(world.killed, [])
+
+    // A replace that fails its own validation leaves the working attempt alone.
+    const refused = await call(world.grant, 'spawn', { ticket: '1', replace: 'yes' })
+    assert.equal(refused.status, 400)
+    assert.match(String(refused.body.error), /--replace takes no value/)
+    assert.deepEqual(world.killed, [])
+    assert.equal((await world.ticketOf()).session?.nodeId, NODE)
   } finally {
     await world.endpoint.close()
   }

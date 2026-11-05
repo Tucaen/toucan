@@ -26,6 +26,7 @@ import {
   parseSpawnInput,
   parseTicketUpdate,
   abandonTicketSession,
+  duplicateSpawnMessage,
   recordForcedSpawn,
   recordTicketRoute,
   recordTicketSession,
@@ -34,6 +35,7 @@ import {
   resumeOrchestration,
   spawnBudget,
   ticketRunProvider,
+  unresolvedAttempt,
   updateTicketSession,
   type DifficultyTier,
   type OrchestrationPacingForced,
@@ -44,7 +46,8 @@ import {
   type SpawnReservation,
   type TicketRoute,
   type TicketRunState,
-  type TicketSession
+  type TicketSession,
+  type UnresolvedAttempt
 } from '../shared/orchestration'
 import type { OrchestratorUsageResponse } from '../shared/orchestrator-usage'
 import {
@@ -147,6 +150,11 @@ export interface TicketSessionControl {
   /** Steers a working session, or queues the text for its next boundary. */
   promptWhenIdle(nodeId: string, text: string): Promise<AgentPromptResult>
   answerQuestion(nodeId: string, requestId: string, content: AgentDecisionResponseContent): AgentPromptResult
+  /**
+   * Stops a ticket session for `spawn --replace` (#2). `starting` is true for a session the canvas
+   * may still be bringing up, which the broker does not know yet: it is closed on the canvas too.
+   */
+  stop?(nodeId: string, options: { starting: boolean }): void
   /** The conversation's session outcome record and where it is on disk. */
   outcome(identity: SessionOutcomeIdentity): Promise<{ path: string; record: SessionOutcomeRecord } | undefined>
   /**
@@ -442,6 +450,15 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     return { route: { ...route, effort: request.effort ?? route.effort }, warnings: resolved.warnings }
   }
 
+  /** The ticket's latest attempt while it is unresolved (see `unresolvedAttempt`), read against the live session. */
+  const duplicateAttempt = (ticket: OrchestrationTicket): UnresolvedAttempt | undefined =>
+    unresolvedAttempt(ticket, ticket.session?.nodeId ? options.ticketSessions?.state(ticket.session.nodeId) : undefined)
+
+  const duplicateRefusal = (ticketId: string, attempt: UnresolvedAttempt): Reply => ({
+    status: 409,
+    body: { ok: false, error: duplicateSpawnMessage(ticketId, attempt), duplicate: true, attempt }
+  })
+
   /**
    * One ticket session (#34). Everything that can be refused without creating anything is refused
    * first; then the spawn is counted against the record, and only then does the spawner create the
@@ -485,6 +502,10 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
       if (preflightReservation.budgetReached) options.spawned?.(current)
       return reservationRefusal(preflightReservation)
     }
+    if (!request.replace) {
+      const duplicate = duplicateAttempt(planned)
+      if (duplicate) return duplicateRefusal(request.ticketId, duplicate)
+    }
 
     const forced: OrchestrationPacingForced | undefined = request.force
       ? { ticketId: request.ticketId, by: grant.nodeId, at: now(), reason: request.forceReason! }
@@ -521,6 +542,18 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
 
     let routed: SpawnRoute | undefined
     try {
+      // `--replace` stops the old attempt before anything of the new one exists. Past admission, so
+      // a spawn that is deferred or refused never costs the attempt it was meant to replace.
+      if (request.replace) {
+        const latest = (await options.records.read(key))?.tickets.find((candidate) => candidate.id === request.ticketId)
+        const old = latest && duplicateAttempt(latest)
+        if (old?.nodeId) {
+          const stop = options.ticketSessions?.stop
+          if (!stop) return refused(501, 'this Toucan cannot stop ticket sessions, so it cannot replace an attempt')
+          stop(old.nodeId, { starting: old.state === 'starting' })
+          options.onTicketAbandoned?.(old.nodeId)
+        }
+      }
       const reservation = await options.records.update<{ refusal: Reply } | { record: OrchestrationRecord }>(
         key,
         (current) => {
@@ -534,6 +567,9 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
           const resolved = spawnRoute(request, planned, configured.config, grant.provider)
           if ('refusal' in resolved) return refuse(resolved.refusal)
           routed = resolved
+          // The guard again inside the write, so two concurrent plain spawns cannot both pass it.
+          const duplicate = !request.replace && duplicateAttempt(planned)
+          if (duplicate) return refuse(duplicateRefusal(request.ticketId, duplicate))
           const counted = reserveSpawn(forced ? resumeOrchestration(current, now()) : current, request.ticketId, now())
           if (counted.error !== undefined) return refuse(reservationRefusal(counted))
           const routedRecord = recordTicketRoute(counted.record, request.ticketId, resolved.route, now())

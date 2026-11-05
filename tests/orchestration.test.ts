@@ -32,6 +32,7 @@ import {
   ticketSessionPrompt,
   ticketSessionTitle,
   ticketRunProvider,
+  unresolvedAttempt,
   type OrchestrationRecord
 } from '../src/shared/orchestration'
 
@@ -350,6 +351,53 @@ test('a spawn names a ticket, a model and an effort, and optionally a known prov
     /not supported/
   )
   assert.match(parseSpawnInput(null).error ?? '', /ticket/)
+})
+
+test('a spawn may carry --replace, which takes no value (#2)', () => {
+  assert.equal(parseSpawnInput({ ticket: '34', replace: true }).spawn?.replace, true)
+  assert.equal(parseSpawnInput({ ticket: '34' }).spawn?.replace, undefined)
+  assert.match(parseSpawnInput({ ticket: '34', replace: 'yes' }).error ?? '', /--replace takes no value/)
+})
+
+test('an attempt is unresolved while starting, working or awaiting review, unless escalated, exited or gone (#2)', () => {
+  const base = recordFrom(twoTickets).tickets[0]
+  const session = { nodeId: 'n1', branch: 'ticket/33', worktreePath: 'D:\\wt' }
+  const route = { tier: 'low' as const, model: 'haiku', effort: 'low', escalated: false }
+  const ticket = (extra: Partial<typeof base> = {}, runState?: 'starting') => ({
+    ...base,
+    session,
+    runs: [{ conversationId: 'c1', ...(runState ? { state: runState } : {}), route }],
+    route,
+    ...extra
+  })
+
+  // No session, or a settled ticket: nothing to guard.
+  assert.equal(unresolvedAttempt(base, undefined), undefined)
+  assert.equal(unresolvedAttempt(ticket({ mergeStatus: 'merged' }), { status: 'ready' }), undefined)
+  assert.equal(unresolvedAttempt(ticket({ mergeStatus: 'answered' }), { status: 'working' }), undefined)
+
+  // In flight, or settled and awaiting review: unresolved, and named.
+  assert.deepEqual(unresolvedAttempt(ticket({}, 'starting'), undefined), { attempt: 1, ...session, state: 'starting' })
+  for (const status of ['starting', 'working', 'auth_required', 'ready']) {
+    assert.equal(unresolvedAttempt(ticket(), { status })?.state, status)
+  }
+  assert.equal(unresolvedAttempt(ticket({ mergeStatus: 'unmerged' }), { status: 'ready' })?.state, 'ready')
+  assert.equal(unresolvedAttempt(ticket({ runs: [{}, {}, {}] }), { status: 'working' })?.attempt, 3)
+
+  // Exited, or not running at all (closed, killed, a restart): resolved.
+  assert.equal(unresolvedAttempt(ticket(), { status: 'exited' }), undefined)
+  assert.equal(unresolvedAttempt(ticket(), undefined), undefined)
+
+  // Escalated since launch: a settled attempt is the orchestrator's failed one; work in flight is not.
+  const escalated = { route: { ...route, tier: 'medium' as const, model: 'sonnet', escalated: true } }
+  assert.equal(unresolvedAttempt(ticket(escalated), { status: 'ready' }), undefined)
+  assert.equal(unresolvedAttempt(ticket(escalated), { status: 'working' })?.state, 'working')
+  assert.equal(unresolvedAttempt(ticket(escalated, 'starting'), undefined)?.state, 'starting')
+  // An escalated ticket whose latest attempt already launched on the escalated route is unresolved again.
+  assert.equal(
+    unresolvedAttempt(ticket({ ...escalated, runs: [{ route: escalated.route }] }), { status: 'ready' })?.state,
+    'ready'
+  )
 })
 
 test('a spawn may name a tier instead of a model, or nothing and take the recorded route (#36)', () => {

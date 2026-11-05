@@ -847,6 +847,8 @@ export interface SpawnInput {
    */
   force?: true
   forceReason?: string
+  /** Stop the ticket's unresolved attempt first instead of refusing as a duplicate (#2). */
+  replace?: true
 }
 
 const tierError = (flag: string): string => `${flag} must be one of ${DIFFICULTY_TIERS.join(', ')}`
@@ -874,6 +876,7 @@ export function parseSpawnInput(value: unknown): Outcome<'spawn', SpawnInput> {
     return refuse('spawn --force needs --reason <why>: the user asked, or why the remaining usage suffices')
   }
   if (args.force !== true && args.reason !== undefined) return refuse('--reason goes with --force')
+  if (args.replace !== undefined && args.replace !== true) return refuse('--replace takes no value')
   return {
     spawn: {
       ticketId: args.ticket.trim(),
@@ -884,7 +887,8 @@ export function parseSpawnInput(value: unknown): Outcome<'spawn', SpawnInput> {
       ...(nonEmptyString(args.project) ? { projectPath: args.project.trim() } : {}),
       ...(args.force === true && nonEmptyString(args.reason)
         ? { force: true as const, forceReason: args.reason.trim() }
-        : {})
+        : {}),
+      ...(args.replace === true ? { replace: true as const } : {})
     }
   }
 }
@@ -973,6 +977,70 @@ export function reserveSpawn(record: OrchestrationRecord, ticketId: string, now:
     }
   }
   return { record: { ...record, spawnCount: (record.spawnCount ?? 0) + 1, updatedAt: now } }
+}
+
+/** The latest attempt of a ticket that still holds it (#2): what `spawn` names when it refuses. */
+export interface UnresolvedAttempt {
+  /** One-based, counted over the ticket's `runs`. */
+  attempt: number
+  nodeId?: string
+  branch?: string
+  worktreePath?: string
+  /** `starting` (not yet reporting in), or the live session's status: `working`, `ready` (awaiting review) ... */
+  state: string
+}
+
+/**
+ * Whether a ticket's latest attempt is still unresolved, which makes a plain `spawn` of it a
+ * duplicate (#2). `live` is the broker's status for the session, undefined when Toucan is not
+ * running it. The rule, in order:
+ *
+ * - no recorded session, or the ticket merged/answered: nothing to guard (a settled ticket is
+ *   refused by `reserveSpawn` anyway);
+ * - the run is `starting`, or the session is `starting`, `working` or `auth_required`: unresolved,
+ *   whatever the route says - work in flight is never overlapped silently;
+ * - the session is `ready`, i.e. settled and awaiting review: unresolved, unless the ticket was
+ *   escalated since the attempt launched (its route now differs from the run's launch route), which
+ *   is the orchestrator's verdict that the attempt failed;
+ * - the session is `exited`, or Toucan is not running it (closed, stopped, killed, a restart): resolved.
+ *
+ * A start that failed is already unlinked by `abandonTicketSession`, so it never reaches this.
+ */
+export function unresolvedAttempt(
+  ticket: OrchestrationTicket,
+  live: { status: string } | undefined
+): UnresolvedAttempt | undefined {
+  const session = ticket.session
+  if (!session || isTicketSettled(ticket.mergeStatus)) return undefined
+  const runs = ticket.runs ?? []
+  const last = runs[runs.length - 1]
+  const starting = last?.state === 'starting'
+  const state = live?.status ?? (starting ? 'starting' : undefined)
+  if (state === undefined || state === 'exited') return undefined
+  if (state === 'ready' && !starting) {
+    const launched = last?.route
+    const escalatedSince =
+      ticket.route?.escalated === true &&
+      (launched?.tier !== ticket.route.tier || launched?.model !== ticket.route.model)
+    if (escalatedSince) return undefined
+  }
+  return {
+    attempt: Math.max(runs.length, 1),
+    ...(session.nodeId ? { nodeId: session.nodeId } : {}),
+    ...(session.branch ? { branch: session.branch } : {}),
+    ...(session.worktreePath ? { worktreePath: session.worktreePath } : {}),
+    state
+  }
+}
+
+/** The refusal text for a duplicate spawn. */
+export function duplicateSpawnMessage(ticketId: string, attempt: UnresolvedAttempt): string {
+  return (
+    `ticket ${ticketId} already has an unresolved attempt: attempt ${attempt.attempt}, ` +
+    `branch ${attempt.branch ?? 'unknown'}, worktree ${attempt.worktreePath ?? 'unknown'}, state ${attempt.state}. ` +
+    'Do not spawn it again: wait for its wake or check status. To discard that attempt and start a new one, ' +
+    'spawn again with --replace, which stops the old session first'
+  )
 }
 
 /** Records a proactive provider-wide deferral without consuming a spawn or changing ticket work. */
