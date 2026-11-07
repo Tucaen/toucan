@@ -1,6 +1,10 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'vitest'
-import { pinnedQuestionDecision, pinnedQuestionNote } from '../src/shared/orchestration-question-answer'
+import {
+  pinnedQuestionDecision,
+  pinnedQuestionNote,
+  questionOptionsFromDecision
+} from '../src/shared/orchestration-question-answer'
 
 // A pinned question with options is the same one-question form a ticket session shows; what the
 // human fills in comes back as the note that resolves it.
@@ -47,4 +51,34 @@ test('the note names the picked options, the Other text, or a skip', () => {
     pinnedQuestionNote({ answer: Array.from({ length: 12 }, () => 'y'.repeat(200)), other: 'x'.repeat(10_000) })
       .length < 4000
   )
+})
+
+test('a single select question round-trips through the pinned form', () => {
+  const options = [{ label: 'Left', description: 'the old one' }, { label: 'Right' }]
+  for (const multiSelect of [false, true]) {
+    const request = pinnedQuestionDecision({
+      id: 'Q1',
+      options,
+      ...(multiSelect ? { multiSelect: true as const } : {})
+    })!
+    assert.deepEqual(questionOptionsFromDecision(request), { options, ...(multiSelect ? { multiSelect: true } : {}) })
+  }
+})
+
+test('options are copied only from one select question with usable options', () => {
+  const request = pinnedQuestionDecision({ id: 'Q1', options: [{ label: 'A' }, { label: 'B' }] })!
+  const question = request.questions[0]!
+  const error = (value: Parameters<typeof questionOptionsFromDecision>[0]): string =>
+    (questionOptionsFromDecision(value) as { error: string }).error
+  assert.match(error({ ...request, questions: [question, question] }), /2 questions/)
+  assert.match(
+    error({ ...request, questions: [{ ...question, input: 'boolean', options: [] }] }),
+    /not a select question/
+  )
+  const twice = [
+    { value: 'a', label: 'X' },
+    { value: 'b', label: 'X' }
+  ]
+  assert.match(error({ ...request, questions: [{ ...question, options: twice }] }), /cannot be pinned.*twice/)
+  assert.match(error({ ...request, questions: [] }), /0 questions/)
 })

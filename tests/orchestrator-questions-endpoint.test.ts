@@ -258,3 +258,77 @@ test('outcome --full adds the untruncated final report from the live session', a
     await h.close()
   }
 })
+
+test('question add --options-from-session copies the head pending select question, and refuses everything else', async () => {
+  const select = (extra: object = {}) => ({
+    id: 'req-1',
+    message: 'Which store?',
+    questions: [
+      {
+        id: 'store',
+        question: 'Which store?',
+        options: [
+          { value: 'a', label: 'Redux', description: 'old' },
+          { value: 'b', label: 'Zustand' }
+        ],
+        input: 'select',
+        multiSelect: false,
+        ...extra
+      }
+    ]
+  })
+  let live: { status: string; questions: unknown[] } | undefined = { status: 'ready', questions: [select()] }
+  const h = await harness({
+    ticketSessions: { state: () => live } as unknown as TicketSessionControl
+  })
+  try {
+    await call(h.grant, 'plan set', plan)
+    await h.records.update(key, (current) => ({
+      value: recordTicketSession(current!, '3', { nodeId: 'node-3', conversationId: 'c-3' }, 'now'),
+      result: undefined
+    }))
+    const fromSession = { ticket: '3', markdown, optionsFromSession: true }
+
+    const added = await call(h.grant, 'question add', fromSession)
+    assert.equal(added.status, 200)
+    assert.deepEqual(added.body.question?.options, [{ label: 'Redux', description: 'old' }, { label: 'Zustand' }])
+    assert.equal(added.body.question?.multiSelect, undefined)
+    // Nothing ties the pin to the session's request: only the options are copied.
+    assert.deepEqual(Object.keys(added.body.question!).sort(), ['createdAt', 'id', 'markdown', 'options', 'ticketId'])
+
+    live = { status: 'ready', questions: [select({ multiSelect: true })] }
+    assert.equal((await call(h.grant, 'question add', fromSession)).body.question?.multiSelect, true)
+
+    const refused = async (status: number, why: RegExp, args: object = fromSession): Promise<void> => {
+      const reply = await call(h.grant, 'question add', args)
+      assert.equal(reply.status, status)
+      assert.match(reply.body.error ?? '', why)
+    }
+    live = { status: 'ready', questions: [] }
+    await refused(409, /no pending question/)
+    const two = select()
+    live = { status: 'ready', questions: [{ ...two, questions: [two.questions[0], two.questions[0]] }] }
+    await refused(409, /2 questions/)
+    live = { status: 'ready', questions: [select({ input: 'text', options: [] })] }
+    await refused(409, /not a select question/)
+    live = undefined
+    await refused(409, /not running/)
+    live = { status: 'exited', questions: [select()] }
+    await refused(409, /not running/)
+
+    live = { status: 'ready', questions: [select()] }
+    await refused(400, /cannot be combined/, { ...fromSession, options: ['A'] })
+    await refused(400, /cannot be combined/, { ...fromSession, multiSelect: true })
+    await refused(400, /needs --ticket/, { markdown, optionsFromSession: true })
+    await refused(400, /takes no value/, { ...fromSession, optionsFromSession: 'yes' })
+    // A ticket with no session yet has nothing to copy.
+    await refused(409, /no ticket session yet/, { ...fromSession, ticket: '4' })
+    // Every refusal pinned nothing.
+    assert.deepEqual(
+      (await call(h.grant, 'question list')).body.questions?.map((question) => question.id),
+      ['Q1', 'Q2']
+    )
+  } finally {
+    await h.close()
+  }
+})

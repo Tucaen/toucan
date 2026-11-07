@@ -539,6 +539,23 @@ test('question add, resolve and list reach the endpoint; add reads the markdown 
     ]) {
       assert.equal((await run(['question', 'add', ...args], environment)).code, 2, args.join(' '))
     }
+    // --options-from-session is checked here too, before anything is sent; with no session behind
+    // the harness the endpoint refuses a well-formed one.
+    for (const args of [
+      ['--text', 'a', '--options-from-session'],
+      ['--ticket', '34', '--text', 'a', '--options-from-session', '--options', '["A"]'],
+      ['--ticket', '34', '--text', 'a', '--options-from-session', '--options-file', optionsFile],
+      ['--ticket', '34', '--text', 'a', '--options-from-session', '--multi']
+    ]) {
+      const refused = await run(['question', 'add', ...args], environment)
+      assert.equal(refused.code, 2, args.join(' '))
+      assert.match(refused.output.error ?? '', /--options-from-session/)
+    }
+    const noSession = await run(
+      ['question', 'add', '--ticket', '34', '--text', 'a', '--options-from-session'],
+      environment
+    )
+    assert.equal(noSession.code, 1)
     // The endpoint's own validation answers a well-formed flag with bad content.
     assert.equal((await run(['question', 'add', '--text', 'a', '--options', '[]'], environment)).code, 1)
 

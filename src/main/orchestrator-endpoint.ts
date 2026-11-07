@@ -9,6 +9,7 @@ import {
   applyTicketUpdate,
   decisionAnswerFromText,
   openOrchestrationQuestions,
+  type OrchestrationQuestionInput,
   ORCHESTRATOR_COMMANDS,
   ORCHESTRATOR_TOKEN_ENV,
   ORCHESTRATOR_URL_ENV,
@@ -52,6 +53,7 @@ import {
   type TicketSession,
   type UnresolvedAttempt
 } from '../shared/orchestration'
+import { questionOptionsFromDecision } from '../shared/orchestration-question-answer'
 import type { OrchestratorUsageResponse } from '../shared/orchestrator-usage'
 import {
   decideOrchestrationPacing,
@@ -1207,6 +1209,29 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
   const questionsMoved = (before: OrchestrationRecord, after: OrchestrationRecord): boolean =>
     before.openQuestions !== after.openQuestions
 
+  /**
+   * `question add --options-from-session`: the options of the ticket session's head pending request.
+   * Refused, never guessed, when there is no live session or pending request or it is not one select question.
+   */
+  const optionsFromSession = (
+    record: OrchestrationRecord,
+    ticketId: string
+  ): Pick<OrchestrationQuestionInput, 'options' | 'multiSelect'> | Reply => {
+    const nodeId = record.tickets.find((ticket) => ticket.id === ticketId)?.session?.nodeId
+    if (!nodeId) return refused(409, `ticket ${ticketId} has no ticket session yet, so there is no question to copy`)
+    const live = options.ticketSessions?.state(nodeId)
+    if (!live || live.status === 'exited') return refused(409, `ticket ${ticketId}'s session is not running`)
+    const [request] = live.questions
+    if (!request) {
+      return refused(
+        409,
+        `ticket ${ticketId}'s session has no pending question; pin it without --options-from-session, or pass --options`
+      )
+    }
+    const copied = questionOptionsFromDecision(request)
+    return 'error' in copied ? refused(409, copied.error) : copied
+  }
+
   /** `question add`, `question resolve` and `question list` (#2): the human's pinned questions. */
   const question = async (
     grant: LiveGrant,
@@ -1236,7 +1261,13 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
         if (ticketId !== undefined && !current.tickets.some((ticket) => ticket.id === ticketId)) {
           return refuse(refused(400, `the plan has no ticket "${ticketId}"`))
         }
-        const added = addOrchestrationQuestion(current, adding.add, now())
+        let input: OrchestrationQuestionInput = adding.add
+        if (adding.add.optionsFromSession) {
+          const copied = optionsFromSession(current, ticketId!)
+          if ('status' in copied) return refuse(copied)
+          input = { ...adding.add, ...copied }
+        }
+        const added = addOrchestrationQuestion(current, input, now())
         if (added.error !== undefined) return refuse(refused(409, added.error))
         const reply = { status: 200, body: { ok: true as const, question: added.question } }
         return { value: added.record, result: { reply, record: added.record } }

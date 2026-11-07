@@ -1,5 +1,5 @@
 import type { AgentDecisionRequest, AgentDecisionResponseContent } from './agent'
-import type { OrchestrationQuestion } from './orchestration'
+import { parseQuestionOptions, type OrchestrationQuestion, type OrchestrationQuestionOption } from './orchestration'
 
 /**
  * A pinned question that carries options is shown through the same decision form a ticket session
@@ -56,4 +56,32 @@ export function pinnedQuestionNote(content?: AgentDecisionResponseContent): stri
   const other = typeof otherValue === 'string' ? otherValue.trim().slice(0, OTHER_ANSWER_LIMIT) : ''
   if (picked.length === 0) return other === '' ? 'Skipped without an answer.' : `Answer: ${other}`
   return other === '' ? `Answer: ${picked.join(', ')}` : `Answer: ${picked.join(', ')} (note: ${other})`
+}
+
+/**
+ * The inverse of `pinnedQuestionDecision`, for `question add --options-from-session`: the options a
+ * ticket session's pending request offers, when it is one select question. Anything else - several
+ * questions, a text, number or boolean question, no options - is refused with the reason, because
+ * Toucan will not guess which part of a larger form the pinned question stands for.
+ */
+export function questionOptionsFromDecision(
+  request: AgentDecisionRequest
+): { options: OrchestrationQuestionOption[]; multiSelect?: true } | { error: string } {
+  const [question] = request.questions
+  if (request.questions.length !== 1 || !question) {
+    return {
+      error: `the session's question has ${request.questions.length} questions; only a single select question can be copied`
+    }
+  }
+  if (question.input !== 'select' || question.options.length === 0) {
+    return { error: `the session's question is not a select question with options (it takes ${question.input} input)` }
+  }
+  const parsed = parseQuestionOptions(
+    question.options.map((option) => ({
+      label: option.label,
+      ...(option.description ? { description: option.description } : {})
+    }))
+  )
+  if (parsed.error !== undefined) return { error: `the session's options cannot be pinned: ${parsed.error}` }
+  return { options: parsed.options!, ...(question.multiSelect ? { multiSelect: true as const } : {}) }
 }

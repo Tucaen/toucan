@@ -86,6 +86,17 @@ test('options are validated, trimmed and stored; strings are labels; multi needs
     /1 to 12/
   )
   assert.match(parseQuestionAddInput({ markdown, multiSelect: true }).error ?? '', /--multi needs --options/)
+  assert.deepEqual(parseQuestionAddInput({ ticket: '3', markdown, optionsFromSession: true }), {
+    add: { ticketId: '3', markdown, optionsFromSession: true }
+  })
+  for (const args of [
+    { markdown, optionsFromSession: true },
+    { ticket: '3', markdown, optionsFromSession: true, options: ['A'] },
+    { ticket: '3', markdown, optionsFromSession: true, multiSelect: true },
+    { ticket: '3', markdown, optionsFromSession: false }
+  ]) {
+    assert.match(parseQuestionAddInput(args).error ?? '', /--options-from-session/, JSON.stringify(args))
+  }
   assert.match(
     parseQuestionAddInput({ markdown, options: ['A'], multiSelect: false }).error ?? '',
     /--multi takes no value/

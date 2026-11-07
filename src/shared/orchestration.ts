@@ -595,7 +595,8 @@ export interface OrchestrationQuestionInput {
   multiSelect?: true
 }
 
-function parseQuestionOptions(value: unknown): Outcome<'options', OrchestrationQuestionOption[]> {
+/** Validates and trims a list of options, however it arrived (`--options`, or a session's pending question). */
+export function parseQuestionOptions(value: unknown): Outcome<'options', OrchestrationQuestionOption[]> {
   const limits = ORCHESTRATION_QUESTION_OPTION_LIMITS
   if (!Array.isArray(value) || value.length === 0 || value.length > limits.count) {
     return refuse(`question add --options needs a JSON array of 1 to ${limits.count} options`)
@@ -627,11 +628,17 @@ function parseQuestionOptions(value: unknown): Outcome<'options', OrchestrationQ
  * Validates `question add`'s optional `--ticket <id>`, the markdown the CLI read from `--text` or
  * `--file`, and the optional clickable answers (`--options`, `--multi`).
  */
-export function parseQuestionAddInput(value: unknown): Outcome<'add', OrchestrationQuestionInput> {
+export function parseQuestionAddInput(
+  value: unknown
+): Outcome<'add', OrchestrationQuestionInput & { optionsFromSession?: true }> {
   const args = isRecord(value) ? value : {}
-  if (Object.keys(args).some((key) => !['ticket', 'markdown', 'options', 'multiSelect'].includes(key))) {
+  if (
+    Object.keys(args).some(
+      (key) => !['ticket', 'markdown', 'options', 'multiSelect', 'optionsFromSession'].includes(key)
+    )
+  ) {
     return refuse(
-      'question add takes only [--ticket <id>] --text <markdown> or --file <markdown file> [--options <json> | --options-file <file> [--multi]]'
+      'question add takes only [--ticket <id>] --text <markdown> or --file <markdown file> [--options <json> | --options-file <file> [--multi] | --options-from-session]'
     )
   }
   if (args.ticket !== undefined && !nonEmptyString(args.ticket))
@@ -643,6 +650,21 @@ export function parseQuestionAddInput(value: unknown): Outcome<'add', Orchestrat
     )
   }
   if (args.multiSelect !== undefined && args.multiSelect !== true) return refuse('question add --multi takes no value')
+  if (args.optionsFromSession !== undefined && args.optionsFromSession !== true) {
+    return refuse('question add --options-from-session takes no value')
+  }
+  if (args.optionsFromSession === true) {
+    if (args.options !== undefined || args.multiSelect !== undefined) {
+      return refuse(
+        'question add --options-from-session takes the options from the ticket session; it cannot be combined with --options, --options-file or --multi'
+      )
+    }
+    if (!nonEmptyString(args.ticket)) {
+      return refuse(
+        "question add --options-from-session needs --ticket <id>, the ticket whose session's question it copies"
+      )
+    }
+  }
   if (args.multiSelect === true && args.options === undefined) return refuse('question add --multi needs --options')
   const parsed = args.options === undefined ? undefined : parseQuestionOptions(args.options)
   if (parsed?.error !== undefined) return refuse(parsed.error)
@@ -650,6 +672,7 @@ export function parseQuestionAddInput(value: unknown): Outcome<'add', Orchestrat
     add: {
       ...(nonEmptyString(args.ticket) ? { ticketId: args.ticket.trim() } : {}),
       markdown: args.markdown,
+      ...(args.optionsFromSession === true ? { optionsFromSession: true as const } : {}),
       ...(parsed?.options ? { options: parsed.options } : {}),
       ...(parsed?.options && args.multiSelect === true ? { multiSelect: true as const } : {})
     }

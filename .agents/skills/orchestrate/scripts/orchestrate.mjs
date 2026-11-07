@@ -23,7 +23,7 @@ const USAGE = [
   '| report',
   '| outcome --ticket <id> [--full]',
   '| followup --ticket <id> --text <text>',
-  '| question add [--ticket <id>] (--text <markdown> | --file <markdown file>) [--options <json> | --options-file <json file>] [--multi]',
+  '| question add [--ticket <id>] (--text <markdown> | --file <markdown file>) [--options <json> | --options-file <json file> [--multi] | --options-from-session]',
   '| question resolve --id <Q<n>> [--note <text>]',
   '| question list [--all]'
 ].join(' ')
@@ -116,6 +116,13 @@ async function optionsInput(flags) {
   if (flags.options !== undefined && flags['options-file'] !== undefined) {
     usage('question add takes only one of --options and --options-file')
   }
+  if (flags['options-from-session']) {
+    if (flags.options !== undefined || flags['options-file'] !== undefined || flags.multi) {
+      usage('question add --options-from-session cannot be combined with --options, --options-file or --multi')
+    }
+    if (flags.ticket === undefined) usage('question add --options-from-session needs --ticket <id>')
+    return undefined
+  }
   if (flags.multi && flags.options === undefined && flags['options-file'] === undefined) {
     usage('question add --multi needs --options or --options-file')
   }
@@ -203,7 +210,11 @@ async function message(words) {
     return { command: 'outcome', args: flags }
   }
   if (first === 'question' && second === 'add') {
-    const { flags, positionals } = parseFlags(rest, ['ticket', 'text', 'file', 'options', 'options-file'], ['multi'])
+    const { flags, positionals } = parseFlags(
+      rest,
+      ['ticket', 'text', 'file', 'options', 'options-file'],
+      ['multi', 'options-from-session']
+    )
     if (positionals.length > 0) usage('question add takes no positional arguments')
     const options = await optionsInput(flags)
     return {
@@ -212,7 +223,8 @@ async function message(words) {
         ...(flags.ticket === undefined ? {} : { ticket: flags.ticket }),
         markdown: await markdownInput(flags),
         ...(options === undefined ? {} : { options }),
-        ...(flags.multi ? { multiSelect: true } : {})
+        ...(flags.multi ? { multiSelect: true } : {}),
+        ...(flags['options-from-session'] ? { optionsFromSession: true } : {})
       }
     }
   }
