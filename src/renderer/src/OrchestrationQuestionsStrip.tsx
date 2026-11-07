@@ -33,7 +33,7 @@ export default function OrchestrationQuestionsStrip({
   const [collapsed, setCollapsed] = useState(false)
   const [pending, setPending] = useState<string | undefined>(undefined)
   // Bumped when a resolve fails, so a decision panel that locked itself on submit starts afresh.
-  const [failures, setFailures] = useState(0)
+  const [formKey, setFormKey] = useState(0)
   const { provider, conversationId, nodeId } = request
   const identity = `${provider}:${conversationId}`
 
@@ -68,9 +68,10 @@ export default function OrchestrationQuestionsStrip({
         ...(note !== undefined ? { note } : {})
       })
       if (next) setState(next)
+      else setFormKey((count) => count + 1)
     } catch {
       // The durable record stays authoritative; the pushed state or a remount shows the truth.
-      setFailures((count) => count + 1)
+      setFormKey((count) => count + 1)
     } finally {
       setPending(undefined)
     }
@@ -108,7 +109,7 @@ export default function OrchestrationQuestionsStrip({
                 <MarkdownMessage text={question.markdown} />
                 {decision && (
                   <StructuredDecisionPanel
-                    key={failures}
+                    key={formKey}
                     decisionRequest={decision}
                     resolveElicitation={(_requestId, content) => void resolve(question.id, pinnedQuestionNote(content))}
                   />

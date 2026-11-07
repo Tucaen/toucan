@@ -43,5 +43,8 @@ test('the note names the picked options, the Other text, or a skip', () => {
   assert.equal(pinnedQuestionNote({ other: 'Something else' }), 'Answer: Something else')
   assert.equal(pinnedQuestionNote({ answer: [], other: '  ' }), 'Skipped without an answer.')
   assert.equal(pinnedQuestionNote(), 'Skipped without an answer.')
-  assert.ok(pinnedQuestionNote({ other: 'x'.repeat(10_000) }).length < 3600)
+  assert.ok(
+    pinnedQuestionNote({ answer: Array.from({ length: 12 }, () => 'y'.repeat(200)), other: 'x'.repeat(10_000) })
+      .length < 4000
+  )
 })

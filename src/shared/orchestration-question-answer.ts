@@ -12,8 +12,8 @@ import type { OrchestrationQuestion } from './orchestration'
 /** The id of the one form question, and of its "Other" field, in a pinned question's request. */
 export const PINNED_QUESTION_FORM = { question: 'answer', other: 'other' } as const
 
-/** The longest "Other" text kept in a note; a phone's resolve body is capped a little above it. */
-const OTHER_ANSWER_LIMIT = 3500
+/** The longest "Other" text kept in a note: with twelve 200-character labels it stays under a phone's 4000-character note cap. */
+const OTHER_ANSWER_LIMIT = 1500
 
 /** The form request for a pinned question, or `undefined` for a plain-text one. */
 export function pinnedQuestionDecision(

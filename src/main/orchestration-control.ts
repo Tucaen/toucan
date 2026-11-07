@@ -117,7 +117,7 @@ export function questionResolvedPrompt(question: OrchestrationQuestion): string 
   const note = question.resolution ? `Their note: ${question.resolution}` : 'They left no note.'
   // The human clicked an answer; nothing was sent to the ticket session, so relaying it is the orchestrator's step.
   const relay =
-    question.options && question.ticketId
+    question.options && question.ticketId && question.resolution?.startsWith('Answer:')
       ? ` The note is their answer; if ticket ${question.ticketId}'s session still waits on it, pass it on with \`followup\`.`
       : ''
   return toucanPrompt(

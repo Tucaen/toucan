@@ -612,7 +612,7 @@ function parseQuestionOptions(value: unknown): Outcome<'options', OrchestrationQ
     }
     if (
       option.description !== undefined &&
-      (!nonEmptyString(option.description) || option.description.length > limits.description)
+      (!nonEmptyString(option.description) || option.description.trim().length > limits.description)
     ) {
       return refuse(`an option's description is 1 to ${limits.description} characters`)
     }
