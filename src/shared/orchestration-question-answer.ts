@@ -83,5 +83,5 @@ export function questionOptionsFromDecision(
     }))
   )
   if (parsed.error !== undefined) return { error: `the session's options cannot be pinned: ${parsed.error}` }
-  return { options: parsed.options!, ...(question.multiSelect ? { multiSelect: true as const } : {}) }
+  return { options: parsed.options, ...(question.multiSelect ? { multiSelect: true as const } : {}) }
 }
