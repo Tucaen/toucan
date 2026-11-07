@@ -285,18 +285,22 @@ export async function continueSpawns(host: HostEndpoint, chatId: string): Promis
 }
 
 /**
- * The human marking a pinned question done (#2's resolve route). A stale press (already resolved)
+ * The human marking a pinned question done (#2's resolve route), with the answer they picked as `note`
+ * when it carried options. A stale press (already resolved)
  * is accepted by the host as a no-op, so a refusal is only ever a reason the reader can read.
  */
 export async function resolveQuestion(
   host: HostEndpoint,
   chatId: string,
-  questionId: string
+  questionId: string,
+  note?: string
 ): Promise<RemoteResult<true>> {
   const sent = await send(
     `/api/chats/${encodeURIComponent(chatId)}/questions/${encodeURIComponent(questionId)}/resolve`,
     host,
-    { method: 'POST' }
+    note === undefined
+      ? { method: 'POST' }
+      : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ note }) }
   )
   if (!sent.ok) return sent
   if (sent.value.ok) return { ok: true, value: true }

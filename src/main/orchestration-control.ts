@@ -115,9 +115,14 @@ export function continuePrompt(record: OrchestrationRecord): string {
 export function questionResolvedPrompt(question: OrchestrationQuestion): string {
   const about = question.ticketId ? ` It was ticket ${question.ticketId}'s question.` : ''
   const note = question.resolution ? `Their note: ${question.resolution}` : 'They left no note.'
+  // The human clicked an answer; nothing was sent to the ticket session, so relaying it is the orchestrator's step.
+  const relay =
+    question.options && question.ticketId
+      ? ` The note is their answer; if ticket ${question.ticketId}'s session still waits on it, pass it on with \`followup\`.`
+      : ''
   return toucanPrompt(
     `user resolved ${question.id}`,
-    `${note}${about} Reread \`question list\` and \`status\`, then continue the work that waited on it.`
+    `${note}${about}${relay} Reread \`question list\` and \`status\`, then continue the work that waited on it.`
   )
 }
 

@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import type { OrchestrationControlRequest, OrchestrationControlState } from '../../shared/ticket-session-spawn'
+import { pinnedQuestionDecision, pinnedQuestionNote } from '../../shared/orchestration-question-answer'
 import MarkdownMessage from './MarkdownMessage'
+import StructuredDecisionPanel from './StructuredDecisionPanel'
 
 /**
  * The composer text `Antworten` leaves behind: the existing draft is kept, the reference starts a new line.
@@ -30,6 +32,8 @@ export default function OrchestrationQuestionsStrip({
   const [state, setState] = useState<OrchestrationControlState | null>(null)
   const [collapsed, setCollapsed] = useState(false)
   const [pending, setPending] = useState<string | undefined>(undefined)
+  // Bumped when a resolve fails, so a decision panel that locked itself on submit starts afresh.
+  const [failures, setFailures] = useState(0)
   const { provider, conversationId, nodeId } = request
   const identity = `${provider}:${conversationId}`
 
@@ -53,13 +57,20 @@ export default function OrchestrationQuestionsStrip({
   const questions = state?.openQuestions ?? []
   if (questions.length === 0) return null
 
-  const resolve = async (questionId: string): Promise<void> => {
+  const resolve = async (questionId: string, note?: string): Promise<void> => {
     setPending(questionId)
     try {
-      const next = await window.orchestratorApi.resolveQuestion({ provider, conversationId, nodeId, questionId })
+      const next = await window.orchestratorApi.resolveQuestion({
+        provider,
+        conversationId,
+        nodeId,
+        questionId,
+        ...(note !== undefined ? { note } : {})
+      })
       if (next) setState(next)
     } catch {
       // The durable record stays authoritative; the pushed state or a remount shows the truth.
+      setFailures((count) => count + 1)
     } finally {
       setPending(undefined)
     }
@@ -78,23 +89,33 @@ export default function OrchestrationQuestionsStrip({
       </button>
       {!collapsed && (
         <ul className="orchestration-questions-list">
-          {questions.map((question) => (
-            <li key={question.id} className="orchestration-question" data-question-id={question.id}>
-              <div className="orchestration-question-head">
-                <strong>{question.id}</strong>
-                {question.ticketId && <span>#{question.ticketId}</span>}
-                <span className="orchestration-question-actions">
-                  <button type="button" onClick={() => onDraftChange(draftAnsweringQuestion(draft, question.id))}>
-                    Antworten
-                  </button>
-                  <button type="button" disabled={pending === question.id} onClick={() => void resolve(question.id)}>
-                    Erledigt
-                  </button>
-                </span>
-              </div>
-              <MarkdownMessage text={question.markdown} />
-            </li>
-          ))}
+          {questions.map((question) => {
+            const decision = pinnedQuestionDecision(question)
+            return (
+              <li key={question.id} className="orchestration-question" data-question-id={question.id}>
+                <div className="orchestration-question-head">
+                  <strong>{question.id}</strong>
+                  {question.ticketId && <span>#{question.ticketId}</span>}
+                  <span className="orchestration-question-actions">
+                    <button type="button" onClick={() => onDraftChange(draftAnsweringQuestion(draft, question.id))}>
+                      Antworten
+                    </button>
+                    <button type="button" disabled={pending === question.id} onClick={() => void resolve(question.id)}>
+                      Erledigt
+                    </button>
+                  </span>
+                </div>
+                <MarkdownMessage text={question.markdown} />
+                {decision && (
+                  <StructuredDecisionPanel
+                    key={failures}
+                    decisionRequest={decision}
+                    resolveElicitation={(_requestId, content) => void resolve(question.id, pinnedQuestionNote(content))}
+                  />
+                )}
+              </li>
+            )
+          })}
         </ul>
       )}
     </section>

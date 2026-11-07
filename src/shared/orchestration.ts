@@ -279,10 +279,23 @@ export interface OrchestrationQuestion {
   ticketId?: string
   /** Exactly as the orchestrator sent it, `file:///` links included. */
   markdown: string
+  /**
+   * The fixed answers the human may click, as a session's own decision panel offers them. Absent
+   * is a plain-text question; an "Other" free-text answer is always offered beside these.
+   */
+  options?: OrchestrationQuestionOption[]
+  /** Several options may be picked; only meaningful with `options`. */
+  multiSelect?: true
   createdAt: string
   resolvedAt?: string
   /** The human's or orchestrator's note, or why Toucan resolved it. */
   resolution?: string
+}
+
+/** One clickable answer of a pinned question: the label is what the human sees and what the note carries. */
+export interface OrchestrationQuestionOption {
+  label: string
+  description?: string
 }
 
 export interface OrchestrationIdentity {
@@ -571,11 +584,55 @@ export function openOrchestrationQuestions(
   return (record.openQuestions ?? []).filter((question) => question.resolvedAt === undefined)
 }
 
-/** Validates `question add`'s optional `--ticket <id>` and the markdown the CLI read from `--text` or `--file`. */
-export function parseQuestionAddInput(value: unknown): Outcome<'add', { ticketId?: string; markdown: string }> {
+/** The most clickable answers a pinned question may carry, and the longest label and description. */
+export const ORCHESTRATION_QUESTION_OPTION_LIMITS = { count: 12, label: 200, description: 500 } as const
+
+/** What `question add` stores for a question: its ticket, markdown and, optionally, clickable answers. */
+export interface OrchestrationQuestionInput {
+  ticketId?: string
+  markdown: string
+  options?: OrchestrationQuestionOption[]
+  multiSelect?: true
+}
+
+function parseQuestionOptions(value: unknown): Outcome<'options', OrchestrationQuestionOption[]> {
+  const limits = ORCHESTRATION_QUESTION_OPTION_LIMITS
+  if (!Array.isArray(value) || value.length === 0 || value.length > limits.count) {
+    return refuse(`question add --options needs a JSON array of 1 to ${limits.count} options`)
+  }
+  const options: OrchestrationQuestionOption[] = []
+  for (const entry of value as unknown[]) {
+    // A bare string is the label: `["Yes", "No"]` is the common case.
+    const option = typeof entry === 'string' ? { label: entry } : entry
+    if (!isRecord(option) || Object.keys(option).some((key) => key !== 'label' && key !== 'description')) {
+      return refuse('question add --options entries are a label or { "label", "description"? }')
+    }
+    if (!nonEmptyString(option.label) || option.label.trim().length > limits.label) {
+      return refuse(`every option needs a label of 1 to ${limits.label} characters`)
+    }
+    if (
+      option.description !== undefined &&
+      (!nonEmptyString(option.description) || option.description.length > limits.description)
+    ) {
+      return refuse(`an option's description is 1 to ${limits.description} characters`)
+    }
+    const label = option.label.trim()
+    if (options.some((candidate) => candidate.label === label)) return refuse(`the option "${label}" is given twice`)
+    options.push({ label, ...(nonEmptyString(option.description) ? { description: option.description.trim() } : {}) })
+  }
+  return { options }
+}
+
+/**
+ * Validates `question add`'s optional `--ticket <id>`, the markdown the CLI read from `--text` or
+ * `--file`, and the optional clickable answers (`--options`, `--multi`).
+ */
+export function parseQuestionAddInput(value: unknown): Outcome<'add', OrchestrationQuestionInput> {
   const args = isRecord(value) ? value : {}
-  if (Object.keys(args).some((key) => key !== 'ticket' && key !== 'markdown')) {
-    return refuse('question add takes only [--ticket <id>] and --text <markdown> or --file <markdown file>')
+  if (Object.keys(args).some((key) => !['ticket', 'markdown', 'options', 'multiSelect'].includes(key))) {
+    return refuse(
+      'question add takes only [--ticket <id>] --text <markdown> or --file <markdown file> [--options <json> | --options-file <file> [--multi]]'
+    )
   }
   if (args.ticket !== undefined && !nonEmptyString(args.ticket))
     return refuse('question add --ticket needs a ticket id')
@@ -585,8 +642,17 @@ export function parseQuestionAddInput(value: unknown): Outcome<'add', { ticketId
       `the question is longer than ${ORCHESTRATION_QUESTION_LIMIT} characters; save the long part in the scratch folder and link it`
     )
   }
+  if (args.multiSelect !== undefined && args.multiSelect !== true) return refuse('question add --multi takes no value')
+  if (args.multiSelect === true && args.options === undefined) return refuse('question add --multi needs --options')
+  const parsed = args.options === undefined ? undefined : parseQuestionOptions(args.options)
+  if (parsed?.error !== undefined) return refuse(parsed.error)
   return {
-    add: { ...(nonEmptyString(args.ticket) ? { ticketId: args.ticket.trim() } : {}), markdown: args.markdown }
+    add: {
+      ...(nonEmptyString(args.ticket) ? { ticketId: args.ticket.trim() } : {}),
+      markdown: args.markdown,
+      ...(parsed?.options ? { options: parsed.options } : {}),
+      ...(parsed?.options && args.multiSelect === true ? { multiSelect: true as const } : {})
+    }
   }
 }
 
@@ -624,7 +690,7 @@ function nextQuestionId(questions: readonly OrchestrationQuestion[]): string {
 /** Pins a question. A ticket it names must be in the plan and not yet settled. */
 export function addOrchestrationQuestion(
   record: OrchestrationRecord,
-  input: { ticketId?: string; markdown: string },
+  input: OrchestrationQuestionInput,
   now: string
 ): Outcome<'record', OrchestrationRecord> & { question?: OrchestrationQuestion } {
   if (input.ticketId !== undefined) {
@@ -637,6 +703,7 @@ export function addOrchestrationQuestion(
     id: nextQuestionId(questions),
     ...(input.ticketId !== undefined ? { ticketId: input.ticketId } : {}),
     markdown: input.markdown,
+    ...(input.options ? { options: input.options, ...(input.multiSelect ? { multiSelect: true as const } : {}) } : {}),
     createdAt: now
   }
   return { record: { ...record, openQuestions: [...questions, question], updatedAt: now }, question }
@@ -766,6 +833,14 @@ function isOrchestrationPacingDeferral(value: unknown): value is OrchestrationPa
   )
 }
 
+function isQuestionOptionList(value: unknown): value is OrchestrationQuestionOption[] {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every((option) => isRecord(option) && nonEmptyString(option.label) && optionalString(option.description))
+  )
+}
+
 function isOrchestrationQuestion(value: unknown): value is OrchestrationQuestion {
   return (
     isRecord(value) &&
@@ -773,6 +848,8 @@ function isOrchestrationQuestion(value: unknown): value is OrchestrationQuestion
     QUESTION_ID.test(value.id) &&
     (value.ticketId === undefined || nonEmptyString(value.ticketId)) &&
     nonEmptyString(value.markdown) &&
+    (value.options === undefined || isQuestionOptionList(value.options)) &&
+    (value.multiSelect === undefined || (value.multiSelect === true && value.options !== undefined)) &&
     typeof value.createdAt === 'string' &&
     optionalString(value.resolvedAt) &&
     optionalString(value.resolution)

@@ -125,7 +125,10 @@ export interface OrchestrationControlState {
 }
 
 /** An open pinned question as the orchestrator node and the phone render it. */
-export type OrchestrationOpenQuestion = Pick<OrchestrationQuestion, 'id' | 'ticketId' | 'markdown' | 'createdAt'>
+export type OrchestrationOpenQuestion = Pick<
+  OrchestrationQuestion,
+  'id' | 'ticketId' | 'markdown' | 'options' | 'multiSelect' | 'createdAt'
+>
 
 /**
  * What the orchestrator node's controls and the phone read from a record: main's state, never the
@@ -153,12 +156,15 @@ export function orchestrationControlState(record: OrchestrationRecord): Orchestr
       ? { spawnCheckpoint: { used: record.spawnCount ?? 0, budget: spawnBudget(record) } }
       : {}),
     startable: startableTickets(record).map((ticket) => ({ id: ticket.id, title: ticket.title })),
-    openQuestions: openOrchestrationQuestions(record).map(({ id, ticketId, markdown, createdAt }) => ({
-      id,
-      ...(ticketId !== undefined ? { ticketId } : {}),
-      markdown,
-      createdAt
-    }))
+    openQuestions: openOrchestrationQuestions(record).map(
+      ({ id, ticketId, markdown, options, multiSelect, createdAt }) => ({
+        id,
+        ...(ticketId !== undefined ? { ticketId } : {}),
+        markdown,
+        ...(options ? { options, ...(multiSelect ? { multiSelect } : {}) } : {}),
+        createdAt
+      })
+    )
   }
 }
 

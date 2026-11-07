@@ -398,6 +398,14 @@ test('the human resolving a pinned question records it, wakes the orchestrator o
   assert.equal(prompts[0].text, questionResolvedPrompt(q1!))
   assert.match(prompts[0].text, /^\[Toucan: user resolved Q1\]\n/)
   assert.match(prompts[0].text, /ticket 1/)
+  // A question without options says nothing about relaying; one with options tells the orchestrator to pass the pick on.
+  assert.doesNotMatch(prompts[0].text, /followup/)
+  const withOptions = { ...q1!, options: [{ label: 'Left' }], resolution: 'Answer: Left' }
+  assert.match(
+    questionResolvedPrompt(withOptions),
+    /Their note: Answer: Left[\s\S]*ticket 1's session still waits[\s\S]*`followup`/
+  )
+  assert.doesNotMatch(questionResolvedPrompt({ ...withOptions, ticketId: undefined }), /followup/)
   assert.match(prompts[0].text, /the left one/)
 
   // Without a note the wake says so; a stale second press or an unknown id wakes nobody.

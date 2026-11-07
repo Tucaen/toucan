@@ -23,7 +23,7 @@ const USAGE = [
   '| report',
   '| outcome --ticket <id> [--full]',
   '| followup --ticket <id> --text <text>',
-  '| question add [--ticket <id>] (--text <markdown> | --file <markdown file>)',
+  '| question add [--ticket <id>] (--text <markdown> | --file <markdown file>) [--options <json> | --options-file <json file>] [--multi]',
   '| question resolve --id <Q<n>> [--note <text>]',
   '| question list [--all]'
 ].join(' ')
@@ -111,6 +111,30 @@ async function markdownInput(flags) {
   }
 }
 
+/** The clickable answers of `question add` from at most one of --options and --options-file, as parsed JSON. */
+async function optionsInput(flags) {
+  if (flags.options !== undefined && flags['options-file'] !== undefined) {
+    usage('question add takes only one of --options and --options-file')
+  }
+  if (flags.multi && flags.options === undefined && flags['options-file'] === undefined) {
+    usage('question add --multi needs --options or --options-file')
+  }
+  if (flags.options === undefined && flags['options-file'] === undefined) return undefined
+  let text = flags.options
+  if (flags['options-file'] !== undefined) {
+    try {
+      text = await readFile(flags['options-file'], 'utf8')
+    } catch (error) {
+      usage(`Could not read ${flags['options-file']}: ${error.message}`)
+    }
+  }
+  try {
+    return JSON.parse(text)
+  } catch (error) {
+    return usage(`The options are not valid JSON: ${error.message}`)
+  }
+}
+
 async function message(words) {
   const [first, second, ...rest] = words
   if (first === 'plan' && second === 'show') {
@@ -179,11 +203,17 @@ async function message(words) {
     return { command: 'outcome', args: flags }
   }
   if (first === 'question' && second === 'add') {
-    const { flags, positionals } = parseFlags(rest, ['ticket', 'text', 'file'])
+    const { flags, positionals } = parseFlags(rest, ['ticket', 'text', 'file', 'options', 'options-file'], ['multi'])
     if (positionals.length > 0) usage('question add takes no positional arguments')
+    const options = await optionsInput(flags)
     return {
       command: 'question add',
-      args: { ...(flags.ticket === undefined ? {} : { ticket: flags.ticket }), markdown: await markdownInput(flags) }
+      args: {
+        ...(flags.ticket === undefined ? {} : { ticket: flags.ticket }),
+        markdown: await markdownInput(flags),
+        ...(options === undefined ? {} : { options }),
+        ...(flags.multi ? { multiSelect: true } : {})
+      }
     }
   }
   if (first === 'question' && second === 'resolve') {

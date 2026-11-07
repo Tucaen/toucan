@@ -39,6 +39,14 @@ const QUESTIONS = [
   { id: 'Q1', ticketId: '3', markdown: 'Which **branch** should ship?', createdAt: 1 },
   { id: 'Q2', ticketId: '4', markdown: 'See [shot](file:///D:/x/shot.png) first', createdAt: 2 }
 ]
+const CHOICE = {
+  id: 'Q3',
+  ticketId: '5',
+  markdown: 'Which branch?',
+  options: [{ label: 'Left', description: 'the old one' }, { label: 'Right' }],
+  createdAt: 3
+}
+const WITH_CHOICE: RemoteChatSummary = { ...ORCHESTRATOR, openQuestions: [QUESTIONS[0], CHOICE] }
 const WITH_QUESTIONS: RemoteChatSummary = { ...ORCHESTRATOR, openQuestions: QUESTIONS }
 
 function open(summary: RemoteChatSummary): void {
@@ -104,6 +112,37 @@ describe('open questions on the phone', () => {
     open(WITH_QUESTIONS)
     fireEvent.click(screen.getAllByRole('button', { name: 'Antworten' })[0])
     expect(screen.getByLabelText('Message')).toHaveValue('Zu Q1: ')
+  })
+
+  test('a question with options shows a decision card; plain ones do not', () => {
+    open(WITH_CHOICE)
+    expect(screen.getByRole('button', { name: /Left/ })).toBeInTheDocument()
+    expect(screen.getByText('the old one')).toBeInTheDocument()
+    expect(screen.getByLabelText('Other answer')).toBeInTheDocument()
+    expect(document.querySelectorAll('.pending-request[data-kind="decision"]')).toHaveLength(1)
+  })
+
+  test('submitting a picked option resolves the question with the answer as its note', async () => {
+    open(WITH_CHOICE)
+    fireEvent.click(screen.getByRole('button', { name: /Right/ }))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Submit answers' }))
+    })
+    await waitFor(() =>
+      expect(posted(fetchStub)).toEqual(['http://work-pc:1789/api/chats/orch-1/questions/Q3/resolve'])
+    )
+    const [, init] = fetchStub.mock.calls.find(([, call]) => call?.method === 'POST')!
+    expect(JSON.parse(init.body as string)).toEqual({ note: 'Answer: Right' })
+    expect(init.headers['content-type']).toBe('application/json')
+  })
+
+  test('Erledigt on a plain question still posts no body', async () => {
+    open(WITH_QUESTIONS)
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole('button', { name: 'Erledigt' })[0])
+    })
+    await waitFor(() => expect(posted(fetchStub)).toHaveLength(1))
+    expect(fetchStub.mock.calls.find(([, call]) => call?.method === 'POST')![1].body).toBeUndefined()
   })
 
   test('the banner goes when a later workspace read lists no questions', async () => {

@@ -59,6 +59,56 @@ test('ids are never reused, not even after the newest question is resolved', () 
   assert.equal(third.question?.id, 'Q3')
 })
 
+test('options are validated, trimmed and stored; strings are labels; multi needs options', () => {
+  assert.deepEqual(parseQuestionAddInput({ markdown, options: ['Yes', { label: ' No ', description: ' later ' }] }), {
+    add: { markdown, options: [{ label: 'Yes' }, { label: 'No', description: 'later' }] }
+  })
+  assert.deepEqual(parseQuestionAddInput({ markdown, options: ['A', 'B'], multiSelect: true }), {
+    add: { markdown, options: [{ label: 'A' }, { label: 'B' }], multiSelect: true }
+  })
+  for (const options of [
+    [],
+    'Yes',
+    ['A', 'A'],
+    [''],
+    [{ label: 'A', extra: 1 }],
+    [{ label: 'A', description: '' }],
+    [1]
+  ]) {
+    assert.match(
+      parseQuestionAddInput({ markdown, options }).error ?? '',
+      /options|option|label|description/,
+      JSON.stringify(options)
+    )
+  }
+  assert.match(
+    parseQuestionAddInput({ markdown, options: Array.from({ length: 13 }, (_, i) => `o${i}`) }).error ?? '',
+    /1 to 12/
+  )
+  assert.match(parseQuestionAddInput({ markdown, multiSelect: true }).error ?? '', /--multi needs --options/)
+  assert.match(
+    parseQuestionAddInput({ markdown, options: ['A'], multiSelect: false }).error ?? '',
+    /--multi takes no value/
+  )
+
+  const asked = addOrchestrationQuestion(
+    planned(),
+    { ticketId: '3', markdown, options: [{ label: 'A' }], multiSelect: true },
+    't'
+  )
+  assert.deepEqual(asked.question?.options, [{ label: 'A' }])
+  assert.equal(asked.question?.multiSelect, true)
+  assert.equal(isOrchestrationRecord(asked.record), true)
+  // A plain-text question stays exactly as it was: no options key at all.
+  assert.equal('options' in addOrchestrationQuestion(planned(), { markdown }, 't').question!, false)
+  assert.equal(isOrchestrationRecord({ ...asked.record, openQuestions: [{ ...asked.question, options: [] }] }), false)
+  const state = orchestrationControlState(asked.record!)
+  assert.deepEqual(state.openQuestions?.[0]?.options, [{ label: 'A' }])
+  assert.equal(state.openQuestions?.[0]?.multiSelect, true)
+  const plain = orchestrationControlState(addOrchestrationQuestion(planned(), { markdown }, 't').record!)
+  assert.equal('options' in plain.openQuestions![0]!, false)
+})
+
 test('a question for an unknown or settled ticket is refused', () => {
   assert.match(addOrchestrationQuestion(planned(), { ticketId: '9', markdown }, 't').error ?? '', /no ticket "9"/)
   const merged = applyTicketUpdate(planned(), '3', { mergeStatus: 'merged' }, 't').record!

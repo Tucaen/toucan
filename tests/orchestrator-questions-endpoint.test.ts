@@ -86,6 +86,31 @@ async function harness(options: Partial<OrchestratorEndpointOptions> = {}, direc
   }
 }
 
+test('add keeps clickable options and --multi, refuses bad ones, and list and status carry them', async () => {
+  const h = await harness()
+  try {
+    await call(h.grant, 'plan set', plan)
+    const added = await call(h.grant, 'question add', {
+      ticket: '3',
+      markdown,
+      options: ['Left', { label: 'Right', description: 'newer' }],
+      multiSelect: true
+    })
+    assert.equal(added.status, 200)
+    assert.deepEqual(added.body.question?.options, [{ label: 'Left' }, { label: 'Right', description: 'newer' }])
+    assert.equal(added.body.question?.multiSelect, true)
+    assert.equal((await call(h.grant, 'question add', { markdown: 'Plain?' })).body.question?.options, undefined)
+    assert.deepEqual(
+      (await call(h.grant, 'question list')).body.questions?.map((question) => question.options?.length),
+      [2, undefined]
+    )
+    assert.equal((await call(h.grant, 'question add', { markdown, options: [] })).status, 400)
+    assert.equal((await call(h.grant, 'question add', { markdown, multiSelect: true })).status, 400)
+  } finally {
+    await h.close()
+  }
+})
+
 test('add stores the markdown verbatim and returns its id; list and status show it; resolve closes it', async () => {
   const h = await harness()
   try {

@@ -1,11 +1,13 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type {
   AgentDecisionQuestion,
+  AgentDecisionRequest,
   AgentDecisionResponseContent,
   ProviderUsageEntry,
   ProviderUsageReport
 } from '../../src/shared/agent'
 import { describeSessionUsage, describeUsageFreshness, type SessionUsageReadout } from '../../src/shared/session-usage'
+import { pinnedQuestionDecision, pinnedQuestionNote } from '../../src/shared/orchestration-question-answer'
 import type { RemoteChatSummary } from '../../src/shared/remote-access'
 import type { OrchestrationOpenQuestion } from '../../src/shared/ticket-session-spawn'
 import { isToucanOriginText } from '../../src/shared/toucan-origin'
@@ -379,10 +381,10 @@ function OpenQuestions({
 }): JSX.Element {
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
-  const resolve = async (id: string): Promise<void> => {
+  const resolve = async (id: string, note?: string): Promise<void> => {
     setPendingId(id)
     setProblem(null)
-    const result = await resolveQuestion(host, chatId, id)
+    const result = await resolveQuestion(host, chatId, id, note)
     setPendingId(null)
     if (result.ok) return
     if (result.kind === 'unauthorized') onUnauthorized()
@@ -391,23 +393,35 @@ function OpenQuestions({
   return (
     <section className="open-questions" aria-label="Offene Fragen">
       <h2>Offene Fragen ({questions.length})</h2>
-      {questions.map((question) => (
-        <article key={question.id} className="open-question">
-          <header>
-            <strong>{question.id}</strong>
-            {question.ticketId !== undefined && <span> · #{question.ticketId}</span>}
-          </header>
-          <ChatMarkdown host={host} text={question.markdown} />
-          <div className="open-question-actions">
-            <button type="button" onClick={() => onAnswer(question.id)}>
-              Antworten
-            </button>
-            <button type="button" disabled={pendingId === question.id} onClick={() => void resolve(question.id)}>
-              Erledigt
-            </button>
-          </div>
-        </article>
-      ))}
+      {questions.map((question) => {
+        const decision = pinnedQuestionDecision(question)
+        return (
+          <article key={question.id} className="open-question">
+            <header>
+              <strong>{question.id}</strong>
+              {question.ticketId !== undefined && <span> · #{question.ticketId}</span>}
+            </header>
+            <ChatMarkdown host={host} text={question.markdown} />
+            {decision && (
+              <section className="pending-request" data-kind="decision" aria-label={`Answer ${question.id}`}>
+                <DecisionCard
+                  request={decision}
+                  busy={pendingId === question.id}
+                  onAnswer={(content) => void resolve(question.id, pinnedQuestionNote(content))}
+                />
+              </section>
+            )}
+            <div className="open-question-actions">
+              <button type="button" onClick={() => onAnswer(question.id)}>
+                Antworten
+              </button>
+              <button type="button" disabled={pendingId === question.id} onClick={() => void resolve(question.id)}>
+                Erledigt
+              </button>
+            </div>
+          </article>
+        )
+      })}
       {problem && <p role="alert">{problem}</p>}
     </section>
   )
@@ -575,7 +589,7 @@ function PendingRequestCard({
       {pending.kind === 'approval' ? (
         <ApprovalCard pending={pending} busy={busy} onApprove={connection.onApprove} />
       ) : (
-        <DecisionCard pending={pending} busy={busy} onAnswer={connection.onAnswerDecision} />
+        <DecisionCard request={pending.request} busy={busy} onAnswer={connection.onAnswerDecision} />
       )}
     </section>
   )
@@ -624,15 +638,14 @@ function ApprovalCard({
  * what the elicitation is: one form, not a question per turn.
  */
 function DecisionCard({
-  pending,
+  request,
   busy,
   onAnswer
 }: {
-  pending: Extract<PendingRequest, { kind: 'decision' }>
+  request: AgentDecisionRequest
   busy: boolean
   onAnswer(content?: AgentDecisionResponseContent): void
 }): JSX.Element {
-  const request = pending.request
   const [active, setActive] = useState(0)
   const [answers, setAnswers] = useState<AgentDecisionResponseContent>(initialDecisionAnswers)
   const question = request.questions[Math.min(active, request.questions.length - 1)]

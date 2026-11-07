@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert'
 import { execFile } from 'node:child_process'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { test } from 'vitest'
 import type { DiscardTarget } from '../src/main/orchestration-cleanup'
 import { createOrchestrationStore } from '../src/main/orchestration-store'
@@ -507,6 +507,40 @@ test('question add, resolve and list reach the endpoint; add reads the markdown 
     )
     const all = await run(['question', 'list', '--all'], environment)
     assert.equal((all.output.questions as unknown[]).length, 2)
+
+    const choices = await run(
+      [
+        'question',
+        'add',
+        '--ticket',
+        '34',
+        '--text',
+        'Left or right?',
+        '--options',
+        '["Left",{"label":"Right"}]',
+        '--multi'
+      ],
+      environment
+    )
+    assert.equal(choices.code, 0)
+    const picked = choices.output.question as { options: unknown[]; multiSelect: boolean }
+    assert.deepEqual([picked.options, picked.multiSelect], [[{ label: 'Left' }, { label: 'Right' }], true])
+    const optionsFile = join(dirname(file), 'options.json')
+    writeFileSync(optionsFile, JSON.stringify([{ label: 'Yes', description: 'go' }]))
+    const fromFile = await run(['question', 'add', '--text', 'Go?', '--options-file', optionsFile], environment)
+    assert.deepEqual((fromFile.output.question as { options: unknown[] }).options, [
+      { label: 'Yes', description: 'go' }
+    ])
+    for (const args of [
+      ['--text', 'a', '--options', '["A"]', '--options-file', optionsFile],
+      ['--text', 'a', '--options', 'not json'],
+      ['--text', 'a', '--options-file', join(tmpdir(), 'missing-options.json')],
+      ['--text', 'a', '--multi']
+    ]) {
+      assert.equal((await run(['question', 'add', ...args], environment)).code, 2, args.join(' '))
+    }
+    // The endpoint's own validation answers a well-formed flag with bad content.
+    assert.equal((await run(['question', 'add', '--text', 'a', '--options', '[]'], environment)).code, 1)
 
     assert.equal((await run(['question', 'add', '--text', 'a', '--file', file], environment)).code, 2)
     assert.equal((await run(['question', 'add'], environment)).code, 2)
