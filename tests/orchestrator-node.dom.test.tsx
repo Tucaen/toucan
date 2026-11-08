@@ -1,5 +1,5 @@
 import { ReactFlowProvider } from '@xyflow/react'
-import { fireEvent, render, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import type { WorkspaceState } from '../src/shared/workspace'
 import ChatNode from '../src/renderer/src/ChatNode'
@@ -336,7 +336,14 @@ test('an orchestrator pins its open questions and Antworten prefills the draft',
   } as unknown as typeof window.orchestratorApi
   const { container } = renderChat('orchestrator', 'conv-1')
   await waitFor(() => expect(container.querySelector('.chat-scroll .orchestration-questions')).not.toBeNull())
-  expect(container.querySelector('.orchestration-questions')).toHaveTextContent('Offene Fragen (1)')
-  fireEvent.click(container.querySelector('.orchestration-question-actions button') as HTMLElement)
+  const badge = container.querySelector('.orchestration-questions') as HTMLElement
+  expect(badge).toHaveTextContent('Offene Frage')
+  expect(badge).toHaveTextContent('Q3: Which color?')
+  // The node carries only the badge; the question and its actions live in the reader outside it.
+  expect(container.querySelector('.orchestration-question')).toBeNull()
+  fireEvent.click(badge.querySelector('.orchestration-questions-badge') as HTMLElement)
+  const reader = (await screen.findByRole('dialog', { name: 'Offene Fragen (1)' })) as HTMLElement
+  expect(container.contains(reader)).toBe(false)
+  fireEvent.click(reader.querySelector('.orchestration-question-actions button') as HTMLElement)
   expect(callbacks.onDraftChange).toHaveBeenCalledWith('chat-1', 'Zu Q3: ')
 })

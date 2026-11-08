@@ -1,9 +1,8 @@
-import { useEffect, useState } from 'react'
-import { ChevronDown, ChevronRight } from 'lucide-react'
-import type { OrchestrationControlRequest, OrchestrationControlState } from '../../shared/ticket-session-spawn'
-import { pinnedQuestionDecision, pinnedQuestionNote } from '../../shared/orchestration-question-answer'
-import MarkdownMessage from './MarkdownMessage'
-import StructuredDecisionPanel from './StructuredDecisionPanel'
+import { useEffect, useRef, useState } from 'react'
+import { ChevronRight } from 'lucide-react'
+import type { OrchestrationControlRequest } from '../../shared/ticket-session-spawn'
+import OrchestrationQuestionsReader from './OrchestrationQuestionsReader'
+import { useOrchestrationQuestions } from './useOrchestrationQuestions'
 
 /**
  * The composer text `Antworten` leaves behind: the existing draft is kept, the reference starts a new line.
@@ -16,9 +15,24 @@ export function draftAnsweringQuestion(draft: string, questionId: string): strin
 }
 
 /**
- * The orchestrator node's pinned open questions (#3): each is stored once in the record and shown
- * here verbatim, outside the scrolling transcript, so the human never scrolls back to the first
- * ask to find its links. Hidden when nothing is open.
+ * A question flattened to one plain-text row: links and emphasis lose their markup, so the
+ * badge shows words instead of syntax.
+ * @internal exported for tests
+ */
+export function questionPreview(id: string, markdown: string): string {
+  const text = markdown
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/^[#>\s]+/gm, '')
+    .replace(/[`*]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return text ? `${id}: ${text}` : id
+}
+
+/**
+ * The orchestrator node's pinned open questions (#3): each is stored once in the record. The node
+ * itself only carries a one-row badge - the transcript is scaled by the canvas zoom and clipped by
+ * the node, so the questions are read and answered in a reader outside it. Hidden when nothing is open.
  */
 export default function OrchestrationQuestionsStrip({
   request,
@@ -29,95 +43,50 @@ export default function OrchestrationQuestionsStrip({
   draft: string
   onDraftChange(draft: string): void
 }): JSX.Element | null {
-  const [state, setState] = useState<OrchestrationControlState | null>(null)
-  const [collapsed, setCollapsed] = useState(false)
-  const [pending, setPending] = useState<string | undefined>(undefined)
-  // Bumped when a resolve fails, so a decision panel that locked itself on submit starts afresh.
-  const [formKey, setFormKey] = useState(0)
-  const { provider, conversationId, nodeId } = request
-  const identity = `${provider}:${conversationId}`
+  const questions = useOrchestrationQuestions(request)
+  const [open, setOpen] = useState(false)
+  const [accent, setAccent] = useState<string | undefined>(undefined)
+  const band = useRef<HTMLElement>(null)
+  const count = questions.questions.length
 
+  // A new question after the last one was answered must not pop the reader open by itself.
   useEffect(() => {
-    let current = true
-    void window.orchestratorApi
-      .orchestrationState({ provider, conversationId, nodeId })
-      .then((next) => {
-        if (current) setState(next)
-      })
-      .catch(() => undefined)
-    const unsubscribe = window.orchestratorApi.onOrchestrationState((next) => {
-      if (current && `${next.provider}:${next.conversationId}` === identity) setState(next)
-    })
-    return () => {
-      current = false
-      unsubscribe()
-    }
-  }, [conversationId, identity, nodeId, provider])
+    if (count === 0) setOpen(false)
+  }, [count])
 
-  const questions = state?.openQuestions ?? []
-  if (questions.length === 0) return null
-
-  const resolve = async (questionId: string, note?: string): Promise<void> => {
-    setPending(questionId)
-    try {
-      const next = await window.orchestratorApi.resolveQuestion({
-        provider,
-        conversationId,
-        nodeId,
-        questionId,
-        ...(note !== undefined ? { note } : {})
-      })
-      if (next) setState(next)
-      else setFormKey((count) => count + 1)
-    } catch {
-      // The durable record stays authoritative; the pushed state or a remount shows the truth.
-      setFormKey((count) => count + 1)
-    } finally {
-      setPending(undefined)
-    }
-  }
+  if (count === 0) return null
+  const [first] = questions.questions
 
   return (
-    <section className="orchestration-questions nodrag" aria-label="Offene Fragen">
+    <section ref={band} className="orchestration-questions nodrag" aria-label="Offene Fragen">
       <button
         type="button"
-        className="orchestration-questions-toggle"
-        aria-expanded={!collapsed}
-        onClick={() => setCollapsed((value) => !value)}
+        className="orchestration-questions-badge"
+        aria-haspopup="dialog"
+        onClick={() => {
+          const value = band.current ? getComputedStyle(band.current).getPropertyValue('--node-accent').trim() : ''
+          setAccent(value || undefined)
+          setOpen(true)
+        }}
       >
-        {collapsed ? <ChevronRight aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
-        Offene Fragen ({questions.length})
+        <span className="orchestration-questions-count">{count}</span>
+        <span className="orchestration-questions-label">{count === 1 ? 'Offene Frage' : 'Offene Fragen'}</span>
+        <span className="orchestration-questions-preview">{questionPreview(first.id, first.markdown)}</span>
+        <span className="orchestration-questions-open">
+          Öffnen
+          <ChevronRight aria-hidden="true" />
+        </span>
       </button>
-      {!collapsed && (
-        <ul className="orchestration-questions-list">
-          {questions.map((question) => {
-            const decision = pinnedQuestionDecision(question)
-            return (
-              <li key={question.id} className="orchestration-question" data-question-id={question.id}>
-                <div className="orchestration-question-head">
-                  <strong>{question.id}</strong>
-                  {question.ticketId && <span>#{question.ticketId}</span>}
-                  <span className="orchestration-question-actions">
-                    <button type="button" onClick={() => onDraftChange(draftAnsweringQuestion(draft, question.id))}>
-                      Antworten
-                    </button>
-                    <button type="button" disabled={pending === question.id} onClick={() => void resolve(question.id)}>
-                      Erledigt
-                    </button>
-                  </span>
-                </div>
-                <MarkdownMessage text={question.markdown} />
-                {decision && (
-                  <StructuredDecisionPanel
-                    key={formKey}
-                    decisionRequest={decision}
-                    resolveElicitation={(_requestId, content) => void resolve(question.id, pinnedQuestionNote(content))}
-                  />
-                )}
-              </li>
-            )
-          })}
-        </ul>
+      {open && (
+        <OrchestrationQuestionsReader
+          {...questions}
+          accent={accent}
+          onAnswer={(questionId) => {
+            onDraftChange(draftAnsweringQuestion(draft, questionId))
+            setOpen(false)
+          }}
+          onClose={() => setOpen(false)}
+        />
       )}
     </section>
   )

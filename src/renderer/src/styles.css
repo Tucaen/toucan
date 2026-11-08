@@ -108,7 +108,8 @@ button {
 .context-menu,
 .node-picker-menu,
 .composer-settings-panel,
-.composer-schedule-popover {
+.composer-schedule-popover,
+.orchestration-reader-overlay {
   -webkit-app-region: no-drag;
 }
 
@@ -8035,72 +8036,177 @@ button.worktree-agent-unread:focus-visible {
   font-size: 12px;
 }
 
-/* Open questions pinned for the human at the top of an orchestrator's transcript (#3). */
+/* Open questions pinned for the human at the top of an orchestrator's transcript (#3): one row in
+   the node, because the node is scaled by the canvas zoom. The questions themselves are read and
+   answered in the reader below, which sits outside the canvas at normal pixel sizes. */
 .orchestration-questions {
   position: sticky;
   top: 0;
   z-index: var(--z-control);
   margin-bottom: 12px;
-  max-height: 45%;
-  overflow: auto;
-  border: 1px solid color-mix(in srgb, var(--node-accent) 42%, #323a45);
+  border: 1px solid color-mix(in srgb, var(--node-accent) 60%, #323a45);
   border-radius: 10px;
-  background: color-mix(in srgb, var(--node-accent) 7%, var(--neutral-900));
+  background: color-mix(in srgb, var(--node-accent) 12%, var(--neutral-900));
 }
 
-.orchestration-questions-toggle {
+.orchestration-questions-badge {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   width: 100%;
+  min-width: 0;
   padding: 7px 10px;
   border: 0;
   color: #dbe1e9;
   background: transparent;
   font-size: 12px;
-  font-weight: 600;
   cursor: pointer;
 }
 
-.orchestration-questions-toggle svg {
-  width: 14px;
-  height: 14px;
+.orchestration-questions-count {
+  flex: none;
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: 9px;
+  color: #11151b;
+  background: var(--node-accent);
+  font-weight: 700;
+  text-align: center;
 }
 
-.orchestration-questions-list {
+.orchestration-questions-label {
+  flex: none;
+  font-weight: 600;
+}
+
+.orchestration-questions-preview {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--neutral-300);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.orchestration-questions-open {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  margin-right: 4px;
+  padding: 2px 6px 2px 8px;
+  border: 1px solid var(--node-accent);
+  border-radius: 6px;
+  color: var(--node-accent);
+  font-weight: 600;
+}
+
+.orchestration-questions-open svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* The reader: a portaled, screen-sized dialog, so nothing here is zoomed or clipped by the canvas. */
+.orchestration-reader-overlay {
+  position: fixed;
+}
+
+.orchestration-reader-backdrop {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+.orchestration-reader {
+  display: flex;
+  flex-direction: column;
+  width: min(640px, calc(100vw - 48px));
+  max-height: min(80vh, 900px);
+  border: 1px solid color-mix(in srgb, var(--node-accent, var(--claude)) 60%, #323a45);
+  border-radius: 12px;
+  background: #141820;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+  color: var(--neutral-100);
+}
+
+.orchestration-reader-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid #292f3a;
+}
+
+.orchestration-reader-header h2 {
   margin: 0;
-  padding: 0 10px 8px;
+  color: #f0f2f5;
+  font-size: 15px;
+}
+
+.orchestration-reader-hint {
+  margin-left: auto;
+  color: var(--neutral-400);
+  font-size: 12px;
+}
+
+.orchestration-reader-close {
+  display: inline-flex;
+  padding: 4px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--neutral-300);
+  background: transparent;
+  cursor: pointer;
+}
+
+.orchestration-reader-close svg {
+  width: 16px;
+  height: 16px;
+}
+
+.orchestration-reader-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding: 0 14px 6px;
+  overflow: auto;
   list-style: none;
 }
 
 .orchestration-question {
-  padding: 8px 0;
+  padding: 12px 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.orchestration-question + .orchestration-question {
   border-top: 1px solid #2a323d;
-  font-size: 12px;
 }
 
 .orchestration-question-head {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 .orchestration-question-actions {
   display: inline-flex;
-  gap: 4px;
+  gap: 6px;
   margin-left: auto;
-  /* The node's Focus toggle floats over the scroll area's top-right corner. */
-  margin-right: 4px;
 }
 
 .orchestration-question-actions button {
-  padding: 3px 8px;
+  padding: 4px 10px;
   border: 1px solid #3a4554;
   border-radius: 6px;
   color: #dbe1e9;
   background: #242b36;
-  font-size: 11px;
+  font-size: 12px;
   cursor: pointer;
 }
 
