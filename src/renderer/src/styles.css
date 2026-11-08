@@ -8194,6 +8194,19 @@ button.worktree-agent-unread:focus-visible {
   margin-bottom: 6px;
 }
 
+/* The panel is sized for a node's composer slot; here the reader's list is the one scroller. */
+.orchestration-reader .structured-decision {
+  max-height: none;
+  margin-top: 8px;
+  border: 1px solid #2a323d;
+  border-radius: 8px;
+  overflow: visible;
+}
+
+.orchestration-reader .structured-decision-question {
+  overflow-y: visible;
+}
+
 .orchestration-question-actions {
   display: inline-flex;
   gap: 6px;
