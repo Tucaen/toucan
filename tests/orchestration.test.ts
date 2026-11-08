@@ -622,7 +622,7 @@ test('a session spawned before runs were kept joins the history, without a launc
 })
 
 test('a run keeps where its attempt ran; records without those fields still load, and a discard is recorded', () => {
-  const session = { nodeId: 'n-1', conversationId: 'c-1', worktreePath: 'D:\wt-1', branch: 'ticket/34' }
+  const session = { nodeId: 'n-1', conversationId: 'c-1', worktreePath: 'D:\\wt-1', branch: 'ticket/34' }
   const recorded = recordTicketSession(recordFrom(twoTickets), '34', session, NOW)
   const ticket = recorded.tickets.find((candidate) => candidate.id === '34')!
   assert.deepEqual(attemptLocation(ticket, 1), { attempt: 1, ...session, discarded: false })

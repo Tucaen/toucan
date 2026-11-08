@@ -86,7 +86,7 @@ async function world(orphans: UnrecordedAttempt[] = [], states: Record<string, {
       }
     }
   })
-  const grant = (await endpoint.grant('orchestrator-node', { provider: 'claude', projectPath: 'D:\project' }))!
+  const grant = (await endpoint.grant('orchestrator-node', { provider: 'claude', projectPath: 'D:\\project' }))!
   grant.setConversation('orchestrator-conversation')
   assert.equal((await call(grant, 'plan set', plan)).status, 200)
   const read = async (): Promise<OrchestrationRecord> =>

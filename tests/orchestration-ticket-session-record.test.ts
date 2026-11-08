@@ -22,11 +22,11 @@ describe('a ticket session recorded while it starts', () => {
   it('is a starting run, then settles with its conversation id', () => {
     const recorded = recordTicketSession(base(), '1', early, 'now', undefined, 'starting')
     expect(recorded.tickets[0].session).toEqual(early)
-    expect(recorded.tickets[0].runs).toEqual([{ state: 'starting', provider: 'claude' }])
+    expect(recorded.tickets[0].runs).toEqual([{ state: 'starting', provider: 'claude', ...early }])
 
     const settled = updateTicketSession(recorded, '1', { ...early, conversationId: 'c-1' }, 'later', 'started')
     expect(settled.tickets[0].session).toEqual({ ...early, conversationId: 'c-1' })
-    expect(settled.tickets[0].runs).toEqual([{ conversationId: 'c-1', provider: 'claude' }])
+    expect(settled.tickets[0].runs).toEqual([{ conversationId: 'c-1', provider: 'claude', ...early }])
   })
 
   it('leaves a ticket that moved on to another node alone', () => {
