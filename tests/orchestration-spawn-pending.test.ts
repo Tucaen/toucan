@@ -259,7 +259,8 @@ test('a pending session that then fails is unlinked, and the orchestrator is tol
     assert.equal((await spawning).body.pending, true)
 
     world.renderer.answer({ ok: false, message: 'The ticket session could not be started on the desktop.' })
-    await waitFor(async () => (await world.ticketOf()).session === undefined)
+    // The record is written before the abandon hook runs, so wait for both.
+    await waitFor(async () => (await world.ticketOf()).session === undefined && world.stopped.length > 0)
 
     const after = await world.ticketOf()
     assert.equal(after.session, before.session)
