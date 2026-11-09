@@ -14,9 +14,14 @@ export interface ReaderViewport {
   height: number
 }
 
-/** The gap kept between the window and the viewport edge. */
+/**
+ * The gap kept between the window and the viewport edge.
+ * @internal exported for tests
+ */
 export const READER_MARGIN = 8
+/** @internal exported for tests */
 export const READER_MIN = { width: 340, height: 280 } as const
+/** @internal exported for tests */
 export const READER_MAX = { width: 960, height: 1100 } as const
 
 const DEFAULT_SIZE = { width: 520, height: 560 } as const
@@ -84,7 +89,7 @@ export function recallReaderRect(nodeId: string): ReaderRect | undefined {
   return remembered.get(nodeId)
 }
 
-/** @internal for tests */
+/** @internal exported for tests */
 export function forgetReaderRects(): void {
   remembered.clear()
 }
