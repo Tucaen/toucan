@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { ciDecision, ciRefusal, isVersionBump, tagRefusal } from './release-gate.mjs'
+import { ciDecision, ciRefusal, ciRunListArgs, isVersionBump, tagRefusal } from './release-gate.mjs'
 
 // The release workflow's first job: refuses to build or publish a tag unless CI passed on the code
 // it would ship. `npm run release` already checks CI before it tags, but a tag pushed by hand skips
@@ -13,6 +13,7 @@ import { ciDecision, ciRefusal, isVersionBump, tagRefusal } from './release-gate
 const RUNNING_LIMIT_MS = 45 * 60_000
 const MISSING_LIMIT_MS = 3 * 60_000
 const POLL_MS = 30_000
+const GH_ATTEMPTS = 3
 
 function git(...args) {
   return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }).trimEnd()
@@ -40,14 +41,21 @@ if (tagProblem) fail(tagProblem)
 
 const repository = manifest.repository.url.replace(/\.git$/, '')
 
-function ciRuns(sha) {
-  return JSON.parse(
-    execFileSync(
-      'gh',
-      ['run', 'list', '--repo', repository, '--workflow', 'ci.yml', '--commit', sha, '--json', 'status,conclusion,url'],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }
-    )
-  )
+// A transient API error must not end a gate that may be waiting most of an hour.
+async function ciRuns(sha) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return JSON.parse(
+        execFileSync('gh', ciRunListArgs(repository, sha), {
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'inherit']
+        })
+      )
+    } catch (error) {
+      if (attempt === GH_ATTEMPTS) fail(`gh run list failed ${attempt} times (${error.message.split('\n')[0]}).`)
+      await sleep(POLL_MS)
+    }
+  }
 }
 
 // The bump commit `npm run release` pushes changes nothing CI looks at, and its parent is the
@@ -61,9 +69,9 @@ const parents = git('rev-list', '--parents', '-n', '1', 'HEAD').split(' ').slice
 if (parents.length === 1) {
   const [parent] = parents
   const changed = git('diff', '--name-only', parent, head).split('\n').filter(Boolean)
-  const files = Object.fromEntries(changed.map((path) => [path, [jsonAt(parent, path), jsonAt(head, path)]]))
-  if (isVersionBump(git('log', '-1', '--format=%s', head), files)) {
-    const runs = ciRuns(parent)
+  const jsonByPath = Object.fromEntries(changed.map((path) => [path, [jsonAt(parent, path), jsonAt(head, path)]]))
+  if (isVersionBump(git('log', '-1', '--format=%s', head), jsonByPath)) {
+    const runs = await ciRuns(parent)
     const refusal = ciRefusal(parent.slice(0, 7), runs)
     if (!refusal) {
       console.log(`${short} only bumps the version, and CI passed on its parent (${runs[0].url}).`)
@@ -76,7 +84,7 @@ if (parents.length === 1) {
 console.log(`Checking CI on the tagged commit ${short}.`)
 const started = Date.now()
 for (;;) {
-  const runs = ciRuns(head)
+  const runs = await ciRuns(head)
   const decision = ciDecision(short, runs, Date.now() - started, {
     runningMs: RUNNING_LIMIT_MS,
     missingMs: MISSING_LIMIT_MS

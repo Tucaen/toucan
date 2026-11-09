@@ -1,11 +1,11 @@
 import { existsSync, globSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { packageProblems } from './package-check.mjs'
+import { packageProblems } from './packaged-build.mjs'
 
 // Checks the build `npm run package:ci` just left in dist/ against what the release publishes
-// (scripts/package-check.mjs has the rules). CI runs it after packaging; it needs nothing but dist/.
+// (scripts/packaged-build.mjs has the rules). CI runs it after packaging; it needs nothing but dist/.
 //
-//   node scripts/verify-package.mjs
+//   node scripts/check-package.mjs
 
 const manifest = JSON.parse(readFileSync('package.json', 'utf8'))
 const dist = manifest.build.directories.output
@@ -32,7 +32,7 @@ const problems = packageProblems({
 })
 
 if (problems.length > 0) {
-  for (const problem of problems) console.error(`verify-package: ${problem}`)
+  for (const problem of problems) console.error(`check-package: ${problem}`)
   process.exit(1)
 }
-console.log(`verify-package: ${dist}/ holds everything release ${manifest.version} publishes.`)
+console.log(`check-package: ${dist}/ holds everything release ${manifest.version} publishes.`)

@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { createInterface } from 'node:readline/promises'
 import { stdin, stdout } from 'node:process'
-import { changeSubjects, ciRefusal, previousReleaseTag } from './release-gate.mjs'
+import { changeSubjects, ciRefusal, ciRunListArgs, previousReleaseTag } from './release-gate.mjs'
 import { nextVersion, releaseNotes } from './release-notes.mjs'
 
 // Cuts a release: bumps the version, records what changed since the previous release in the
@@ -58,18 +58,7 @@ if (behind > 0) fail(`main is ${behind} commit(s) behind origin/main; pull first
 
 // The workflow gates on the same `npm run check` as CI, so a red main can only fail again there.
 const head = git('rev-parse', 'HEAD')
-const ciRuns = gh(
-  'run',
-  'list',
-  '--repo',
-  SOURCE_URL,
-  '--workflow',
-  'ci.yml',
-  '--commit',
-  head,
-  '--json',
-  'status,conclusion,url'
-)
+const ciRuns = gh(...ciRunListArgs(SOURCE_URL, head))
 const refusal = ciRefusal(head.slice(0, 7), ciRuns)
 
 // A tag whose release failed has no notes anywhere public, so its changes count toward this one.

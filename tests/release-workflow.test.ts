@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { test } from 'vitest'
 
 interface PackageManifest {
+  version?: string
   scripts?: Record<string, string>
   repository?: { url?: string }
   dependencies?: Record<string, string>
@@ -200,7 +201,7 @@ test('CI builds and packages exactly as the release does, on every push to main 
   assert.match(ciWorkflow, /on:\s*\n\s*push:\s*\n\s*branches: \[main\]\s*\n\s*pull_request:/)
   const build = ciWorkflow.indexOf('run: npm run build')
   const pack = ciWorkflow.indexOf('run: npm run package:ci')
-  const verify = ciWorkflow.indexOf('run: node scripts/verify-package.mjs')
+  const verify = ciWorkflow.indexOf('run: node scripts/check-package.mjs')
   assert.ok(build !== -1 && build < pack && pack < verify, 'CI must build, package, then verify the package')
   assert.equal(
     manifest.scripts?.['package:ci'],
@@ -208,6 +209,12 @@ test('CI builds and packages exactly as the release does, on every push to main 
     'package:ci must package what publish:win publishes, and only that may differ'
   )
   assert.doesNotMatch(ciWorkflow, /publish:win|--publish always|contents: write/, 'CI must never publish')
+})
+
+test("CI never cancels a run on main, because both release gates need that run's verdict", () => {
+  // A newer push cancelling the tagged commit's run would leave the release gate nothing but a
+  // refusal - the stranded tag this whole gate exists to prevent.
+  assert.match(ciWorkflow, /cancel-in-progress: \$\{\{ github\.ref != 'refs\/heads\/main' \}\}/)
 })
 
 test('the release builds nothing until CI has passed on the code the tag ships', () => {
@@ -221,7 +228,7 @@ test('the release builds nothing until CI has passed on the code the tag ships',
 
 test('package-lock.json carries the version package.json is released under', () => {
   // `npm version` writes all three; a hand edit that misses one ships a lockfile naming another release.
-  const version = (manifest as { version?: string }).version
+  const version = manifest.version
   const lock = JSON.parse(readFileSync(join(repositoryRoot, 'package-lock.json'), 'utf8')) as {
     version?: string
     packages?: Record<string, { version?: string }>

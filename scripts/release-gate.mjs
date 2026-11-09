@@ -1,9 +1,30 @@
-// What `npm run release` checks before it tags. The release workflow runs the same `npm run check`
+// What has to hold before a release: `npm run release` checks it before it tags (scripts/release.mjs),
+// and the release workflow checks it again before it builds (scripts/release-ci-gate.mjs), because a
+// tag pushed by hand never runs that script. The release workflow runs the same `npm run check`
 // as CI, so tagging a commit whose CI is red only reruns that failure and leaves a tag with no
 // release behind it - which is how v0.26.0, v0.26.4 and v0.26.8 failed. v0.26.3 was tagged while
 // CI was still running (the bump's push then cancelled it), and a commit pushed in a batch has no
 // run of its own, so only a completed, successful run counts. Pure, so the rules are testable
-// without git or GitHub; scripts/release.mjs feeds them.
+// without git or GitHub.
+
+/** A release's bump commit has the bare version as its subject. */
+const BUMP_SUBJECT = /^\d+\.\d+\.\d+$/
+
+/** `gh` arguments listing `sha`'s CI runs, newest first, in the shape `ciRefusal` reads. */
+export function ciRunListArgs(repository, sha) {
+  return [
+    'run',
+    'list',
+    '--repo',
+    repository,
+    '--workflow',
+    'ci.yml',
+    '--commit',
+    sha,
+    '--json',
+    'status,conclusion,url'
+  ]
+}
 
 /**
  * Why `sha` must not be released, or null when its CI run succeeded. `runs` is `gh run list
@@ -14,6 +35,9 @@ export function ciRefusal(sha, runs) {
   const latest = runs[0]
   if (!latest) return `no CI run found for ${sha}; push it and wait for CI before releasing.`
   if (latest.status !== 'completed') return `CI for ${sha} is still running (${latest.url}); wait for it to pass.`
+  if (latest.conclusion === 'cancelled') {
+    return `CI for ${sha} was cancelled (${latest.url}); re-run it and release once it has passed.`
+  }
   if (latest.conclusion !== 'success') {
     return `CI for ${sha} ended in ${latest.conclusion} (${latest.url}); the release would fail the same way.`
   }
@@ -22,7 +46,7 @@ export function ciRefusal(sha, runs) {
 
 /** Commit subjects that are changes: not blank, and not the bare-version bump commit of a release. */
 export function changeSubjects(subjects) {
-  return subjects.filter((subject) => subject.length > 0 && !/^\d+\.\d+\.\d+$/.test(subject))
+  return subjects.filter((subject) => subject.length > 0 && !BUMP_SUBJECT.test(subject))
 }
 
 /**
@@ -35,9 +59,7 @@ export function previousReleaseTag(mergedTags, publishedTags) {
   return mergedTags.find((tag) => published.has(tag)) ?? mergedTags[0] ?? null
 }
 
-// What the release workflow checks before it builds anything (scripts/release-ci-gate.mjs feeds
-// these). `npm run release` checks CI on HEAD, but a tag pushed by hand never runs it, so the
-// workflow repeats the check on the tagged commit itself.
+// The release workflow's own rules, on top of ciRefusal.
 
 const VERSION_FILES = new Set(['package.json', 'package-lock.json'])
 
@@ -53,16 +75,16 @@ function withoutVersion(json) {
  * Whether a commit is the bump `npm run release` makes: its subject is the bare version and it
  * changes nothing but the version fields `npm version` writes. CI on such a commit adds nothing
  * to CI on its parent - the tree `npm run release` already required to be green - so the
- * workflow gates on the parent instead of waiting for a run on the bump. `files` maps every path
- * the commit touches to its parsed JSON before and after (anything not a version file is enough
- * to say no).
+ * workflow gates on the parent instead of waiting for a run on the bump. `jsonByPath` maps every
+ * path the commit touches to its parsed JSON before and after (anything not a version file is
+ * enough to say no).
  */
-export function isVersionBump(subject, files) {
-  if (!/^\d+\.\d+\.\d+$/.test(subject)) return false
-  const paths = Object.keys(files)
+export function isVersionBump(subject, jsonByPath) {
+  if (!BUMP_SUBJECT.test(subject)) return false
+  const paths = Object.keys(jsonByPath)
   if (paths.length === 0 || !paths.every((path) => VERSION_FILES.has(path))) return false
   return paths.every((path) => {
-    const [before, after] = files[path]
+    const [before, after] = jsonByPath[path]
     return JSON.stringify(withoutVersion(before)) === JSON.stringify(withoutVersion(after))
   })
 }

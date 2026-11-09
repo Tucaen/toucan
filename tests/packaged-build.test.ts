@@ -27,7 +27,7 @@ interface PackageCheckModule {
 
 // A file URL, as in release-gate.test.ts: the script is plain `.mjs` outside the test tree.
 const checkModule = import(
-  /* @vite-ignore */ pathToFileURL(join(process.cwd(), 'scripts/package-check.mjs')).href
+  /* @vite-ignore */ pathToFileURL(join(process.cwd(), 'scripts/packaged-build.mjs')).href
 ) as Promise<PackageCheckModule>
 
 const build: BuildConfig = {
@@ -102,6 +102,11 @@ test('an updater config pointing anywhere but build.publish is a problem', async
   const facts = healthy()
   facts.appUpdateYml = 'owner: Tucaen\nrepo: toucan-releases\nprovider: github\n'
   assert.match(packageProblems(facts).join('\n'), /app-update\.yml.*repo/)
+})
+
+test('a package without its updater config or app archive is a problem', async () => {
+  const { packageProblems } = await checkModule
+  const facts = healthy()
   facts.appUpdateYml = null
   facts.hasAsar = false
   const problems = packageProblems(facts).join('\n')

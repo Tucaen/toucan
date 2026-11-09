@@ -13,6 +13,7 @@ interface ReleaseGateModule {
   changeSubjects(subjects: string[]): string[]
   ciRefusal(sha: string, runs: CiRun[]): string | null
   previousReleaseTag(mergedTags: string[], publishedTags: string[]): string | null
+  ciRunListArgs(repository: string, sha: string): string[]
   isVersionBump(subject: string, files: Record<string, [unknown, unknown]>): boolean
   tagRefusal(tag: string, version: string): string | null
   ciDecision(
@@ -41,6 +42,8 @@ test('a commit whose CI failed, is still running or never ran is refused, naming
   assert.match(ciRefusal('abc1234', [run('completed', 'failure')]) ?? '', /failure.*https:\/\/ci\/run/)
   assert.match(ciRefusal('abc1234', [run('in_progress', '')]) ?? '', /still running.*https:\/\/ci\/run/)
   assert.match(ciRefusal('abc1234', []) ?? '', /no CI run/)
+  // A cancelled run says nothing about the code; the way out is a re-run, not a fix.
+  assert.match(ciRefusal('abc1234', [run('completed', 'cancelled')]) ?? '', /cancelled.*re-run/)
 })
 
 test('a re-run that succeeded wins over the failed attempt it replaced', async () => {
@@ -140,4 +143,20 @@ test('the release workflow waits for a CI run that is still going, then decides'
   assert.match(stuck.wait ? '' : (stuck.refusal ?? ''), /still running/)
   const red = ciDecision('abc1234', [run('completed', 'failure')], 0, limits)
   assert.match(red.wait ? '' : (red.refusal ?? ''), /failure/)
+})
+
+test('both gates list CI runs of the ci.yml workflow for exactly the commit they check', async () => {
+  const { ciRunListArgs } = await gateModule
+  assert.deepEqual(ciRunListArgs('https://github.com/o/r', 'abc'), [
+    'run',
+    'list',
+    '--repo',
+    'https://github.com/o/r',
+    '--workflow',
+    'ci.yml',
+    '--commit',
+    'abc',
+    '--json',
+    'status,conclusion,url'
+  ])
 })

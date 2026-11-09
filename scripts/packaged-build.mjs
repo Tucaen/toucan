@@ -1,5 +1,5 @@
 // What a packaged build must hold for the release to publish a working update. CI packages on
-// every push and pull request (`npm run package:ci`), and scripts/verify-package.mjs reads dist/
+// every push and pull request (`npm run package:ci`), and scripts/check-package.mjs reads dist/
 // and feeds these rules, so a change that drops an installer, breaks the update feed or leaves an
 // asarUnpack pattern matching nothing goes red on the change rather than in a shipped release.
 // Pure, so the rules are testable without packaging.
