@@ -18,6 +18,7 @@ interface PackageManifest {
 const repositoryRoot = process.cwd()
 const manifest = JSON.parse(readFileSync(join(repositoryRoot, 'package.json'), 'utf8')) as PackageManifest
 const workflow = readFileSync(join(repositoryRoot, '.github/workflows/release.yml'), 'utf8')
+const ciWorkflow = readFileSync(join(repositoryRoot, '.github/workflows/ci.yml'), 'utf8')
 
 const stepIndex = (needle: string): number => {
   const index = workflow.indexOf(needle)
@@ -191,4 +192,40 @@ test('annotates the tag verbatim, so git does not strip the Markdown headings as
   } finally {
     rmSync(repository, { recursive: true, force: true })
   }
+})
+
+test('CI builds and packages exactly as the release does, on every push to main and pull request', () => {
+  // The release's Build and packaging steps ran nowhere else, so a change that broke them was only
+  // found once a tag had been pushed. CI packages the same targets and stops short of uploading.
+  assert.match(ciWorkflow, /on:\s*\n\s*push:\s*\n\s*branches: \[main\]\s*\n\s*pull_request:/)
+  const build = ciWorkflow.indexOf('run: npm run build')
+  const pack = ciWorkflow.indexOf('run: npm run package:ci')
+  const verify = ciWorkflow.indexOf('run: node scripts/verify-package.mjs')
+  assert.ok(build !== -1 && build < pack && pack < verify, 'CI must build, package, then verify the package')
+  assert.equal(
+    manifest.scripts?.['package:ci'],
+    manifest.scripts?.['publish:win']?.replace('--publish always', '--publish never'),
+    'package:ci must package what publish:win publishes, and only that may differ'
+  )
+  assert.doesNotMatch(ciWorkflow, /publish:win|--publish always|contents: write/, 'CI must never publish')
+})
+
+test('the release builds nothing until CI has passed on the code the tag ships', () => {
+  // `npm run release` checks CI before tagging, but a tag pushed by hand skips that script.
+  assert.match(workflow, /node scripts\/release-ci-gate\.mjs "\$TAG"/)
+  assert.match(workflow, /release:\s*\n\s*needs: ci-gate/)
+  assert.match(workflow, /actions: read/, 'the gate reads CI runs through the Actions API')
+  assert.match(workflow, /fetch-depth: 2/, "a bump commit is gated on its parent's CI, so the parent must be fetched")
+  assert.ok(stepIndex('release-ci-gate.mjs') < stepIndex('npm run publish:win'))
+})
+
+test('package-lock.json carries the version package.json is released under', () => {
+  // `npm version` writes all three; a hand edit that misses one ships a lockfile naming another release.
+  const version = (manifest as { version?: string }).version
+  const lock = JSON.parse(readFileSync(join(repositoryRoot, 'package-lock.json'), 'utf8')) as {
+    version?: string
+    packages?: Record<string, { version?: string }>
+  }
+  assert.equal(lock.version, version)
+  assert.equal(lock.packages?.['']?.version, version)
 })

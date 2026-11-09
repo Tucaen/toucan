@@ -13,7 +13,34 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  ci-gate:
+    # Builds nothing until CI has passed on the code this tag ships. `npm run release` checks the
+    # same before it tags, but a tag pushed by hand never runs that script, and every failed
+    # release so far was tagged on a red or unfinished main. A CI run still going is waited for.
+    # Linux, because it only reads git and the Actions API and waiting there costs nothing.
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The parent too: the bump commit `npm run release` tags is gated on its parent's CI.
+          fetch-depth: 2
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Refuse unless CI passed on this commit
+        run: node scripts/release-ci-gate.mjs "$TAG"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+
   release:
+    needs: ci-gate
     runs-on: windows-latest
     permissions:
       # Releases land in this repository, so the workflow's own token is enough to publish them.
