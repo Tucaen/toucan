@@ -1,8 +1,8 @@
 // What has to hold before a release: `npm run release` checks it before it tags (scripts/release.mjs),
 // and the release workflow checks it again before it builds (scripts/release-ci-gate.mjs), because a
-// tag pushed by hand never runs that script. The release workflow runs the same `npm run check`
-// as CI, so tagging a commit whose CI is red only reruns that failure and leaves a tag with no
-// release behind it - which is how v0.26.0, v0.26.4 and v0.26.8 failed. v0.26.3 was tagged while
+// tag pushed by hand never runs that script. The release workflow used to re-run the same
+// `npm run check` as CI, so tagging a commit whose CI was red only reran that failure and left a
+// tag with no release behind it - which is how v0.26.0, v0.26.4 and v0.26.8 failed. v0.26.3 was tagged while
 // CI was still running (the bump's push then cancelled it), and a commit pushed in a batch has no
 // run of its own, so only a completed, successful run counts. Pure, so the rules are testable
 // without git or GitHub.

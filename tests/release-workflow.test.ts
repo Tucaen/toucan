@@ -84,8 +84,9 @@ test('releases are cut by pushing a version tag', () => {
   assert.match(workflow, /on:\s*\n\s*push:\s*\n\s*tags:\s*\n\s*- 'v\*'/)
 })
 
-test('runs the verification gate before anything is published', () => {
-  assert.ok(stepIndex('npm run check') < stepIndex('npm run publish:win'), 'a failing check must publish nothing')
+test('leaves verification to CI, which the gate has already required to pass', () => {
+  // Re-running the suite on the tag only added a chance of a flaky failure after CI went green.
+  assert.doesNotMatch(workflow, /npm run check/)
 })
 
 test('publishes with the workflow token, granted contents write', () => {

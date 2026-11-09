@@ -8,7 +8,7 @@ import { nextVersion, releaseNotes } from './release-notes.mjs'
 // Cuts a release: bumps the version, records what changed since the previous release in the
 // tag's annotation, and pushes the tag that runs .github/workflows/release.yml. The workflow
 // turns the annotation into the GitHub release notes, so this script is the one place the
-// public change list is written. It never builds anything locally - the workflow verifies and
+// public change list is written. It never builds anything locally - the workflow gates on CI and
 // packages - and it changes nothing before the change list has been shown and confirmed.
 //
 //   npm run release -- patch|minor|major|<x.y.z> [--yes] [--dry-run]
@@ -56,7 +56,7 @@ git('fetch', '--quiet', '--tags', 'origin')
 const behind = Number(git('rev-list', '--count', 'HEAD..origin/main'))
 if (behind > 0) fail(`main is ${behind} commit(s) behind origin/main; pull first.`)
 
-// The workflow gates on the same `npm run check` as CI, so a red main can only fail again there.
+// The workflow refuses a tag whose CI has not passed, so a red main would only strand the tag.
 const head = git('rev-parse', 'HEAD')
 const ciRuns = gh(...ciRunListArgs(SOURCE_URL, head))
 const refusal = ciRefusal(head.slice(0, 7), ciRuns)

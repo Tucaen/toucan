@@ -55,9 +55,8 @@ jobs:
 
       - run: npm ci
 
-      - name: Verify
-        run: npm run check
-
+      # No `npm run check` here: ci-gate has already required a green CI run on this exact tree,
+      # and re-running the suite could only add a flaky failure after the fact (v0.26.6).
       - name: Build
         run: npm run build
 
