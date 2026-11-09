@@ -356,7 +356,7 @@ test('the title bar drags the window, the close button does not, and it stays in
   expect(after.top + after.height).toBe(window.innerHeight - 8)
 })
 
-test('the bottom-right corner resizes within the minimum and maximum', async () => {
+test('the bottom-right corner resizes without a minimum or maximum', async () => {
   render(<OrchestrationQuestionsStrip request={request} />)
   await openReader()
   const before = windowStyle()
@@ -364,11 +364,48 @@ test('the bottom-right corner resizes within the minimum and maximum', async () 
   drag(corner, [0, 0], [-100, -50])
   expect(windowStyle()).toEqual({ ...before, width: before.width - 100, height: before.height - 50 })
   drag(corner, [0, 0], [-9000, -9000])
-  expect(windowStyle()).toMatchObject({ width: 340, height: 280 })
+  expect(windowStyle()).toMatchObject({ width: 1, height: 1 })
   drag(corner, [0, 0], [9000, 9000])
-  const grown = windowStyle()
-  expect(grown.left + grown.width).toBeLessThanOrEqual(window.innerWidth - 8)
-  expect(grown.top + grown.height).toBeLessThanOrEqual(window.innerHeight - 8)
+  expect(windowStyle()).toMatchObject({ width: 9001, height: 9001 })
+})
+
+test('Alt+Arrow arranges the window like a node, also from its answer field, and Alt+Down restores it', async () => {
+  render(<OrchestrationQuestionsStrip request={request} />)
+  await openReader()
+  const before = windowStyle()
+  const field = screen.getByLabelText('Antwort auf Q2')
+  fireEvent.keyDown(field, { key: 'ArrowLeft', code: 'ArrowLeft', altKey: true })
+  expect(windowStyle()).toEqual({
+    left: 16,
+    top: 16,
+    width: (window.innerWidth - 48) / 2,
+    height: window.innerHeight - 32
+  })
+  fireEvent.keyDown(field, { key: 'ArrowUp', code: 'ArrowUp', altKey: true })
+  expect(windowStyle().height).toBe((window.innerHeight - 48) / 2)
+  // Top quarter -> left half -> bottom quarter -> back where it was.
+  for (let press = 0; press < 3; press += 1)
+    fireEvent.keyDown(field, { key: 'ArrowDown', code: 'ArrowDown', altKey: true })
+  expect(windowStyle()).toEqual(before)
+})
+
+test('the header has the canvas fit button: it maximises, flips to Restore and restores', async () => {
+  render(<OrchestrationQuestionsStrip request={request} />)
+  await openReader()
+  const before = windowStyle()
+  fireEvent.click(screen.getByRole('button', { name: 'Fit to canvas' }))
+  expect(windowStyle()).toEqual({ left: 16, top: 16, width: window.innerWidth - 32, height: window.innerHeight - 32 })
+  fireEvent.click(screen.getByRole('button', { name: 'Restore' }))
+  expect(windowStyle()).toEqual(before)
+  expect(screen.getByRole('button', { name: 'Fit to canvas' }).getAttribute('title')).toContain('Alt+↑')
+})
+
+test('dragging the title bar frees a maximised window', async () => {
+  render(<OrchestrationQuestionsStrip request={request} />)
+  await openReader()
+  fireEvent.click(screen.getByRole('button', { name: 'Fit to canvas' }))
+  drag(document.querySelector('.orchestration-reader-header')!, [500, 70], [480, 70])
+  expect(screen.getByRole('button', { name: 'Fit to canvas' })).toBeTruthy()
 })
 
 test('reopening restores the last position and size of that orchestrator node', async () => {

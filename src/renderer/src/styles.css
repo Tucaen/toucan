@@ -8143,6 +8143,10 @@ button.worktree-agent-unread:focus-visible {
   font-size: 15px;
 }
 
+.orchestration-reader-header .node-fit-action + .orchestration-reader-close {
+  margin-left: 0;
+}
+
 .orchestration-reader-close {
   display: inline-flex;
   margin-left: auto;

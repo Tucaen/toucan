@@ -1,6 +1,9 @@
 import { useEffect, useId, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
+import { layoutKeyAction } from './canvas-layout'
+import { NodeFitContext } from './node-fit-context'
+import NodeFitAction from './NodeFitAction'
 import {
   OTHER_ANSWER_LIMIT,
   PINNED_QUESTION_FORM,
@@ -13,9 +16,13 @@ import {
   defaultReaderRect,
   moveReaderRect,
   recallReaderRect,
+  reflowReaderRect,
   rememberReaderRect,
   resizeReaderRect,
-  type ReaderRect
+  snapReaderRect,
+  toggleReaderFit,
+  type ReaderRect,
+  type ReaderSnap
 } from './orchestration-reader-geometry'
 import StructuredDecisionPanel from './StructuredDecisionPanel'
 import type { OrchestrationQuestions } from './useOrchestrationQuestions'
@@ -30,7 +37,8 @@ function viewport(): { width: number; height: number } {
  * portals to `document.body` because the node's own subtree is scaled by the canvas zoom (and, on a
  * worktree canvas, by two of them) and clipped by the node. Escape closes it only while focus is
  * inside; a click elsewhere leaves it open. Its title bar moves it, its bottom-right corner resizes
- * it, and the rectangle is remembered per orchestrator node for the app session.
+ * it without limit, Alt+Arrow and the header's fit button arrange it like a node on the canvas, and
+ * the rectangle is remembered per orchestrator node for the app session.
  */
 export default function OrchestrationQuestionsReader({
   nodeId,
@@ -59,8 +67,17 @@ export default function OrchestrationQuestionsReader({
   const [rect, setRect] = useState<ReaderRect>(() =>
     clampReaderRect(recallReaderRect(nodeId) ?? defaultReaderRect(viewport()), viewport())
   )
+  // Where the window is arranged (halves, quarters, maximised) and where it returns to.
+  const [snap, setSnap] = useState<ReaderSnap | null>(null)
   const latest = useRef(rect)
   latest.current = rect
+  const latestSnap = useRef(snap)
+  latestSnap.current = snap
+
+  const arrange = (next: { rect: ReaderRect; snap: ReaderSnap | null }): void => {
+    setRect(next.rect)
+    setSnap(next.snap)
+  }
 
   useEffect(() => {
     rememberReaderRect(nodeId, rect)
@@ -68,7 +85,7 @@ export default function OrchestrationQuestionsReader({
 
   // A smaller window must not strand the reader off screen.
   useEffect(() => {
-    const keepInside = (): void => setRect((current) => clampReaderRect(current, viewport()))
+    const keepInside = (): void => setRect((current) => reflowReaderRect(current, latestSnap.current, viewport()))
     window.addEventListener('resize', keepInside)
     return () => window.removeEventListener('resize', keepInside)
   }, [])
@@ -91,7 +108,11 @@ export default function OrchestrationQuestionsReader({
     const start = latest.current
     const originX = event.clientX
     const originY = event.clientY
-    const onMove = (move: MouseEvent): void => setRect(next(start, move.clientX - originX, move.clientY - originY))
+    // Moving or resizing by hand makes the window the user's again, as it does for a snapped node.
+    const onMove = (move: MouseEvent): void => {
+      setSnap(null)
+      setRect(next(start, move.clientX - originX, move.clientY - originY))
+    }
     const onUp = (): void => {
       document.removeEventListener('mousemove', onMove)
       document.removeEventListener('mouseup', onUp)
@@ -126,6 +147,14 @@ export default function OrchestrationQuestionsReader({
       onKeyDown={(event) => {
         event.stopPropagation()
         if (event.key === 'Escape') onClose()
+        const target = event.target as HTMLElement
+        const action = layoutKeyAction(event.nativeEvent, {
+          editingText: target.matches('input, textarea, select, [contenteditable]'),
+          editingTextarea: target.tagName === 'TEXTAREA'
+        })
+        if (action.kind !== 'snap') return
+        event.preventDefault()
+        arrange(snapReaderRect(latest.current, latestSnap.current, action.arrow, viewport()))
       }}
     >
       <header
@@ -136,6 +165,9 @@ export default function OrchestrationQuestionsReader({
         }}
       >
         <h2 id={titleId}>Offene Fragen ({questions.length})</h2>
+        <NodeFitContext.Provider value={() => arrange(toggleReaderFit(latest.current, latestSnap.current, viewport()))}>
+          <NodeFitAction nodeId={nodeId} fitted={snap?.h === 'full' && snap.v === 'full'} />
+        </NodeFitContext.Provider>
         <button type="button" className="orchestration-reader-close" aria-label="Schließen" onClick={onClose}>
           <X aria-hidden="true" />
         </button>
@@ -197,7 +229,7 @@ export default function OrchestrationQuestionsReader({
       <div
         className="orchestration-reader-resize"
         aria-hidden="true"
-        onMouseDown={(event) => track(event, (start, dx, dy) => resizeReaderRect(start, dx, dy, viewport()))}
+        onMouseDown={(event) => track(event, (start, dx, dy) => resizeReaderRect(start, dx, dy))}
       />
     </div>,
     document.body
