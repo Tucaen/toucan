@@ -1619,8 +1619,6 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
                 data.role === ORCHESTRATOR_ROLE && data.conversationId ? (
                   <OrchestrationQuestionsStrip
                     request={{ provider, conversationId: data.conversationId, nodeId: id }}
-                    draft={data.draft ?? ''}
-                    onDraftChange={(text) => data.onDraftChange(id, text)}
                   />
                 ) : undefined,
               relaunch: () => data.onResume(id)

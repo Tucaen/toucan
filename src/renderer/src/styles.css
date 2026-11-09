@@ -109,7 +109,7 @@ button {
 .node-picker-menu,
 .composer-settings-panel,
 .composer-schedule-popover,
-.orchestration-reader-overlay {
+.orchestration-reader {
   -webkit-app-region: no-drag;
 }
 
@@ -8107,29 +8107,23 @@ button.worktree-agent-unread:focus-visible {
   height: 13px;
 }
 
-/* The reader: a portaled, screen-sized dialog, so nothing here is zoomed or clipped by the canvas. */
-.orchestration-reader-overlay {
-  position: fixed;
-}
-
-.orchestration-reader-backdrop {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-}
-
+/* The reader: a portaled, screen-sized floating window (non-modal), so nothing here is zoomed or
+   clipped by the canvas and the canvas stays usable beside it. Its rectangle comes from the component. */
 .orchestration-reader {
+  position: fixed;
+  z-index: var(--z-dialog);
   display: flex;
   flex-direction: column;
-  width: min(640px, calc(100vw - 48px));
-  max-height: min(80vh, 900px);
+  box-sizing: border-box;
   border: 1px solid color-mix(in srgb, var(--node-accent, var(--claude)) 60%, #323a45);
   border-radius: 12px;
   background: #141820;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
   color: var(--neutral-100);
+}
+
+.orchestration-reader:focus {
+  outline: none;
 }
 
 .orchestration-reader-header {
@@ -8137,8 +8131,10 @@ button.worktree-agent-unread:focus-visible {
   flex: none;
   align-items: center;
   gap: 10px;
-  padding: 12px 14px;
+  padding: 10px 12px 10px 14px;
   border-bottom: 1px solid #292f3a;
+  cursor: move;
+  user-select: none;
 }
 
 .orchestration-reader-header h2 {
@@ -8147,14 +8143,9 @@ button.worktree-agent-unread:focus-visible {
   font-size: 15px;
 }
 
-.orchestration-reader-hint {
-  margin-left: auto;
-  color: var(--neutral-400);
-  font-size: 12px;
-}
-
 .orchestration-reader-close {
   display: inline-flex;
+  margin-left: auto;
   padding: 4px;
   border: 0;
   border-radius: 6px;
@@ -8168,8 +8159,31 @@ button.worktree-agent-unread:focus-visible {
   height: 16px;
 }
 
+.orchestration-reader-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 0 0 12px 0;
+  background: linear-gradient(
+    135deg,
+    transparent 55%,
+    #5b6677 55%,
+    #5b6677 62%,
+    transparent 62%,
+    transparent 72%,
+    #5b6677 72%,
+    #5b6677 79%,
+    transparent 79%
+  );
+  cursor: nwse-resize;
+}
+
 .orchestration-reader-list {
+  display: flex;
   flex: 1 1 auto;
+  flex-direction: column;
   min-height: 0;
   margin: 0;
   padding: 0 14px 6px;
@@ -8178,6 +8192,10 @@ button.worktree-agent-unread:focus-visible {
 }
 
 .orchestration-question {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  min-height: 0;
   padding: 12px 0;
   font-size: 14px;
   line-height: 1.5;
@@ -8187,14 +8205,78 @@ button.worktree-agent-unread:focus-visible {
   border-top: 1px solid #2a323d;
 }
 
+/* One question fills the window: its text scrolls, the answer field stays under it. Several share
+   a scrolling list, each text capped so a long one cannot push the next field out of sight. */
+.orchestration-reader-list[data-single] .orchestration-question {
+  flex: 1 1 auto;
+}
+
+.orchestration-question-body {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.orchestration-reader-list[data-single] .orchestration-question-body {
+  flex: 1 1 auto;
+}
+
+.orchestration-reader-list:not([data-single]) .orchestration-question-body {
+  max-height: 260px;
+}
+
 .orchestration-question-head {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 8px;
   margin-bottom: 6px;
 }
 
-/* The panel is sized for a node's composer slot; here the reader's list is the one scroller. */
+.orchestration-question-answer {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.orchestration-question-answer textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 64px;
+  padding: 8px 10px;
+  border: 1px solid #3a4554;
+  border-radius: 8px;
+  color: var(--neutral-100);
+  background: #0f131a;
+  font: inherit;
+  font-size: 13px;
+  resize: vertical;
+}
+
+.orchestration-question-answer textarea:focus {
+  border-color: var(--node-accent, var(--claude));
+  outline: none;
+}
+
+.orchestration-question-answer button {
+  padding: 4px 14px;
+  border: 1px solid var(--node-accent, var(--claude));
+  border-radius: 6px;
+  color: var(--node-accent, var(--claude));
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.orchestration-question-answer button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* The panel is sized for a node's composer slot; here the question body is the scroller. */
 .orchestration-reader .structured-decision {
   max-height: none;
   margin-top: 8px;

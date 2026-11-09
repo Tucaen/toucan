@@ -1,5 +1,5 @@
 import { ReactFlowProvider } from '@xyflow/react'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import type { WorkspaceState } from '../src/shared/workspace'
 import ChatNode from '../src/renderer/src/ChatNode'
@@ -317,10 +317,17 @@ test('a spawn checkpoint waits for the human, offers Continue (+20) instead of S
   await waitFor(() => expect(container.querySelector('.node-orchestration-checkpoint')).toBeNull())
 })
 
-// #3: an orchestrator pins its open questions above the transcript; Antworten fills the node's draft.
+// #3: an orchestrator pins its open questions above the transcript; a typed answer resolves the question.
 
-test('an orchestrator pins its open questions and Antworten prefills the draft', async () => {
+test('an orchestrator pins its open questions and a typed answer resolves one', async () => {
+  const resolveQuestion = vi.fn(async () => ({
+    provider: 'claude',
+    conversationId: 'conv-1',
+    status: 'running',
+    openQuestions: []
+  }))
   window.orchestratorApi = {
+    resolveQuestion,
     onStartTicketSession: () => () => undefined,
     completeTicketSession: vi.fn(),
     progressTicketSession: vi.fn(),
@@ -339,11 +346,28 @@ test('an orchestrator pins its open questions and Antworten prefills the draft',
   const badge = container.querySelector('.orchestration-questions') as HTMLElement
   expect(badge).toHaveTextContent('Offene Frage')
   expect(badge).toHaveTextContent('Q3: Which color?')
-  // The node carries only the badge; the question and its actions live in the reader outside it.
+  // The node carries only the badge; the question and its answer field live in the floating reader outside it.
   expect(container.querySelector('.orchestration-question')).toBeNull()
   fireEvent.click(badge.querySelector('.orchestration-questions-badge') as HTMLElement)
   const reader = (await screen.findByRole('dialog', { name: 'Offene Fragen (1)' })) as HTMLElement
   expect(container.contains(reader)).toBe(false)
-  fireEvent.click(reader.querySelector('.orchestration-question-actions button') as HTMLElement)
-  expect(callbacks.onDraftChange).toHaveBeenCalledWith('chat-1', 'Zu Q3: ')
+  expect(reader).not.toHaveAttribute('aria-modal')
+  // Non-modal: the node and its composer stay in the document and reachable beside the window.
+  expect(container.querySelector('.chat-scroll')).not.toBeNull()
+  fireEvent.mouseDown(container.firstElementChild as HTMLElement)
+  expect(screen.getByRole('dialog')).toBeInTheDocument()
+  const answer = within(reader).getByLabelText('Antwort auf Q3')
+  fireEvent.change(answer, { target: { value: 'Blue' } })
+  fireEvent.keyDown(answer, { key: 'Enter', ctrlKey: true })
+  await waitFor(() =>
+    expect(resolveQuestion).toHaveBeenCalledWith({
+      provider: 'claude',
+      conversationId: 'conv-1',
+      nodeId: 'chat-1',
+      questionId: 'Q3',
+      note: 'Answer: Blue'
+    })
+  )
+  // The answer goes to the orchestrator through the resolve, never into the node's composer draft.
+  expect(callbacks.onDraftChange).not.toHaveBeenCalled()
 })

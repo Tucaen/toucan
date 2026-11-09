@@ -13,7 +13,7 @@ import { parseQuestionOptions, type OrchestrationQuestion, type OrchestrationQue
 export const PINNED_QUESTION_FORM = { question: 'answer', other: 'other' } as const
 
 /** The longest "Other" text kept in a note: with twelve 200-character labels it stays under a phone's 4000-character note cap. */
-const OTHER_ANSWER_LIMIT = 1500
+export const OTHER_ANSWER_LIMIT = 1500
 
 /** The form request for a pinned question, or `undefined` for a plain-text one. */
 export function pinnedQuestionDecision(
