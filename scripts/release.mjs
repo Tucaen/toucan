@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { createInterface } from 'node:readline/promises'
 import { stdin, stdout } from 'node:process'
+import { changeSubjects, ciRefusal, previousReleaseTag } from './release-gate.mjs'
 import { nextVersion, releaseNotes } from './release-notes.mjs'
 
 // Cuts a release: bumps the version, records what changed since the previous release in the
@@ -17,10 +18,21 @@ import { nextVersion, releaseNotes } from './release-notes.mjs'
 const manifest = JSON.parse(readFileSync('package.json', 'utf8'))
 const publish = manifest.build.publish
 const RELEASES_URL = `https://github.com/${publish.owner}/${publish.repo}/releases/tag/`
-const ACTIONS_URL = `${manifest.repository.url.replace(/\.git$/, '')}/actions/workflows/release.yml`
+const SOURCE_URL = manifest.repository.url.replace(/\.git$/, '')
+const ACTIONS_URL = `${SOURCE_URL}/actions/workflows/release.yml`
 
 function git(...args) {
   return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }).trimEnd()
+}
+
+function gh(...args) {
+  try {
+    return JSON.parse(execFileSync('gh', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }))
+  } catch (error) {
+    fail(
+      `gh ${args[0]} ${args[1]} failed (${error.message.split('\n')[0]}); releasing needs gh installed and signed in.`
+    )
+  }
 }
 
 function fail(message) {
@@ -35,7 +47,8 @@ if (!bump || !/^(patch|minor|major|\d+\.\d+\.\d+)$/.test(bump)) {
   fail('usage: npm run release -- patch|minor|major|<x.y.z> [--yes] [--dry-run]')
 }
 
-// Preconditions: a release is a commit on main that origin already has everything before.
+// Preconditions: a release is a commit on main that origin already has everything before, and
+// whose CI passed (checked below, once the notes have been shown).
 if (git('status', '--porcelain')) fail('the working tree has uncommitted changes.')
 const branch = git('rev-parse', '--abbrev-ref', 'HEAD')
 if (branch !== 'main') fail(`releases are cut from main, not ${branch}.`)
@@ -43,15 +56,41 @@ git('fetch', '--quiet', '--tags', 'origin')
 const behind = Number(git('rev-list', '--count', 'HEAD..origin/main'))
 if (behind > 0) fail(`main is ${behind} commit(s) behind origin/main; pull first.`)
 
-let previousTag = null
-try {
-  previousTag = git('describe', '--tags', '--abbrev=0', '--match', 'v*')
-} catch {
-  // First release: everything counts.
-}
-const subjects = git('log', '--no-merges', '--format=%s', previousTag ? `${previousTag}..HEAD` : 'HEAD')
-  .split('\n')
-  .filter((line) => line.length > 0)
+// The workflow gates on the same `npm run check` as CI, so a red main can only fail again there.
+const head = git('rev-parse', 'HEAD')
+const ciRuns = gh(
+  'run',
+  'list',
+  '--repo',
+  SOURCE_URL,
+  '--workflow',
+  'ci.yml',
+  '--commit',
+  head,
+  '--json',
+  'status,conclusion,url'
+)
+const refusal = ciRefusal(head.slice(0, 7), ciRuns)
+
+// A tag whose release failed has no notes anywhere public, so its changes count toward this one.
+const publishedTags = gh(
+  'release',
+  'list',
+  '--repo',
+  `${publish.owner}/${publish.repo}`,
+  '--exclude-drafts',
+  '--limit',
+  '100',
+  '--json',
+  'tagName'
+).map((release) => release.tagName)
+const previousTag = previousReleaseTag(
+  git('tag', '--merged', 'HEAD', '--list', 'v*', '--sort=-v:refname').split('\n').filter(Boolean),
+  publishedTags
+)
+const subjects = changeSubjects(
+  git('log', '--no-merges', '--format=%s', previousTag ? `${previousTag}..HEAD` : 'HEAD').split('\n')
+)
 if (subjects.length === 0) fail(`nothing has changed since ${previousTag}.`)
 
 const current = manifest.version
@@ -64,7 +103,9 @@ console.log(`\nRelease ${tag} (currently ${current}${previousTag ? `, last tag $
 console.log(notes)
 console.log('These notes are published on the public release page. Nothing internal belongs in them.\n')
 
+if (refusal && flags.has('--dry-run')) console.log(`A real run would stop here: ${refusal}`)
 if (flags.has('--dry-run')) process.exit(0)
+if (refusal) fail(refusal)
 
 if (!flags.has('--yes')) {
   const readline = createInterface({ input: stdin, output: stdout })
