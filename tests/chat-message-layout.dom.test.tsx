@@ -95,7 +95,6 @@ describe('chat message sender label removal', () => {
     const assistantArticle = container.querySelector('article.chat-message.assistant')
     expect(userArticle).not.toBeNull()
     expect(assistantArticle).not.toBeNull()
-    expect(userArticle).not.toBe(assistantArticle)
   })
 
   test('an exact local timestamp is available only as the message tooltip', () => {

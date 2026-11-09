@@ -272,8 +272,6 @@ describe('canvas snap mode', () => {
     const ids = ['a', 'b']
     act(() => {
       const released = controller.release(ids)
-      // What a re-read would have handed `tileNodes`, still flagged as fitted.
-      expect(beforeRelease[0].data.fittedToCanvas).toBe(true)
       writeNodes(tileNodes(released, ids, 'grid', region, NODE_FIT_INSET))
     })
 

@@ -74,7 +74,7 @@ test('the skill says the project owns it, and points at its own path', () => {
   ok(source.includes(projectSkillPath(TICKET_SKILL_NAME)))
   // The whole point of scaffolding rather than injecting: this copy is editable and Toucan is done
   // with it. A skill that did not say so would be read as Toucan's to maintain.
-  match(source, /never|not Toucan|own/i)
+  match(source, /not Toucan's:[^]*Toucan will\s+never rewrite it/)
 })
 
 test('the skill teaches leniency rather than a gate', () => {

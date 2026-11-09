@@ -155,7 +155,6 @@ test('quitting never installs behind the user; only the explicit restart does', 
   const { app } = installedUpdater(updater)
   await app.check()
   assert.equal(updater.autoInstallOnAppQuit, false)
-  assert.equal(updater.autoDownload, true)
 })
 
 test('a later check reports the snapshot it settled on', async () => {

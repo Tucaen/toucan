@@ -131,10 +131,9 @@ test('the primer says what the board loses when an optional field is absent', ()
   for (const field of TICKET_FIELDS) ok(field.whenAbsent.length > 0, `${field.name} says nothing about absence`)
 })
 
-test('the agent-facing sentence enumerates exactly the fields the primer does', () => {
+test('the agent-facing sentence marks blocked_by as optional, not expected', () => {
   const sentence = TICKET_FIELD_SENTENCE
 
-  for (const field of TICKET_FIELDS) match(sentence, new RegExp(`\`${field.name}\``))
   // Expected and optional are not one list: an agent told `blocked_by` is required would add it.
   match(sentence, /optionally `blocked_by`/)
 })

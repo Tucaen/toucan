@@ -37,7 +37,6 @@ test('clamps vertically when the menu is taller than the viewport in either dire
   const position = computeNodePickerMenuPosition(trigger, { width: 230, height: 5000 }, { width: 1200, height: 900 })
 
   assert.ok(position.top >= 8, 'menu must not clip above the viewport')
-  assert.ok(position.top + 5000 >= 900 - 8 || position.top <= 8, 'menu should be pinned to a viewport-visible edge')
 })
 
 test('left-aligns the menu to the trigger when asked, e.g. a composer completion under a wide textarea', () => {

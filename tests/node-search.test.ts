@@ -53,7 +53,9 @@ test('matches are literal, case-insensitive and non-overlapping', () => {
 test('a text that does not lowercase one-for-one is searched case-sensitively rather than misaligned', () => {
   // 'İ' lowercases to two code units, which would slide every later offset off its match.
   const text = 'İstanbul and istanbul'
-  for (const match of findMatchRanges(text, 'istanbul')) {
+  const matches = findMatchRanges(text, 'istanbul')
+  equal(matches.length, 1)
+  for (const match of matches) {
     equal(text.slice(match.start, match.end), 'istanbul')
   }
 })

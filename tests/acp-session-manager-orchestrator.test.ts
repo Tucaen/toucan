@@ -117,8 +117,11 @@ test('a Claude orchestrator keeps its grant and instruction while ordinary chats
       'Agent'
     ])
 
-    for (const other of [plainOpen, codexOpen]) {
-      assert.deepEqual(other?.env, { nodeId: other?.env.nodeId })
+    for (const [other, nodeId] of [
+      [plainOpen, 'plain'],
+      [codexOpen, 'codex']
+    ] as const) {
+      assert.deepEqual(other?.env, { nodeId })
       assert.doesNotMatch(other?.params._meta?.systemPrompt?.append ?? '', /orchestrator/)
       assert.ok(!other.params.additionalDirectories?.includes(join(appPath, '.agents', 'skills', 'orchestrate')))
       assert.equal(other?.params._meta?.claudeCode?.options?.disallowedTools, undefined)

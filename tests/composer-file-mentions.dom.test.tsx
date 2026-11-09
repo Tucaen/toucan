@@ -217,7 +217,7 @@ describe('composer file mentions', () => {
 
   test('Enter accepts the highlighted path and never submits the prompt', async () => {
     const submit = vi.fn()
-    const { container } = renderChatView({}, { submit })
+    renderChatView({}, { submit })
     const textarea = type('@chat')
     await findMenu()
 
@@ -226,7 +226,6 @@ describe('composer file mentions', () => {
     expect(textarea.value).toBe('@src/renderer/src/ChatNode.tsx ')
     expect(textarea.selectionStart).toBe('@src/renderer/src/ChatNode.tsx '.length)
     expect(submit).not.toHaveBeenCalled()
-    expect(container).toBeTruthy()
     expect(queryMenu()).toBeNull()
   })
 

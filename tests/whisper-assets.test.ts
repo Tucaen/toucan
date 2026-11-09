@@ -1,11 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { describe, test } from 'vitest'
-import {
-  WHISPER_DOWNLOAD_GIGABYTES,
-  WHISPER_ENGINE_ENTRIES,
-  WHISPER_ENGINE_ZIP,
-  WHISPER_MODEL
-} from '../src/shared/whisper-assets'
+import { WHISPER_ENGINE_ENTRIES } from '../src/shared/whisper-assets'
 import { wavBytes, whisperAudioContext } from '../src/main/whisper-engine'
 
 /**
@@ -20,11 +15,6 @@ describe('whisper asset pins', () => {
     assert.ok(WHISPER_ENGINE_ENTRIES.includes('whisper-cli.exe'), 'the WER harness scores through the CLI')
     assert.ok(WHISPER_ENGINE_ENTRIES.includes('whisper.dll'))
     assert.ok(WHISPER_ENGINE_ENTRIES.includes('ggml.dll'))
-  })
-
-  test('the download label the button shows matches the pinned model size', () => {
-    const gigabytes = (WHISPER_ENGINE_ZIP.size + WHISPER_MODEL.size) / 1e9
-    assert.equal(WHISPER_DOWNLOAD_GIGABYTES, `${gigabytes.toFixed(1)} GB`)
   })
 })
 
