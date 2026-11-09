@@ -87,18 +87,21 @@ test.each(['claude', 'codex'] as const)('the %s role is born with the node and s
   assert.equal(restored?.data.kind, kind)
 })
 
-test.each(['claude', 'codex'] as const)('a new %s orchestrator starts in focus mode and a saved choice wins on restore', (kind) => {
-  const seed = { id: 'o', kind, label: 'Orchestrator 1', position: { x: 0, y: 0 }, launchMode: 'new' as const }
-  const created = createSessionCanvasNode({ ...seed, role: 'orchestrator' }, project, undefined, callbacks)
-  assert.equal(created.data.focusMode, true)
+test.each(['claude', 'codex'] as const)(
+  'a new %s orchestrator starts in focus mode and a saved choice wins on restore',
+  (kind) => {
+    const seed = { id: 'o', kind, label: 'Orchestrator 1', position: { x: 0, y: 0 }, launchMode: 'new' as const }
+    const created = createSessionCanvasNode({ ...seed, role: 'orchestrator' }, project, undefined, callbacks)
+    assert.equal(created.data.focusMode, true)
 
-  const turnedOff = serializeCanvasNode({ ...created, data: { ...created.data, focusMode: false } })
-  const restored = restoreCanvasWorkspace(workspace([turnedOff]), callbacks).nodes.find(isTerminalCanvasNode)
-  assert.equal(restored?.data.focusMode, false)
+    const turnedOff = serializeCanvasNode({ ...created, data: { ...created.data, focusMode: false } })
+    const restored = restoreCanvasWorkspace(workspace([turnedOff]), callbacks).nodes.find(isTerminalCanvasNode)
+    assert.equal(restored?.data.focusMode, false)
 
-  const ordinary = createSessionCanvasNode(seed, project, undefined, callbacks)
-  assert.equal(ordinary.data.focusMode, false)
-})
+    const ordinary = createSessionCanvasNode(seed, project, undefined, callbacks)
+    assert.equal(ordinary.data.focusMode, false)
+  }
+)
 
 test('an ordinary chat carries no role at all, and a terminal can never hold one', () => {
   const plain = createSessionCanvasNode(
