@@ -984,7 +984,8 @@ export function createSessionCanvasNode(
       worktreeBranch: worktree?.branch,
       workingDirectory: worktree?.path ?? project.path,
       conversationId: seed.conversationId,
-      focusMode: false,
+      // An orchestrator is born in focus mode; once saved the node's own state wins on restore.
+      focusMode: seed.kind !== 'terminal' && seed.role === 'orchestrator',
       preferredPermissionMode: seed.preferredPermissionMode,
       modelId: seed.modelId,
       dormant: false,
