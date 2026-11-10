@@ -24,7 +24,6 @@ import { paletteColorAt } from '../../shared/project-colors'
 import { terminalRunInput } from '../../shared/project-run-commands'
 import type { TerminalKind, TerminalLiveness } from '../../shared/terminal'
 import type {
-  AgentPermissionModes,
   ComposerSendKey,
   ConversationLineage,
   ProjectDirectory,
@@ -319,7 +318,6 @@ function Canvas(): JSX.Element {
   const [ticketActivity, setTicketActivity] = useState<Record<string, TicketActivityReport>>({})
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-  const [agentPermissionModes, setAgentPermissionModes] = useState<AgentPermissionModes>({})
   const [composerSendKey, setComposerSendKey] = useState<ComposerSendKey>(COMPOSER_SEND_KEY_DEFAULT)
   const [routineDelegation, setRoutineDelegation] = useState<RoutineDelegationPreference>({ enabled: false })
   const [dictationCleanup, setDictationCleanup] = useState<DictationCleanupPreference>({ enabled: false })
@@ -575,22 +573,6 @@ function Canvas(): JSX.Element {
     [setNodes]
   )
 
-  const handlePermissionModeChange = useCallback(
-    (provider: keyof AgentPermissionModes, modeId: string): void => {
-      setAgentPermissionModes((current) =>
-        current[provider] === modeId ? current : { ...current, [provider]: modeId }
-      )
-      setNodes((current) =>
-        current.map((node) =>
-          isTerminalCanvasNode(node) && node.data.dormant && node.data.kind === provider
-            ? { ...node, data: { ...node.data, preferredPermissionMode: modeId } }
-            : node
-        )
-      )
-    },
-    [setNodes]
-  )
-
   // A model choice belongs to its conversation, so it is remembered per node rather than per provider.
   const handleModelChange = useCallback(
     (nodeId: string, modelId: string): void => {
@@ -652,7 +634,6 @@ function Canvas(): JSX.Element {
   const nodesRef = useRef<CanvasNode[]>([])
   const nodeStatusesRef = useRef<Record<string, TerminalNodeStatus>>({})
   const projectsRef = useRef<Project[]>([])
-  const permissionModesRef = useRef<AgentPermissionModes>({})
   const recentlyClosedNodesRef = useRef<WorkspaceTerminalNode[]>([])
   // Branching places a node, so its handler is built on `addSessionNode` further down. Held in a
   // ref because the handler is declared after the node factories that hand it out, and because a
@@ -678,7 +659,6 @@ function Canvas(): JSX.Element {
   const canvasPartition = useMemo(() => partitionWorktreeCanvases(nodes, partitionRef.current), [nodes])
   partitionRef.current = canvasPartition
   projectsRef.current = projects
-  permissionModesRef.current = agentPermissionModes
   recentlyClosedNodesRef.current = recentlyClosedNodes
 
   const handleRequestFilePath = useCallback((nodeId: string): Promise<string | null> => {
@@ -1038,7 +1018,6 @@ function Canvas(): JSX.Element {
       {
         projects: projectsRef.current,
         worktrees: nodesRef.current.filter(isWorktreeCanvasNode).map(serializeWorktreeNode),
-        agentPermissionModes: permissionModesRef.current,
         worktreeChildPosition: (worktreeId) =>
           nextWorktreeChildPosition(worktreeChildren(nodesRef.current, worktreeId)),
         conversationHolder: (provider, conversationId) =>
@@ -1053,7 +1032,6 @@ function Canvas(): JSX.Element {
         onFocusModeChange: handleFocusModeChange,
         onDraftChange: handleDraftChange,
         onScheduledMessagesChange: handleScheduledMessagesChange,
-        onPermissionModeChange: handlePermissionModeChange,
         onModelChange: handleModelChange,
         onCommandGuardChange: handleCommandGuardChange,
         onTurnOutcome: handleTurnOutcome,
@@ -1090,7 +1068,6 @@ function Canvas(): JSX.Element {
     handleModelChange,
     handleCommandGuardChange,
     handleTurnOutcome,
-    handlePermissionModeChange,
     handleStatusChange,
     handleTicketActivity,
     handleTerminalContext,
@@ -1126,7 +1103,10 @@ function Canvas(): JSX.Element {
       role?: ChatNodeRole
       /** The effort to open on; like `modelId`, absent leaves it to the adapter. */
       effortId?: string
-      /** A permission mode that wins over the provider's remembered one: a ticket session inherits its orchestrator's. */
+      /**
+       * The mode a new session starts in: a ticket session inherits its orchestrator's. Absent starts
+       * the provider's default (Claude's Auto) - never the mode another session was last switched to.
+       */
       permissionMode?: string
       /** The orchestrator that spawned this ticket session; the orchestrated-by edge is drawn from it. */
       orchestratedBy?: OrchestratorLink
@@ -1176,8 +1156,7 @@ function Canvas(): JSX.Element {
           branchedFrom,
           role: options.role,
           orchestratedBy: options.orchestratedBy,
-          preferredPermissionMode:
-            kind === 'terminal' ? undefined : (options.permissionMode ?? permissionModesRef.current[kind]),
+          preferredPermissionMode: kind === 'terminal' ? undefined : options.permissionMode,
           modelId: options.modelId,
           effortId: options.effortId,
           initialInput: options.initialInput,
@@ -1194,7 +1173,6 @@ function Canvas(): JSX.Element {
           onFocusModeChange: handleFocusModeChange,
           onDraftChange: handleDraftChange,
           onScheduledMessagesChange: handleScheduledMessagesChange,
-          onPermissionModeChange: handlePermissionModeChange,
           onModelChange: handleModelChange,
           onCommandGuardChange: handleCommandGuardChange,
           onTurnOutcome: handleTurnOutcome,
@@ -1226,7 +1204,6 @@ function Canvas(): JSX.Element {
       handleModelChange,
       handleCommandGuardChange,
       handleTurnOutcome,
-      handlePermissionModeChange,
       handleStatusChange,
       handleTicketActivity,
       handleTerminalContext,
@@ -1582,7 +1559,6 @@ function Canvas(): JSX.Element {
         onFocusModeChange: handleFocusModeChange,
         onDraftChange: handleDraftChange,
         onScheduledMessagesChange: handleScheduledMessagesChange,
-        onPermissionModeChange: handlePermissionModeChange,
         onModelChange: handleModelChange,
         onCommandGuardChange: handleCommandGuardChange,
         onTurnOutcome: handleTurnOutcome,
@@ -1608,7 +1584,6 @@ function Canvas(): JSX.Element {
       setActiveProjectId(restored.activeProjectId)
       setSidebarCollapsed(saved.sidebarCollapsed)
       restorePanels(saved)
-      setAgentPermissionModes(saved.agentPermissionModes ?? {})
       setComposerSendKey(saved.composerSendKey ?? COMPOSER_SEND_KEY_DEFAULT)
       // Absent in older snapshots means off: existing workspaces migrate with delegation disabled.
       setRoutineDelegation(saved.routineDelegation ?? { enabled: false })
@@ -1634,7 +1609,6 @@ function Canvas(): JSX.Element {
       handleModelChange,
       handleCommandGuardChange,
       handleTurnOutcome,
-      handlePermissionModeChange,
       handleSelectDiffPath,
       handleStatusChange,
       handleTicketActivity,
@@ -1658,7 +1632,6 @@ function Canvas(): JSX.Element {
     projectGroups,
     activeProjectId,
     sidebarCollapsed,
-    agentPermissionModes,
     composerSendKey,
     routineDelegation,
     dictationCleanup,

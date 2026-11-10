@@ -1153,7 +1153,6 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
     onSessionId: (sessionId) => data.onConversationId(id, sessionId),
     onTerminalContext: (carried) => data.onTerminalContext?.(id, carried),
     onForkSupport: (supported) => data.onForkSupport?.(id, supported),
-    onPermissionMode: (modeId) => data.onPermissionModeChange(provider, modeId),
     onModel: (modelId) => data.onModelChange(id, modelId)
   })
   const { status, messages, usage } = conversation

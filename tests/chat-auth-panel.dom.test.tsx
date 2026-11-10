@@ -148,7 +148,6 @@ describe('useAgentConversation auth_link state', () => {
           cwd: '/project',
           enabled: true,
           onSessionId: vi.fn(),
-          onPermissionMode: vi.fn(),
           onModel: vi.fn()
         })
       )
@@ -189,7 +188,6 @@ describe('useAgentConversation auth_link state', () => {
         cwd: '/project',
         enabled: true,
         onSessionId: vi.fn(),
-        onPermissionMode: vi.fn(),
         onModel: vi.fn()
       })
     )
@@ -231,7 +229,6 @@ describe('useAgentConversation auth_link state', () => {
           cwd: '/project',
           enabled: true,
           onSessionId: vi.fn(),
-          onPermissionMode: vi.fn(),
           onModel: vi.fn()
         })
       )
@@ -285,7 +282,6 @@ describe('useAgentConversation prompt failure status', () => {
         enabled: true,
         composePrompt,
         onSessionId: vi.fn(),
-        onPermissionMode: vi.fn(),
         onModel: vi.fn()
       })
     )

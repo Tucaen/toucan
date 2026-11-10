@@ -27,7 +27,6 @@ const sessionCallbacks = {
   onTitleChange: async () => true,
   onFocusModeChange: noop,
   onDraftChange: noop,
-  onPermissionModeChange: noop,
   onModelChange: noop,
   onResume: noop
 }

@@ -589,7 +589,6 @@ describe('agent conversation decisions', () => {
         cwd: '/project',
         enabled: true,
         onSessionId: vi.fn(),
-        onPermissionMode: vi.fn(),
         onModel: vi.fn()
       })
     )
@@ -623,7 +622,6 @@ describe('agent conversation decisions', () => {
           cwd: '/project',
           enabled: true,
           onSessionId: vi.fn(),
-          onPermissionMode: vi.fn(),
           onModel: vi.fn()
         })
       )

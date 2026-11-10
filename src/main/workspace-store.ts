@@ -41,7 +41,6 @@ interface WorkspaceStateV2 {
   projects: WorkspaceState['projects']
   activeProjectId: string | null
   sidebarCollapsed: boolean
-  agentPermissionModes?: WorkspaceState['agentPermissionModes']
   nodes: WorkspaceState['nodes']
 }
 
@@ -260,14 +259,6 @@ export function isWorkspaceState(value: unknown): value is WorkspaceState {
   if (
     state.projectGroups !== undefined &&
     (!Array.isArray(state.projectGroups) || !state.projectGroups.every(isProjectGroup))
-  )
-    return false
-  if (
-    state.agentPermissionModes !== undefined &&
-    (!state.agentPermissionModes ||
-      typeof state.agentPermissionModes !== 'object' ||
-      (state.agentPermissionModes.claude !== undefined && typeof state.agentPermissionModes.claude !== 'string') ||
-      (state.agentPermissionModes.codex !== undefined && typeof state.agentPermissionModes.codex !== 'string'))
   )
     return false
   if (state.composerSendKey !== undefined && !isComposerSendKey(state.composerSendKey)) return false

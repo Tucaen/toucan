@@ -70,7 +70,6 @@ test('a dormant terminal restores display-only history without spawning or accep
           onConversationId: vi.fn(),
           onFocusModeChange: vi.fn(),
           onDraftChange: vi.fn(),
-          onPermissionModeChange: vi.fn(),
           onModelChange: vi.fn(),
           onResume: vi.fn()
         }}
@@ -124,7 +123,6 @@ test('missing or corrupt retained history is visible without changing terminal s
           onConversationId: vi.fn(),
           onFocusModeChange: vi.fn(),
           onDraftChange: vi.fn(),
-          onPermissionModeChange: vi.fn(),
           onModelChange: vi.fn(),
           onResume: vi.fn()
         }}

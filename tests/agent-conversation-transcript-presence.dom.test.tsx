@@ -18,7 +18,6 @@ function renderConversation() {
       sessionId: 'conversation-1',
       enabled: true,
       onSessionId: vi.fn(),
-      onPermissionMode: vi.fn(),
       onModel: vi.fn()
     })
   )

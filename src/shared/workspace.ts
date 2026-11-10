@@ -4,7 +4,7 @@
  * terminal is one kind of thing *on* a canvas, not the canvas itself - a reader following
  * `saveWorkspace` should land here rather than in a session contract.
  */
-import type { AgentProvider, AgentTurnOutcome } from './agent'
+import type { AgentTurnOutcome } from './agent'
 import type { AttentionItem } from './attention'
 import type { WorkspaceFileNode } from './file-view'
 import type { ProjectRunCommand } from './project-run-commands'
@@ -20,8 +20,6 @@ import type { TerminalKind, TerminalLiveness } from './terminal'
 import type { WorkspaceSnapSlice } from './snap-slice'
 
 export const RECENTLY_CLOSED_SESSION_LIMIT = 10
-
-export type AgentPermissionModes = Partial<Record<AgentProvider, string>>
 
 /**
  * How the composer's Enter key behaves. One workspace-wide preference rather than a per-node one:
@@ -202,7 +200,6 @@ export interface WorkspaceState {
   projectGroups?: ProjectGroup[]
   activeProjectId: string | null
   sidebarCollapsed: boolean
-  agentPermissionModes?: AgentPermissionModes
   composerSendKey?: ComposerSendKey
   /**
    * The "Delegate routine work cheaply" preference (see `shared/routine-delegation.ts`). Absent in

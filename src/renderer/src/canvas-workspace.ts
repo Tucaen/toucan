@@ -4,7 +4,6 @@ import type { AgentTurnOutcome } from '../../shared/agent'
 import type { TerminalLiveness, TerminalKind, TerminalNodeStatus } from '../../shared/terminal'
 import { isAgentProvider, type AgentProvider } from '../../shared/agent-provider'
 import type {
-  AgentPermissionModes,
   CanvasNodeStateField,
   ConversationLineage,
   WorkspaceState,
@@ -54,7 +53,6 @@ export interface TerminalNodeCallbacks {
    * the composer offers no scheduling, since nothing would keep what it scheduled.
    */
   onScheduledMessagesChange?(nodeId: string, messages: ScheduledMessage[]): void
-  onPermissionModeChange(provider: keyof AgentPermissionModes, modeId: string): void
   onModelChange(nodeId: string, modelId: string): void
   /**
    * Turns the dangerous-command guard on or off for one node's session. Optional so a node renders
@@ -131,6 +129,7 @@ export interface TerminalNodeData
   draft?: string
   /** Messages waiting for their scheduled time; those that came due while away restore overdue. */
   scheduledMessages?: ScheduledMessage[]
+  /** The mode a new session starts in, named by its caller; a restored session keeps its own. */
   preferredPermissionMode?: string
   modelId?: string
   /** `false` when the command guard is off for this node's session; see `WorkspaceTerminalNode`. */
@@ -634,7 +633,7 @@ export function centredNodePosition(
   }
 }
 
-type SessionRestoreWorkspace = Pick<WorkspaceState, 'projects' | 'worktrees' | 'agentPermissionModes'> & {
+type SessionRestoreWorkspace = Pick<WorkspaceState, 'projects' | 'worktrees'> & {
   /** Where a reopened chat goes on its worktree's canvas when its record predates that canvas. */
   worktreeChildPosition?(worktreeId: string): { x: number; y: number }
   /**
@@ -654,7 +653,6 @@ type SessionRestoreMode = 'hydrate' | 'reopen'
 export interface CanvasRestoreContext {
   worktreeById(worktreeId: string): WorkspaceWorktree | undefined
   attachedNodeCount(worktreeId: string): number
-  agentPermissionModes?: AgentPermissionModes
   /**
    * The next free spot on a worktree's canvas, for a chat restored into it without a position on
    * that canvas. Absent where every such chat has already been placed (`placeLegacyWorktreeChildren`).
@@ -665,14 +663,12 @@ export interface CanvasRestoreContext {
 function canvasRestoreContext(
   worktrees: readonly WorkspaceWorktree[],
   attachedNodeCount: (worktreeId: string) => number,
-  agentPermissionModes?: AgentPermissionModes,
   worktreeChildPosition?: (worktreeId: string) => { x: number; y: number }
 ): CanvasRestoreContext {
   const byId = new Map(worktrees.map((worktree) => [worktree.id, worktree]))
   return {
     worktreeById: (worktreeId) => byId.get(worktreeId),
     attachedNodeCount,
-    agentPermissionModes,
     worktreeChildPosition
   }
 }
@@ -820,8 +816,6 @@ function restoreTerminalCanvasNode(
       // closed - and nothing was there to deliver its messages meanwhile, so any that came due
       // wait for an explicit Send now rather than going out unannounced.
       scheduledMessages: markOverdueScheduledMessages(savedNode.scheduledMessages, Date.now()),
-      preferredPermissionMode:
-        savedNode.kind === 'terminal' ? undefined : context.agentPermissionModes?.[savedNode.kind],
       modelId: savedNode.kind === 'terminal' ? undefined : savedNode.modelId,
       commandGuard: savedNode.kind === 'terminal' ? undefined : savedNode.commandGuard,
       turnOutcomes: savedNode.kind === 'terminal' ? undefined : savedNode.turnOutcomes,
@@ -838,7 +832,6 @@ function restoreTerminalCanvasNode(
       onFocusModeChange: callbacks.onFocusModeChange,
       onDraftChange: callbacks.onDraftChange,
       onScheduledMessagesChange: callbacks.onScheduledMessagesChange,
-      onPermissionModeChange: callbacks.onPermissionModeChange,
       onModelChange: callbacks.onModelChange,
       onCommandGuardChange: callbacks.onCommandGuardChange,
       onTurnOutcome: callbacks.onTurnOutcome,
@@ -866,12 +859,7 @@ export function reopenClosedSession(
   const remaining = [...recentlyClosedNodes]
   // Nothing is attached yet at the moment a node is reopened, and the count a worktree node shows
   // is recomputed from the canvas straight afterwards (`applyAttachedNodeCounts`).
-  const context = canvasRestoreContext(
-    workspace.worktrees ?? [],
-    () => 0,
-    workspace.agentPermissionModes,
-    workspace.worktreeChildPosition
-  )
+  const context = canvasRestoreContext(workspace.worktrees ?? [], () => 0, workspace.worktreeChildPosition)
   while (remaining.length > 0) {
     const savedNode = remaining.pop()!
     if (savedNode.kind !== 'terminal' && !savedNode.conversationId) {
@@ -1447,11 +1435,7 @@ export function restoreCanvasWorkspace(
       attachedCounts.set(node.worktreeId, (attachedCounts.get(node.worktreeId) ?? 0) + 1)
     }
   }
-  const context = canvasRestoreContext(
-    worktrees,
-    (worktreeId) => attachedCounts.get(worktreeId) ?? 0,
-    state.agentPermissionModes
-  )
+  const context = canvasRestoreContext(worktrees, (worktreeId) => attachedCounts.get(worktreeId) ?? 0)
 
   const snapSlices: Record<string, WorkspaceSnapSlice> = {}
   const nodes = kinds.flatMap((kind) =>

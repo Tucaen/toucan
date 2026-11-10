@@ -11,7 +11,6 @@ const callbacks = {
   onTitleChange: async () => true,
   onFocusModeChange: () => {},
   onDraftChange: () => {},
-  onPermissionModeChange: () => {},
   onModelChange: () => {},
   onResume: () => {}
 } satisfies TerminalNodeCallbacks

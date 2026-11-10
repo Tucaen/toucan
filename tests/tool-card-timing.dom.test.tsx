@@ -18,7 +18,6 @@ describe('activity timing', () => {
         cwd: '/project',
         enabled: true,
         onSessionId: vi.fn(),
-        onPermissionMode: vi.fn(),
         onModel: vi.fn()
       })
     )
@@ -56,7 +55,6 @@ describe('activity timing', () => {
         cwd: '/project',
         enabled: true,
         onSessionId: vi.fn(),
-        onPermissionMode: vi.fn(),
         onModel: vi.fn()
       })
     )

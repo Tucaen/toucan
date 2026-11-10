@@ -3,7 +3,6 @@ import type { AttentionItem } from '../../shared/attention'
 import type { DictationCleanupPreference } from '../../shared/dictation-cleanup'
 import type { RoutineDelegationPreference } from '../../shared/routine-delegation'
 import type {
-  AgentPermissionModes,
   ComposerSendKey,
   ProjectGroup,
   TicketBoardPanelState,
@@ -24,7 +23,6 @@ export interface WorkspaceSnapshotInput {
   projectGroups: ProjectGroup[]
   activeProjectId: string | null
   sidebarCollapsed: boolean
-  agentPermissionModes: AgentPermissionModes
   composerSendKey: ComposerSendKey
   routineDelegation: RoutineDelegationPreference
   dictationCleanup: DictationCleanupPreference
@@ -56,7 +54,6 @@ function buildWorkspaceSnapshot(input: WorkspaceSnapshotInput): WorkspaceState {
     ...(input.projectGroups.length > 0 ? { projectGroups: input.projectGroups } : {}),
     activeProjectId: input.activeProjectId,
     sidebarCollapsed: input.sidebarCollapsed,
-    agentPermissionModes: input.agentPermissionModes,
     composerSendKey: input.composerSendKey,
     // Absent until the user first touches the preference, so older workspaces keep their shape.
     ...(routineDelegation.enabled || routineDelegation.codexWorkerModelId || routineDelegation.claudeWorkerModelId

@@ -204,7 +204,6 @@ describe('through the conversation', () => {
         cwd: '/project',
         enabled: true,
         onSessionId: vi.fn(),
-        onPermissionMode: vi.fn(),
         onModel: vi.fn()
       })
       const scheduler = useNodeScheduler({
@@ -251,7 +250,6 @@ describe('through the conversation', () => {
         cwd: '/project',
         enabled: true,
         onSessionId: vi.fn(),
-        onPermissionMode: vi.fn(),
         onModel: vi.fn()
       })
     )

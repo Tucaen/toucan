@@ -77,7 +77,6 @@ test('a node unmounted before its start frame fires never spawns a shell', () =>
           onConversationId: vi.fn(),
           onFocusModeChange: vi.fn(),
           onDraftChange: vi.fn(),
-          onPermissionModeChange: vi.fn(),
           onModelChange: vi.fn(),
           onResume: vi.fn()
         }}

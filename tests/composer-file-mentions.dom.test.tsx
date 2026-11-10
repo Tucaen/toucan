@@ -75,7 +75,6 @@ function worktreeChatNode(): TerminalCanvasNode {
     onTitleChange: vi.fn(async () => true),
     onFocusModeChange: vi.fn(),
     onDraftChange: vi.fn(),
-    onPermissionModeChange: vi.fn(),
     onModelChange: vi.fn(),
     onResume: vi.fn(),
     onRemoveWorktree: vi.fn(),

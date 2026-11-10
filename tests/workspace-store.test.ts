@@ -274,7 +274,6 @@ test('saves and loads a valid workspace through the store', async () => {
     ],
     activeProjectId: 'project-1',
     sidebarCollapsed: false,
-    agentPermissionModes: { claude: 'acceptEdits', codex: 'read-only' },
     nodes: [],
     recentlyClosedNodes: [
       {

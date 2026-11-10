@@ -55,7 +55,6 @@ const callbacks = {
   onTitleChange: async () => true,
   onFocusModeChange: () => undefined,
   onDraftChange: () => undefined,
-  onPermissionModeChange: () => undefined,
   onModelChange: () => undefined,
   onResume: () => undefined,
   onRemoveWorktree: () => undefined,
@@ -88,7 +87,6 @@ test('restores saved canvas nodes and ignores nodes whose project is gone', () =
     projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\\Development\\Toucan', color: '#71a9ff' }],
     activeProjectId: 'missing-project',
     sidebarCollapsed: false,
-    agentPermissionModes: { codex: 'read-only' },
     nodes: [
       {
         id: 'node-1',
@@ -132,7 +130,8 @@ test('restores saved canvas nodes and ignores nodes whose project is gone', () =
   assert.equal(nodes[0].data.workingDirectory, 'D:\\Development\\Toucan')
   assert.equal(nodes[0].data.worktreeId, undefined)
   assert.equal(nodes[0].data.focusMode, true)
-  assert.equal(nodes[0].data.preferredPermissionMode, 'read-only')
+  // A restored chat keeps the mode its own conversation carries; nothing is forced onto it.
+  assert.equal(nodes[0].data.preferredPermissionMode, undefined)
   assert.equal(nodes[0].data.modelId, 'gpt-5-codex')
   assert.deepEqual(nodes[0].data.turnOutcomes, state.nodes[0].turnOutcomes)
   assert.equal(nodes[0].data.titleSource, 'manual')
@@ -466,7 +465,8 @@ test('the menu hints are derived from the same bindings the handler reads', () =
 
 test('reopening takes the newest closed session and resumes it at its saved position', () => {
   const state = worktreeState()
-  state.agentPermissionModes = { codex: 'read-only' }
+  // An older snapshot still carries the provider-wide memo of the last mode picked; it is ignored.
+  Object.assign(state, { agentPermissionModes: { codex: 'agent-full-access' } })
   const first = {
     ...state.nodes[0],
     conversationId: 'conversation-1'
@@ -490,7 +490,7 @@ test('reopening takes the newest closed session and resumes it at its saved posi
   assert.equal(reopened.node?.data.launchMode, 'resume')
   assert.equal(reopened.node?.data.dormant, false)
   assert.equal(reopened.node?.data.workingDirectory, 'D:\\Development\\Toucan-worktrees\\feature-login')
-  assert.equal(reopened.node?.data.preferredPermissionMode, 'read-only')
+  assert.equal(reopened.node?.data.preferredPermissionMode, undefined)
 })
 
 test('a reopened session whose worktree vanished stays detached and dormant', () => {

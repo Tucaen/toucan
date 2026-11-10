@@ -89,7 +89,6 @@ export interface AgentConversationOptions {
   composePrompt?(text: string): string | Promise<string>
   enabled: boolean
   onSessionId(sessionId: string): void
-  onPermissionMode(modeId: string): void
   onModel(modelId: string): void
   onEffort?(effortId?: string): void
   /**
@@ -276,7 +275,6 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   const dispatchGateRef = useRef(createDispatchOrderGate())
   const activities = useMemo(() => Object.values(chat.activities), [chat.activities])
   const onSessionId = useRef(options.onSessionId)
-  const onPermissionMode = useRef(options.onPermissionMode)
   const onModel = useRef(options.onModel)
   const onEffort = useRef(options.onEffort)
   const onTerminalContext = useRef(options.onTerminalContext)
@@ -288,9 +286,6 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   useEffect(() => {
     onSessionId.current = options.onSessionId
   }, [options.onSessionId])
-  useEffect(() => {
-    onPermissionMode.current = options.onPermissionMode
-  }, [options.onPermissionMode])
   useEffect(() => {
     onModel.current = options.onModel
   }, [options.onModel])
@@ -575,7 +570,6 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     const result = await window.agentApi.setMode(options.id, modeId)
     if (result.ok) {
       fold({ type: 'local_mode_selected', modeId })
-      onPermissionMode.current(modeId)
       return true
     }
     fold({ type: 'local_detail', message: result.message })

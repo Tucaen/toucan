@@ -19,7 +19,6 @@ const callbacks = {
   onTitleChange: async () => true,
   onFocusModeChange: () => undefined,
   onDraftChange: () => undefined,
-  onPermissionModeChange: () => undefined,
   onModelChange: () => undefined,
   onResume: () => undefined,
   onRemoveWorktree: () => undefined,

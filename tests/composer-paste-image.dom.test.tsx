@@ -16,7 +16,6 @@ function Harness(props: { id: string }): JSX.Element {
     cwd: '/project',
     enabled: true,
     onSessionId: vi.fn(),
-    onPermissionMode: vi.fn(),
     onModel: vi.fn()
   })
   return <ChatView {...conversation} provider="claude" focusMode={false} setFocusMode={vi.fn()} />

@@ -1110,6 +1110,13 @@ export function simplifyAvailableCommands(commands: AvailableCommand[] | null | 
     }))
 }
 
+/**
+ * The permission mode a fresh session starts in when its caller names none. Claude's Auto, not a
+ * mode the adapter takes from the user's settings: a session silently starting in Bypass is what
+ * this rules out. Codex has no Auto, and its adapter default asks before leaving the workspace.
+ */
+const DEFAULT_START_MODE: Partial<Record<AgentProvider, string>> = { claude: 'auto' }
+
 function simplifyModes(
   modes:
     | {
@@ -1871,16 +1878,18 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       const sessionId = running.sessionId
       if (!sessionId) throw new Error('The agent did not return a session ID.')
       running.orchestratorGrant?.setConversation(sessionId)
+      // Only a fresh session is given a mode: a loaded one - resumed, forked, or reopened by a
+      // restart - continues in the mode its own transcript carries.
+      const startMode = resumed
+        ? undefined
+        : (running.request.permissionMode ?? DEFAULT_START_MODE[running.request.provider])
       if (
-        running.request.permissionMode &&
-        modes?.availableModes.some((mode) => mode.id === running.request.permissionMode) &&
-        modes.currentModeId !== running.request.permissionMode
+        startMode &&
+        modes?.availableModes.some((mode) => mode.id === startMode) &&
+        modes.currentModeId !== startMode
       ) {
-        await running.context.request(methods.agent.session.setMode, {
-          sessionId,
-          modeId: running.request.permissionMode
-        })
-        modes = { ...modes, currentModeId: running.request.permissionMode }
+        await running.context.request(methods.agent.session.setMode, { sessionId, modeId: startMode })
+        modes = { ...modes, currentModeId: startMode }
       }
       if (models) {
         const applied = await applySavedModel(running, models)

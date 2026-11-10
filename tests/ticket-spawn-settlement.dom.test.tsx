@@ -66,7 +66,6 @@ const ticket = createSessionCanvasNode(
     onTitleChange: async () => true,
     onFocusModeChange: () => undefined,
     onDraftChange: () => undefined,
-    onPermissionModeChange: () => undefined,
     onModelChange: () => undefined,
     onResume: () => undefined
   }

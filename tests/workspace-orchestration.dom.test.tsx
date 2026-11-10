@@ -21,7 +21,6 @@ const stableSnapshotInput = {
   projectGroups: [],
   activeProjectId: 'project-1',
   sidebarCollapsed: false,
-  agentPermissionModes: {},
   composerSendKey: 'enter',
   routineDelegation: { enabled: false },
   dictationCleanup: { enabled: false },

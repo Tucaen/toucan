@@ -125,7 +125,6 @@ test('submit() delivers directly while ready, and holds the next one locally onc
       cwd: '/project',
       enabled: true,
       onSessionId: vi.fn(),
-      onPermissionMode: vi.fn(),
       onModel: vi.fn()
     })
   )
@@ -178,7 +177,6 @@ test('a queued follow-up can be withdrawn, and the agent never sees it', async (
       cwd: '/project',
       enabled: true,
       onSessionId: vi.fn(),
-      onPermissionMode: vi.fn(),
       onModel: vi.fn()
     })
   )
@@ -215,7 +213,6 @@ test('a queued follow-up can be rewritten before it is sent, and only the rewrit
       cwd: '/project',
       enabled: true,
       onSessionId: vi.fn(),
-      onPermissionMode: vi.fn(),
       onModel: vi.fn()
     })
   )
@@ -247,7 +244,6 @@ test('sendQueuedNow hands one queued prompt to the running turn through promptWh
       cwd: '/project',
       enabled: true,
       onSessionId: vi.fn(),
-      onPermissionMode: vi.fn(),
       onModel: vi.fn()
     })
   )
@@ -278,7 +274,6 @@ test('a sendMessage given mid-turn still goes straight into the running turn, ne
       cwd: '/project',
       enabled: true,
       onSessionId: vi.fn(),
-      onPermissionMode: vi.fn(),
       onModel: vi.fn()
     })
   )
@@ -312,7 +307,6 @@ test('the host-authored user message consumes the optimistic bubble for composed
       enabled: true,
       composePrompt: (text) => `[with context] ${text}`,
       onSessionId: vi.fn(),
-      onPermissionMode: vi.fn(),
       onModel: vi.fn()
     })
   )
@@ -360,7 +354,6 @@ test('each accepted queued send is acknowledged independently and later echoes a
       cwd: '/project',
       enabled: true,
       onSessionId: vi.fn(),
-      onPermissionMode: vi.fn(),
       onModel: vi.fn()
     })
   )
@@ -411,7 +404,6 @@ test('a missing echo for an earlier queued message does not block a later messag
       cwd: '/project',
       enabled: true,
       onSessionId: vi.fn(),
-      onPermissionMode: vi.fn(),
       onModel: vi.fn(),
       // Long enough that the fallback timeout (tested separately below) can't be what clears
       // "queued B" here - only the order-independent match can.
@@ -456,7 +448,6 @@ test('a queued message whose echo never arrives at all still clears its badge vi
       cwd: '/project',
       enabled: true,
       onSessionId: vi.fn(),
-      onPermissionMode: vi.fn(),
       onModel: vi.fn(),
       pendingEchoTimeoutMs: 20
     })
@@ -496,7 +487,6 @@ test('a queued send that expires in the wake gate before reaching the agent rend
       cwd: '/project',
       enabled: true,
       onSessionId: vi.fn(),
-      onPermissionMode: vi.fn(),
       onModel: vi.fn()
     })
   )
@@ -549,7 +539,6 @@ test('a turn failure after ACP echoed the user message does not relabel the acce
       cwd: '/project',
       enabled: true,
       onSessionId: vi.fn(),
-      onPermissionMode: vi.fn(),
       onModel: vi.fn()
     })
   )
@@ -598,7 +587,6 @@ test('a queued send does not fire its echo fallback while promptWhenIdle is stil
       cwd: '/project',
       enabled: true,
       onSessionId: vi.fn(),
-      onPermissionMode: vi.fn(),
       onModel: vi.fn(),
       pendingEchoTimeoutMs: 20
     })

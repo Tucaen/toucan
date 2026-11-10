@@ -31,7 +31,6 @@ const callbacks = {
   onConversationId: vi.fn(),
   onFocusModeChange: vi.fn(),
   onDraftChange: vi.fn(),
-  onPermissionModeChange: vi.fn(),
   onModelChange: vi.fn(),
   onResume: vi.fn()
 }

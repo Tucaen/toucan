@@ -38,7 +38,6 @@ function Harness(props: { nodeId: string; view: SessionMessagingView; dismiss?(k
     cwd: '/project',
     enabled: true,
     onSessionId: vi.fn(),
-    onPermissionMode: vi.fn(),
     onModel: vi.fn()
   })
   return (
