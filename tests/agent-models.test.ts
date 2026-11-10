@@ -1,6 +1,7 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'vitest'
 import type { SessionConfigOption } from '@agentclientprotocol/sdk'
+import { effortSelectorFromConfigOptions } from '../src/shared/agent-effort'
 import { modelSelectorFromConfigOptions } from '../src/shared/agent-models'
 
 const modeOption: SessionConfigOption = {
@@ -86,4 +87,55 @@ test('reports no selector when the agent offers no model choice', () => {
     ]),
     undefined
   )
+})
+
+test("claude-agent-acp 0.104's Fast mode and ultracode toggles never stand in for the model or effort", () => {
+  // The order and shape claude-agent-acp 0.104.0 advertises for a client without boolean options:
+  // both toggles are On/Off selects in `model_config`, listed after model and effort.
+  const toggle = (id: string, name: string): SessionConfigOption => ({
+    id,
+    name,
+    category: 'model_config',
+    type: 'select',
+    currentValue: 'off',
+    options: [
+      { value: 'on', name: 'On' },
+      { value: 'off', name: 'Off' }
+    ]
+  })
+  const configOptions: SessionConfigOption[] = [
+    modeOption,
+    {
+      id: 'model',
+      name: 'Model',
+      category: 'model',
+      type: 'select',
+      currentValue: 'fable',
+      options: [
+        { value: 'opus', name: 'Opus 5.5' },
+        { value: 'fable', name: 'Fable 5.2' }
+      ]
+    },
+    {
+      id: 'effort',
+      name: 'Effort',
+      category: 'thought_level',
+      type: 'select',
+      currentValue: 'high',
+      options: [
+        { value: 'high', name: 'High' },
+        { value: 'xhigh', name: 'Xhigh' }
+      ]
+    },
+    toggle('fast', 'Fast mode'),
+    toggle('ultracode', 'Ultracode')
+  ]
+
+  assert.equal(modelSelectorFromConfigOptions(configOptions)?.configId, 'model')
+  assert.equal(modelSelectorFromConfigOptions(configOptions)?.models.currentModelId, 'fable')
+  assert.equal(effortSelectorFromConfigOptions(configOptions)?.configId, 'effort')
+  // Without the model and effort selectors nothing is offered at all, rather than a toggle as one.
+  const togglesOnly = [modeOption, toggle('fast', 'Fast mode'), toggle('ultracode', 'Ultracode')]
+  assert.equal(modelSelectorFromConfigOptions(togglesOnly), undefined)
+  assert.equal(effortSelectorFromConfigOptions(togglesOnly), undefined)
 })
