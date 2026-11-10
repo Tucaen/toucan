@@ -69,12 +69,12 @@ test('a project override replaces the tiers it names and the skill; the user fil
         implementationSkill: '/tdd'
       }
     },
-    { claude: { tiers: { high: { model: 'opus', effort: 'xhigh' } }, implementationSkill: '/implement-in-worktree' } }
+    { claude: { tiers: { high: { model: 'opus', effort: 'xhigh' } }, implementationSkill: '/ship-it' } }
   )!
   assert.deepEqual(config.tiers.low, { model: 'sonnet' })
   assert.deepEqual(config.tiers.medium, DEFAULT_ORCHESTRATION_CONFIG.tiers.medium)
   assert.deepEqual(config.tiers.high, { model: 'opus', effort: 'xhigh' })
-  assert.equal(config.implementationSkill, '/implement-in-worktree')
+  assert.equal(config.implementationSkill, '/ship-it')
   assert.deepEqual(effectiveOrchestrationConfig('claude', undefined, undefined), DEFAULT_ORCHESTRATION_CONFIG)
 })
 

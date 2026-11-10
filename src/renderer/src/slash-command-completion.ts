@@ -146,7 +146,7 @@ const commandNameEnd = /[^A-Za-z0-9_:-]+$/
  * is what was typed as its arguments - and the prose the command was lifted out of drops below.
  *
  * Only a command the captain took from the menu (`accepted`) moves. A command name the draft
- * merely mentions is prose - "what does /implement-in-worktree do?" asks about the skill rather
+ * merely mentions is prose - "what does /implement do?" asks about the skill rather
  * than calling it, and hoisting that would invoke it - so a mention is left exactly where it is.
  * A draft already opening with a command needs no hoist at all; it is only trimmed, so leading
  * whitespace can't push it off offset 0 where the CLI stops seeing it.

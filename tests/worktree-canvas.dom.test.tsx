@@ -68,7 +68,7 @@ async function mount(state: WorkspaceState): Promise<{ harness: AppHarness; crea
     apis: {
       agentApi: agent.api as unknown as Record<string, unknown>,
       worktreeApi: {
-        discover: vi.fn(async () => ({ worktrees: [], claims: [] })),
+        discover: vi.fn(async () => ({ worktrees: [] })),
         status: vi.fn(async () => null)
       }
     }

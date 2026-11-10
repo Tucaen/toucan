@@ -557,7 +557,7 @@ test('a turn failure after ACP echoed the user message does not relabel the acce
   await waitFor(() => expect(result.current.status).toBe('ready'))
 
   act(() => {
-    result.current.submit(fakeSubmitEvent(), '/$toucan-project-skills:implement-in-worktree the idea written down in…')
+    result.current.submit(fakeSubmitEvent(), '/$toucan-project-skills:implement the idea written down in…')
   })
   await waitFor(() => expect(result.current.messages).toHaveLength(1))
 
@@ -565,7 +565,7 @@ test('a turn failure after ACP echoed the user message does not relabel the acce
     type: 'message',
     role: 'user',
     messageId: 'accepted-prompt',
-    text: '/$toucan-project-skills:implement-in-worktree the idea written down in…'
+    text: '/$toucan-project-skills:implement the idea written down in…'
   })
   resolveTurn?.({ ok: false, message: 'The agent turn failed after accepting the prompt.' })
 

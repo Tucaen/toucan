@@ -4527,13 +4527,6 @@ button.global-status-chip:hover {
   letter-spacing: 0.08em;
 }
 
-/* Work started in a worktree the node does not run in: present, but visibly weaker than
-   the badge for a node whose own working directory is the worktree. */
-.node-worktree[data-active='true'] {
-  border-style: dashed;
-  opacity: 0.75;
-}
-
 .worktree-node {
   position: relative;
   width: 100%;

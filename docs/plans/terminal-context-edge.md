@@ -109,10 +109,9 @@ how much retained output the size cap skipped.
   already composes). Sessions without an edge carry zero extra tokens.
 - **Mid-session edge adoption**: `mcpServers`, like `additionalDirectories`, is fixed at creation,
   so drawing an edge onto a running session restarts it at the next safe boundary — `idle`,
-  `result`, `dormant`, `exited`, never `working`/`starting`/`attention`/`stalled` — the
-  worktree-claim-adoption pattern (`adoptClaimedWorktrees`); the resume replays the transcript and
-  the recreated session carries the tool. Unlike worktree adoption this is not Codex-only: the cwd
-  does not change, so Claude's directory-scoped resume is safe. Removing an edge forces nothing:
+  `result`, `dormant`, `exited`, never `working`/`starting`/`attention`/`stalled`; the resume replays the
+  transcript and the recreated session carries the tool. It works for both providers: the cwd does
+  not change, so Claude's directory-scoped resume is safe. Removing an edge forces nothing:
   the call-time registry check already refuses, and the definition drops off at the next natural
   resume.
 - MCP `tools/list_changed` (always-connected server advertising zero tools until an edge exists)
@@ -128,8 +127,7 @@ how much retained output the size cap skipped.
 - Session gating: `mcpServers` populated only with an edge, on both `session/new` and
   `session/load`, against the scripted adapter (slice 3, beside
   `tests/acp-session-manager-launch.test.ts`).
-- Adoption: edge drawn mid-session restarts only at a safe boundary (the worktree-adoption test
-  shape).
+- Adoption: edge drawn mid-session restarts only at a safe boundary (`tests/terminal-context-edges.test.ts`).
 - Live smoke per provider, deliberately outside `npm test` (it needs a real dev server, account
   tokens and a drawn edge): start `npm run dev` in a plain terminal node, draw its edge onto a
   chat node of the provider under test, ask the agent to break and fix a renderer file while

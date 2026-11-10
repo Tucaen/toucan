@@ -111,11 +111,6 @@ export interface WorkspaceTerminalNode {
    */
   worktreeId?: string
   /**
-   * A worktree this node started work in without running there: the session keeps its own
-   * working directory, so this is an association for the canvas, never a cwd.
-   */
-  activeWorktreeId?: string
-  /**
    * Which canvas `position` is measured on. `'worktree'` means the inner canvas of the worktree
    * named by `worktreeId`, where every attached chat is shown; absent means the main canvas, which
    * is also how every snapshot written before worktrees hosted chats reads - restore moves those

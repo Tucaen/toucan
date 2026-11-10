@@ -1,9 +1,8 @@
 import { execFile } from 'node:child_process'
 import { hiddenProcessOptions } from './background-process'
-import { existsSync, readFileSync, lstatSync } from 'node:fs'
+import { existsSync, lstatSync } from 'node:fs'
 import { join } from 'node:path'
 import type {
-  WorktreeClaim,
   WorktreeCreateRequest,
   WorktreeCreateResult,
   WorktreeDiscoverRequest,
@@ -15,12 +14,10 @@ import type {
   WorktreeStatusRequest
 } from '../shared/worktree'
 import {
-  WORKTREE_CLAIMS_FILE,
   branchNameProblem,
   deriveWorktreeDirectory,
   discoverWorktrees,
   isForcibleBlocker,
-  matchWorktreeClaims,
   normalizeWorktreePath,
   worktreePathKey,
   parseWorktreeList
@@ -38,27 +35,6 @@ import {
 import type { GitDiffRequest, GitDiffSummary, GitFileDiff, GitFileDiffRequest } from '../shared/git-diff'
 import { changedFilesFromGit, parseUnifiedDiff } from '../shared/git-diff'
 import { describeRemovalFailure, detachLinks, removeTree } from './worktree-leftover'
-
-/**
- * Claims are a hint written by an agent, so every failure mode - missing file, malformed
- * JSON, an entry of the wrong shape - costs the association and nothing else.
- */
-function readClaims(path: string): WorktreeClaim[] {
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'))
-    if (!Array.isArray(parsed)) return []
-    return parsed.filter(
-      (claim): claim is WorktreeClaim =>
-        Boolean(claim) &&
-        typeof claim === 'object' &&
-        typeof (claim as WorktreeClaim).nodeId === 'string' &&
-        typeof (claim as WorktreeClaim).path === 'string' &&
-        typeof (claim as WorktreeClaim).branch === 'string'
-    )
-  } catch {
-    return []
-  }
-}
 
 export interface GitResult {
   /** A git exit status, or `GIT_LAUNCH_FAILED` when git never ran at all. */
@@ -128,9 +104,9 @@ export interface WorktreeManager {
    */
   remove(request: WorktreeRemoveRequest): Promise<WorktreeRemoveResult>
   /**
-   * Every worktree git knows about that the workspace has no record of, plus any authorship
-   * claim an agent left behind. Read-only and best-effort: a repository that cannot be
-   * inspected reports nothing rather than failing the caller.
+   * Every worktree git knows about that the workspace has no record of. Read-only and
+   * best-effort: a repository that cannot be inspected reports nothing rather than failing the
+   * caller.
    */
   discover(request: WorktreeDiscoverRequest): Promise<WorktreeDiscoverResult>
   /**
@@ -458,11 +434,9 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
       try {
         const listed = await runGit(['worktree', 'list', '--porcelain'], request.projectPath)
         if (listed.code !== 0) {
-          return { worktrees: [], claims: [], message: gitFailureMessage(listed, 'git worktree list failed') }
+          return { worktrees: [], message: gitFailureMessage(listed, 'git worktree list failed') }
         }
 
-        const commonDir = (await readCommonDir(request.projectPath)).path
-        const claims = commonDir ? readClaims(join(commonDir, WORKTREE_CLAIMS_FILE)) : []
         const defaultBranch = await resolveBaseRef(request.projectPath)
         const entries = parseWorktreeList(listed.stdout)
         // An empty/malformed successful response is not evidence of absence. lstat preserves
@@ -493,11 +467,10 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
             entries,
             request.known.map((path) => ({ path })),
             defaultBranch
-          ),
-          claims: matchWorktreeClaims(entries, claims)
+          )
         }
       } catch (error) {
-        return { worktrees: [], claims: [], message: errorMessage(error) }
+        return { worktrees: [], message: errorMessage(error) }
       }
     },
 

@@ -223,7 +223,7 @@ test('an edge whose endpoint vanished or is the wrong kind mirrors as nothing', 
   assert.deepEqual(mirroredTerminalContextEdges(nodes, stale), [])
 })
 
-// Mid-session adoption (the worktree-claim pattern): an edge drawn onto a running session
+// Mid-session adoption: an edge drawn onto a running session
 // restarts it at a safe boundary so the recreated session carries the read tool.
 
 const edgeToChat: Edge[] = [{ id: 'edge', source: 'terminal-node', target: 'chat-node' }]

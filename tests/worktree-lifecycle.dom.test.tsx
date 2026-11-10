@@ -10,7 +10,7 @@ import { DEFAULT_PROJECT, renderApp, savedWorkspace, type AppHarness } from './d
 
 /**
  * Issue #26 end to end, through the real `App`: every way a conversation is opened or adopted -
- * Add chat, a handoff, a late claim, a branch, History, Ctrl+Shift+T - lands it on the canvas of
+ * Add chat, a branch, History, Ctrl+Shift+T - lands it on the canvas of
  * the worktree it runs in, exactly once and with one owner; closing a chat is the ordinary
  * per-node close and never touches the checkout; and removal keeps its evidence-based gate.
  */
@@ -54,11 +54,6 @@ function insideWorktree(id: string): boolean {
   return shown.length === 1 && shown[0].closest('.worktree-canvas') !== null
 }
 
-function onMainCanvas(id: string): boolean {
-  const shown = canvasNodes(id)
-  return shown.length === 1 && shown[0].closest('.worktree-canvas') === null
-}
-
 interface Mounted {
   harness: AppHarness
   create: ReturnType<typeof vi.fn>
@@ -89,7 +84,7 @@ async function mount(
     apis: {
       agentApi: agent.api as unknown as Record<string, unknown>,
       worktreeApi: {
-        discover: vi.fn(options.discover ?? (async () => ({ worktrees: [], claims: [] }))),
+        discover: vi.fn(options.discover ?? (async () => ({ worktrees: [] }))),
         status: vi.fn(async () => null),
         remove,
         create: worktreeCreate
@@ -215,71 +210,6 @@ describe('opening a conversation keeps it inside its worktree', () => {
     expect(await screen.findByText('Worktree no longer available')).toBeInTheDocument()
     expect(create).not.toHaveBeenCalled()
     expect(harness.saved.every((snapshot) => snapshot.nodes.length === 0)).toBe(true)
-  })
-
-  test('a late claim moves a resting Codex chat into its worktree and leaves a Claude chat where it runs', async () => {
-    const codex = chat('codex-main', 'codex', {
-      worktreeId: undefined,
-      placement: undefined,
-      position: { x: 1400, y: 0 }
-    })
-    const claude = chat('claude-main', 'claude', {
-      worktreeId: undefined,
-      placement: undefined,
-      position: { x: 1400, y: 500 }
-    })
-    // The claims the agents wrote, found by the first sweep - which runs while both chats are
-    // still starting, so the move waits for the boundary rather than happening on discovery.
-    const claims = [
-      { nodeId: 'codex-main', path: WORKTREE_PATH },
-      { nodeId: 'claude-main', path: WORKTREE_PATH }
-    ]
-    const { harness, create } = await mount(savedWorkspace({ nodes: [codex, claude], worktrees: [worktree] }), {
-      discover: async () => ({ worktrees: [], claims })
-    })
-
-    await waitFor(() => expect(insideWorktree('codex-main')).toBe(true))
-
-    // The Codex chat resumed its own conversation in the worktree; the Claude chat, whose transcript
-    // cannot follow it, kept running in the project checkout and on the main canvas.
-    await waitFor(() => expect(create).toHaveBeenCalledTimes(3))
-    expect(createRequests(create)[2]).toMatchObject({
-      provider: 'codex',
-      cwd: WORKTREE_PATH,
-      sessionId: 'conversation-codex-main'
-    })
-    expect(onMainCanvas('claude-main')).toBe(true)
-    await waitFor(() =>
-      expect(lastSaved(harness).nodes.find((node) => node.id === 'codex-main')).toMatchObject({
-        worktreeId: 'w1',
-        placement: 'worktree'
-      })
-    )
-    expect(lastSaved(harness).nodes.find((node) => node.id === 'claude-main')?.worktreeId).toBeUndefined()
-  })
-
-  test('a worktree handoff from an empty chat moves that chat into the new worktree rather than leaving it behind', async () => {
-    const fresh = chat('fresh', 'claude', {
-      worktreeId: undefined,
-      placement: undefined,
-      position: { x: 1400, y: 0 }
-    })
-    const { harness, create, worktreeCreate } = await mount(savedWorkspace({ nodes: [fresh] }))
-    await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
-
-    const composer = canvasNodes('fresh')[0].querySelector('textarea')!
-    fireEvent.change(composer, { target: { value: '/implement-in-worktree tidy the login form' } })
-    fireEvent.keyDown(composer, { key: 'Enter' })
-
-    await waitFor(() => expect(worktreeCreate).toHaveBeenCalledTimes(1))
-    await waitFor(() => expect(insideWorktree('fresh')).toBe(true))
-    // One chat, in the worktree, started there as a new conversation carrying the prompt.
-    await waitFor(() => expect(create).toHaveBeenCalledTimes(2))
-    const moved = createRequests(create)[1]
-    expect(moved).toMatchObject({ provider: 'claude', cwd: 'D:\\Development\\Toucan-worktrees\\handoff' })
-    await waitFor(() => expect(lastSaved(harness).nodes).toHaveLength(1))
-    expect(lastSaved(harness).nodes[0]).toMatchObject({ id: 'fresh', placement: 'worktree' })
-    expect(lastSaved(harness).worktrees).toHaveLength(1)
   })
 })
 

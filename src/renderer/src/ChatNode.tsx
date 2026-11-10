@@ -70,7 +70,6 @@ import { SubagentActivitiesContext, indexSubagentActivities } from './subagent-t
 import { worklogActivities } from './worklog-activities'
 import { formatReasoningSize, mergeReasoningEntries, reasoningTailLine, type ReasoningBlock } from './reasoning-blocks'
 import { WorkspaceRootsContext } from './workspace-root'
-import { buildHandoffPrompt, planWorktreeHandoff } from '../../shared/worktree-handoff'
 import type { TerminalCanvasNode } from './canvas-workspace'
 import NodeFitAction from './NodeFitAction'
 import { SessionConnectionsButton } from './SessionConnections'
@@ -1242,54 +1241,11 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
       </>
     )
   /**
-   * A prompt asking for its own worktree never runs here. It goes up to the workspace, which
-   * starts a session whose working directory is the worktree from its first turn - the only
-   * shape in which the worktree can be a writable root rather than an approval prompt. A node
-   * already running in a worktree is where such work belongs, so it dispatches normally.
-   *
-   * Returns whether the prompt was handed off; when it was not, the caller dispatches it here.
-   */
-  const handOffToWorktree = (prompt: string): boolean => {
-    // Mid-turn, the prompt queues as any follow-up does rather than moving a session that is
-    // still working. It runs where it was typed when the outbox drains, which is visible in the
-    // composer queue - unlike tearing down a session with a turn in flight.
-    const handoff = status === 'working' ? undefined : data.onWorktreeHandoff
-    const plan = handoff
-      ? planWorktreeHandoff(prompt, {
-          hasHistory: messages.length > 0,
-          alreadyInWorktree: Boolean(data.worktreeId),
-          provider
-        })
-      : null
-    if (!handoff || !plan) return false
-    // The dialogue is read here because this is where it lives; the workspace only ever sees
-    // the finished prompt, never a transcript it would have to go and fetch.
-    handoff(id, {
-      ...plan,
-      prompt: plan.mode === 'handoff' ? buildHandoffPrompt(messages, plan.prompt) : plan.prompt
-    })
-    return true
-  }
-
-  const submit: FlatChatViewProps['submit'] = (event, prompt, onPrepared) => {
-    if (!handOffToWorktree(prompt)) {
-      conversation.submit(event, prompt, onPrepared)
-      return
-    }
-    event.preventDefault()
-    data.onDraftChange(id, '')
-    onPrepared?.()
-  }
-
-  /**
    * Scheduled messages (issue #21) are the node's, persisted with it like the draft. One that
-   * comes due is submitted as Send would submit it at that moment - queued behind a running turn,
-   * or taking the worktree handoff when it asks for one - except that it never touches the draft
-   * being typed now. A handoff carries text only, so a message with images skips it rather than
-   * losing them.
+   * comes due is submitted as Send would submit it at that moment - queued behind a running turn -
+   * except that it never touches the draft being typed now.
    */
   const deliverScheduled = (entry: ScheduledMessage): void => {
-    if (entry.images.length === 0 && handOffToWorktree(entry.text)) return
     conversation.submitContent(entry.text, entry.images)
   }
   const onScheduledMessagesChange = data.onScheduledMessagesChange
@@ -1572,7 +1528,7 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
               queued: conversation.queued,
               addImages: conversation.addImages,
               removeAttachment: conversation.removeAttachment,
-              submit,
+              submit: conversation.submit,
               editQueued: conversation.editQueued,
               withdrawQueued: conversation.withdrawQueued,
               sendQueuedNow: conversation.sendQueuedNow,

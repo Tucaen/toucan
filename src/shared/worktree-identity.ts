@@ -17,12 +17,9 @@ export function normalizeWorkspaceWorktrees(state: WorkspaceState): WorkspaceSta
     paths.set(key, worktree.id)
     return [{ ...worktree, path: normalizeWorktreePath(worktree.path) }]
   })
-  const remap = <T extends { worktreeId?: string; activeWorktreeId?: string }>(node: T): T => ({
+  const remap = <T extends { worktreeId?: string }>(node: T): T => ({
     ...node,
-    ...(node.worktreeId && aliases.has(node.worktreeId) ? { worktreeId: aliases.get(node.worktreeId) } : {}),
-    ...(node.activeWorktreeId && aliases.has(node.activeWorktreeId)
-      ? { activeWorktreeId: aliases.get(node.activeWorktreeId) }
-      : {})
+    ...(node.worktreeId && aliases.has(node.worktreeId) ? { worktreeId: aliases.get(node.worktreeId) } : {})
   })
   return {
     ...state,

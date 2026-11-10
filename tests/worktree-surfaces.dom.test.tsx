@@ -107,7 +107,7 @@ async function mount(state: WorkspaceState, agent = createMockAgentApi()): Promi
         onChange: () => () => undefined
       },
       worktreeApi: {
-        discover: vi.fn(async () => ({ worktrees: [], claims: [] })),
+        discover: vi.fn(async () => ({ worktrees: [] })),
         status: vi.fn(async () => null),
         remove,
         diff: vi.fn(async () => ({ ok: true, files: [] })),

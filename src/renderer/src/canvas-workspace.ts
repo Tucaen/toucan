@@ -16,7 +16,6 @@ import { defaultFileViewMode, type FileViewMode, type WorkspaceFileNode } from '
 import type { WorkspaceDiffNode } from '../../shared/git-diff'
 import type { WorkspaceWorktree, WorktreeViewport } from '../../shared/worktree'
 import { normalizeWorktreePath } from '../../shared/worktree'
-import type { WorktreeHandoffPlan } from '../../shared/worktree-handoff'
 import type { ConversationTitleSource } from '../../shared/conversation-title'
 import type { ChatNodeRole } from '../../shared/orchestration'
 import type { OrchestratorLink } from '../../shared/ticket-session-spawn'
@@ -89,12 +88,6 @@ export interface TerminalNodeCallbacks {
    * job, and because the child needs the parent's project and worktree, not just its session.
    */
   onBranch?(nodeId: string): void
-  /**
-   * A prompt that asked for its own worktree. The composer hands it up rather than dispatching
-   * it, so the work starts in a session whose working directory is the worktree from its first
-   * turn - which is the only way it can be granted as a writable root.
-   */
-  onWorktreeHandoff?(nodeId: string, request: WorktreeHandoffPlan): void
 }
 
 interface CanvasNodePresentation {
@@ -125,9 +118,6 @@ export interface TerminalNodeData
   worktreeId?: string
   /** Shown on the node so it is always obvious which branch a session is editing. */
   worktreeBranch?: string
-  /** A worktree this node started work in but does not run in; drawn as a link, never a cwd. */
-  activeWorktreeId?: string
-  activeWorktreeBranch?: string
   /**
    * Where this session actually runs: the attached worktree's directory, or the project
    * checkout when unattached. This is the only value that should ever be sent as a cwd.
@@ -715,7 +705,6 @@ export function serializeCanvasNode(node: TerminalCanvasNode): WorkspaceTerminal
     ...(node.data.titleSource ? { titleSource: node.data.titleSource } : {}),
     projectId: node.data.projectId,
     ...(node.data.worktreeId ? { worktreeId: node.data.worktreeId } : {}),
-    ...(node.data.activeWorktreeId ? { activeWorktreeId: node.data.activeWorktreeId } : {}),
     // The position is on the worktree's canvas exactly when the node is shown there.
     ...(isWorktreeCanvasChild(node) ? { placement: 'worktree' as const } : {}),
     position: node.position,
@@ -822,10 +811,6 @@ function restoreTerminalCanvasNode(
       projectColor: project.color,
       worktreeId: worktree?.id,
       worktreeBranch: worktree?.branch,
-      activeWorktreeId: savedNode.activeWorktreeId,
-      activeWorktreeBranch: savedNode.activeWorktreeId
-        ? context.worktreeById(savedNode.activeWorktreeId)?.branch
-        : undefined,
       workingDirectory: worktree?.path ?? project.path,
       detachedFromWorktree,
       conversationId: savedNode.conversationId,
@@ -862,8 +847,7 @@ function restoreTerminalCanvasNode(
       onTerminalContext: callbacks.onTerminalContext,
       onTranscriptPresence: callbacks.onTranscriptPresence,
       onForkSupport: callbacks.onForkSupport,
-      onBranch: callbacks.onBranch,
-      onWorktreeHandoff: callbacks.onWorktreeHandoff
+      onBranch: callbacks.onBranch
     },
     style: { width: savedNode.width, height: savedNode.height }
   }

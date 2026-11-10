@@ -235,29 +235,11 @@ export interface WorktreeListEntry {
   prunable?: true
 }
 
-/**
- * A note left by an agent that created a worktree for itself, so the node that asked for
- * the work can be linked to it. Written by the agent, never by Toucan, so it is read as a
- * hint: an unmatched or stale claim only costs the association, never the worktree record.
- */
-export interface WorktreeClaim {
-  nodeId: string
-  path: string
-  branch: string
-  claimedAt: string
-}
-
 /** A worktree git knows about that Toucan has no record of yet. */
 export interface DiscoveredWorktree {
   path: string
   branch: string
   baseRef: string
-}
-
-/** A claim matched to a worktree git actually lists, whether or not Toucan already records it. */
-export interface WorktreeClaimMatch {
-  path: string
-  nodeId: string
 }
 
 /** Paths come back from git with forward slashes even on Windows, so compare on one shape. */
@@ -302,27 +284,6 @@ export function discoverWorktrees(
       return true
     })
     .map((entry) => ({ path: normalizeWorktreePath(entry.path), branch: entry.branch, baseRef: defaultBranch }))
-}
-
-/**
- * Claims are reported for every worktree git lists, not only the newly discovered ones. The
- * agent writes its claim after `git worktree add` and after the project's setup command has
- * run, which can easily be minutes; a sweep in between records the worktree first, and a claim
- * that only ever reached unrecorded worktrees would then be lost for good. The last claim for a
- * path wins, since the file is appended to and a directory can be created more than once.
- */
-export function matchWorktreeClaims(
-  listed: readonly WorktreeListEntry[],
-  claims: readonly WorktreeClaim[]
-): WorktreeClaimMatch[] {
-  const claimedBy = new Map(claims.map((claim) => [worktreePathKey(claim.path), claim.nodeId]))
-
-  return listed
-    .filter((entry) => !entry.isMain && entry.branch)
-    .flatMap((entry) => {
-      const nodeId = claimedBy.get(worktreePathKey(entry.path))
-      return nodeId ? [{ path: entry.path, nodeId }] : []
-    })
 }
 
 /**
@@ -376,16 +337,8 @@ export interface WorktreeDiscoverResult {
   stalePaths?: string[]
   /** Registered paths, allowing a retained unavailable record to recover on a later sweep. */
   availablePaths?: string[]
-  /** Every claim git's listing backs, so one that arrives after discovery still finds its node. */
-  claims: WorktreeClaimMatch[]
   message?: string
 }
-
-/**
- * Claims live in the repository's common git directory, so every worktree of the same
- * repository reads and writes one file, and nothing lands in the user's global config.
- */
-export const WORKTREE_CLAIMS_FILE = 'toucan-worktree-claims.json'
 
 export interface WorktreeApi {
   create(request: WorktreeCreateRequest): Promise<WorktreeCreateResult>

@@ -38,7 +38,6 @@ import type { WorktreeRemovalBlocker, WorktreeViewport } from '../../shared/work
 import { worktreePathKey } from '../../shared/worktree'
 import type { FileViewMode } from '../../shared/file-view'
 import { pathIdentity, pathWithinRoot } from '../../shared/paths'
-import { placeholderBranchName, type WorktreeHandoffPlan } from '../../shared/worktree-handoff'
 import { AppHeader, type CanvasNotice } from './AppHeader'
 import { ticketBoardKeyAction } from './ticket-board-layout'
 import { ticketSessionsFromNodes, type TicketActivityReport } from './ticket-activity'
@@ -95,7 +94,6 @@ import { branchBlockedReason, lineageEdges, lineageKey, offersBranchAction, plan
 import { orchestratedEdges, orchestratedKey } from './orchestration-edges'
 import { launchModeAfterConversation, relaunchInPlace } from './session-launch-mode'
 import { nodeHoldingConversation, planHistoryOpen } from './history-open'
-import { isAgentProvider } from '../../shared/agent-provider'
 import { useTicketsFolderRevision } from './use-tickets-folder-revision'
 import { useWorkspaceSnapshot } from './use-workspace-snapshot'
 import { COMPOSER_SEND_KEY_DEFAULT } from './composer-keys'
@@ -148,14 +146,7 @@ import {
   type WorktreeRemovalPrompt
 } from './WorkspaceDialogs'
 import { planWorktreeRemoval } from './worktree-removal'
-import {
-  adoptClaimedWorktrees,
-  applyAttachedNodeCounts,
-  applyWorktreeClaims,
-  moveChatIntoWorktree,
-  registerWorktreeNode,
-  reconcileStaleWorktrees
-} from './worktree-attachment'
+import { applyAttachedNodeCounts, registerWorktreeNode, reconcileStaleWorktrees } from './worktree-attachment'
 import WorktreeNode from './WorktreeNode'
 import { summarizeWorktrees } from './worktree-overview'
 import {
@@ -203,7 +194,7 @@ import { nodeSearchKeyAction } from './node-search'
 import { NodeSearchContext, NO_NODE_SEARCH_REQUEST, type NodeSearchRequest } from './node-search-context'
 import { useNodeSnap, type NodeSnapCanvases } from './use-node-snap'
 import { useProjectAvatars } from './use-project-avatars'
-import { createWorktreeCreator, WORKTREE_CREATE_FAILED } from './worktree-creation'
+import { createWorktreeCreator } from './worktree-creation'
 import type { AgentProvider } from '../../shared/agent-provider'
 
 type Project = WorkspaceProject
@@ -663,16 +654,9 @@ function Canvas(): JSX.Element {
   const projectsRef = useRef<Project[]>([])
   const permissionModesRef = useRef<AgentPermissionModes>({})
   const recentlyClosedNodesRef = useRef<WorkspaceTerminalNode[]>([])
-  // Held in a ref because the handler is declared after the node factories that hand it out,
-  // and because a node's stored callback must not go stale as the handler is recreated.
-  const handleWorktreeHandoffRef = useRef<TerminalNodeCallbacks['onWorktreeHandoff']>(undefined)
-  /** Stable identity for node data; reads the ref at call time so it can never go stale. */
-  const dispatchWorktreeHandoff = useCallback<NonNullable<TerminalNodeCallbacks['onWorktreeHandoff']>>(
-    (nodeId, request) => handleWorktreeHandoffRef.current?.(nodeId, request),
-    []
-  )
-  // Branching places a node, so its handler is built on `addSessionNode` further down; same ref
-  // indirection, for the same two reasons.
+  // Branching places a node, so its handler is built on `addSessionNode` further down. Held in a
+  // ref because the handler is declared after the node factories that hand it out, and because a
+  // node's stored callback must not go stale as the handler is recreated.
   const handleBranchRef = useRef<TerminalNodeCallbacks['onBranch']>(undefined)
   // Reopening a closed chat focuses the node that already holds its conversation, and focusing is
   // built on the viewport further down; same ref pattern.
@@ -1078,8 +1062,7 @@ function Canvas(): JSX.Element {
         onTerminalContext: handleTerminalContext,
         onTranscriptPresence: handleTranscriptPresence,
         onForkSupport: handleForkSupport,
-        onBranch: dispatchBranch,
-        onWorktreeHandoff: dispatchWorktreeHandoff
+        onBranch: dispatchBranch
       }
     )
     recentlyClosedNodesRef.current = result.recentlyClosedNodes
@@ -1098,7 +1081,6 @@ function Canvas(): JSX.Element {
     setNodeStatuses((current) => ({ ...current, [reopened.id]: sessionNodeStatus(reopened) }))
     return true
   }, [
-    dispatchWorktreeHandoff,
     dispatchBranch,
     handleAttention,
     handleConversationId,
@@ -1221,8 +1203,7 @@ function Canvas(): JSX.Element {
           onTerminalContext: handleTerminalContext,
           onTranscriptPresence: handleTranscriptPresence,
           onForkSupport: handleForkSupport,
-          onBranch: dispatchBranch,
-          onWorktreeHandoff: dispatchWorktreeHandoff
+          onBranch: dispatchBranch
         }
       )
       setNodes((current) => {
@@ -1237,7 +1218,6 @@ function Canvas(): JSX.Element {
     },
     [
       dispatchBranch,
-      dispatchWorktreeHandoff,
       handleAttention,
       handleConversationId,
       handleDraftChange,
@@ -1528,8 +1508,8 @@ function Canvas(): JSX.Element {
   )
 
   /**
-   * The worktree node's callbacks in one bag, so every site that builds one - the dialog, a
-   * handoff, the discovery sweep, a restore - hands `createWorktreeCanvasNode` the same set.
+   * The worktree node's callbacks in one bag, so every site that builds one - the dialog, the
+   * discovery sweep, a restore - hands `createWorktreeCanvasNode` the same set.
    */
   const worktreeCallbacks = useMemo<WorktreeNodeCallbacks>(
     () => ({
@@ -1549,103 +1529,6 @@ function Canvas(): JSX.Element {
       handleWorktreeViewportChange
     ]
   )
-
-  /**
-   * A prompt that asked for its own worktree. The worktree is made first and the session is
-   * started inside it, so the agent's working directory is the worktree from its first turn -
-   * the only arrangement in which the worktree is a writable root rather than a permission
-   * prompt on every edit. The branch is provisional: the skill renames it once it has read
-   * the work, which beats guessing a name from the prompt.
-   */
-  const handleWorktreeHandoff = useCallback(
-    (nodeId: string, request: WorktreeHandoffPlan): void => {
-      const node = nodesRef.current.filter(isTerminalCanvasNode).find((candidate) => candidate.id === nodeId)
-      const project = projectsRef.current.find((candidate) => candidate.id === node?.data.projectId)
-      if (!node || !project || node.data.kind === 'terminal') return
-
-      void window.worktreeApi
-        .create({ projectPath: project.path, branch: placeholderBranchName(new Date()) })
-        .then((result) => {
-          if (!result.ok || !result.worktree) {
-            // Nothing was created, so the prompt goes back to the composer it was typed in rather
-            // than being silently discarded, and the failure surfaces in the dialog that already
-            // exists for making a worktree by hand - which doubles as the retry.
-            handleDraftChange(nodeId, request.prompt)
-            setWorktreeDraft({
-              projectId: project.id,
-              branch: '',
-              baseRef: '',
-              // Its retry opens a chat as well, on the provider the prompt was typed into.
-              provider: isAgentProvider(node.data.kind) ? node.data.kind : 'claude',
-              position: { x: node.position.x, y: node.position.y + (node.height ?? 340) + 64 },
-              busy: false,
-              error: result.message ?? WORKTREE_CREATE_FAILED
-            })
-            return
-          }
-          const worktreeId = crypto.randomUUID()
-          const created = result.worktree
-          const worktreeNode = createWorktreeCanvasNode(
-            {
-              worktreeId,
-              branch: created.branch,
-              path: created.path,
-              baseRef: created.baseRef,
-              createdAt: new Date().toISOString(),
-              position: { x: node.position.x, y: node.position.y + (node.height ?? 340) + 64 }
-            },
-            project,
-            worktreeCallbacks
-          )
-          setNodes((current) =>
-            registerWorktreeNode(
-              current.map((candidate) => ({ ...candidate, selected: false })),
-              worktreeNode
-            )
-          )
-
-          if (request.mode === 'handoff') {
-            addSessionNode({
-              kind: node.data.kind,
-              project,
-              worktree: worktreeNode.data,
-              position: node.position,
-              initialInput: request.prompt
-            })
-            return
-          }
-
-          // The chat itself moves rather than a second one appearing beside it, so the work has
-          // exactly one chat and it is the one the prompt was typed into. `rehome` carries the
-          // conversation - Codex can load it in a directory it did not start in - and `fresh` has
-          // none to carry, so it starts a new one there on either provider (Claude under a new id:
-          // its conversations are scoped to the directory they started in).
-          setNodes((current) => {
-            const registered = current
-              .filter(isWorktreeCanvasNode)
-              .find(
-                (worktree) =>
-                  worktree.data.projectId === project.id &&
-                  worktreePathKey(worktree.data.path) === worktreePathKey(created.path)
-              )
-            return moveChatIntoWorktree(
-              current,
-              nodeId,
-              { worktreeId: registered?.data.worktreeId ?? worktreeId, branch: created.branch, path: created.path },
-              request.mode === 'rehome'
-                ? { launchMode: 'resume', initialInput: request.prompt }
-                : {
-                    launchMode: 'new',
-                    conversationId: node.data.kind === 'claude' ? crypto.randomUUID() : undefined,
-                    initialInput: request.prompt
-                  }
-            )
-          })
-        })
-    },
-    [addSessionNode, handleDraftChange, setNodes, worktreeCallbacks]
-  )
-  handleWorktreeHandoffRef.current = handleWorktreeHandoff
 
   const confirmWorktreeRemoval = useCallback(
     (force: boolean): void => {
@@ -1709,7 +1592,6 @@ function Canvas(): JSX.Element {
         onTranscriptPresence: handleTranscriptPresence,
         onForkSupport: handleForkSupport,
         onBranch: dispatchBranch,
-        onWorktreeHandoff: dispatchWorktreeHandoff,
         ...worktreeCallbacks,
         onViewModeChange: handleFileViewModeChange,
         onRequestFilePath: handleRequestFilePath,
@@ -1741,7 +1623,6 @@ function Canvas(): JSX.Element {
     [
       nodeFit,
       dispatchBranch,
-      dispatchWorktreeHandoff,
       handleAttention,
       handleConversationId,
       handleDraftChange,
@@ -1948,16 +1829,6 @@ function Canvas(): JSX.Element {
   }, [nodes, projects, setNodes])
 
   /**
-   * A worktree an agent made for itself is discovered with a claim naming the node that asked
-   * for the work, but a claim is only an association until the node can safely move. Redeeming
-   * it restarts the session in the worktree, so it waits for a boundary where there is no turn
-   * to lose - and then the node is genuinely attached, counted, and persisted as such.
-   */
-  useEffect(() => {
-    setNodes((current) => adoptClaimedWorktrees(current, nodeStatuses))
-  }, [nodeStatuses, nodes, setNodes])
-
-  /**
    * An edge drawn onto a running session grants nothing until the session carries the read tool,
    * and `mcpServers` is fixed at creation - so the session restarts (resuming its own
    * conversation, cwd unchanged, both providers) at the next safe boundary. The entry is spent
@@ -1982,8 +1853,8 @@ function Canvas(): JSX.Element {
   }, [edges, nodeStatuses, nodes, setNodes, terminalContextSessions, transcriptPresence])
 
   /**
-   * Worktrees can appear without Toucan creating them - an agent running the worktree skill, a
-   * plain `git worktree add` in a terminal. Reconcile only records main positively identified
+   * Worktrees can appear without Toucan creating them - an agent running `git worktree add`, a
+   * plain one in a terminal. Reconcile only records main positively identified
    * as stale; attached sessions retain their record until closed.
    */
   useEffect(() => {
@@ -2001,10 +1872,7 @@ function Canvas(): JSX.Element {
         if (
           cancelled ||
           !result ||
-          (result.worktrees.length === 0 &&
-            result.claims.length === 0 &&
-            !result.stalePaths?.length &&
-            !result.availablePaths?.length)
+          (result.worktrees.length === 0 && !result.stalePaths?.length && !result.availablePaths?.length)
         )
           continue
 
@@ -2045,10 +1913,7 @@ function Canvas(): JSX.Element {
             )
           )
 
-          // Claims are applied against every worktree on the canvas, not just the ones this
-          // sweep added: the agent writes its claim after the worktree exists and its setup
-          // command has run, so the sweep that records the worktree is routinely earlier.
-          return applyWorktreeClaims(added.length === 0 ? reconciled : [...reconciled, ...added], result.claims)
+          return added.length === 0 ? reconciled : [...reconciled, ...added]
         })
       }
     }

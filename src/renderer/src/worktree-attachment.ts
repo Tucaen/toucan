@@ -1,37 +1,17 @@
 import type { WorkspaceProject } from '../../shared/workspace'
-import type { WorktreeClaimMatch } from '../../shared/worktree'
 import { worktreePathKey } from '../../shared/worktree'
-import type {
-  CanvasNode,
-  TerminalCanvasNode,
-  TerminalNodeData,
-  TerminalNodeStatus,
-  WorktreeCanvasNode
-} from './canvas-workspace'
-import {
-  isTerminalCanvasNode,
-  isWorktreeCanvasChild,
-  isWorktreeCanvasNode,
-  sessionNodeStatus,
-  withoutWorktree
-} from './canvas-workspace'
-import { nextWorktreeChildPosition, withRoomForChat, worktreeChildren } from './worktree-canvas'
+import type { CanvasNode, TerminalNodeStatus, WorktreeCanvasNode } from './canvas-workspace'
+import { isTerminalCanvasNode, isWorktreeCanvasNode, withoutWorktree } from './canvas-workspace'
 
 /**
- * What it takes for a node to be *in* a worktree rather than merely linked to one.
- *
- * Discovery can only ever tell that a worktree exists and which node's claim names it, so the
- * association it records (`activeWorktreeId`) is deliberately weak: it changes nothing about
- * where the session runs. This module is where that association is redeemed - the node moves
- * into the worktree - and where the count a worktree shows is derived from the nodes that
- * genuinely run in it.
+ * What it takes for a node to be *in* a worktree: attachment (`worktreeId`) is what makes a node
+ * run there, and the count a worktree shows is derived from the nodes that genuinely do.
  */
 
 /**
- * Moving a node into a worktree restarts its session there, so it may only happen when nothing
- * is in flight to lose. `working`/`starting` have a turn or a handshake running, `attention` has
- * a request waiting for the user, and `stalled` is a turn Toucan cannot prove is finished - all
- * of them keep the association and try again at the next boundary.
+ * A session may only be restarted when nothing is in flight to lose. `working`/`starting` have a
+ * turn or a handshake running, `attention` has a request waiting for the user, and `stalled` is a
+ * turn Toucan cannot prove is finished - all of them wait for the next boundary.
  *
  * Exported because branching a conversation (`conversation-lineage.ts`) needs the same boundary
  * for a different reason - the transcript on disk a fork copies is only complete between turns -
@@ -99,145 +79,8 @@ export function reconcileStaleWorktrees(
           !node.data.unavailable &&
           stale.has(worktreePathKey(node.data.path))
         ? { ...node, data: { ...node.data, unavailable: true } }
-        : isTerminalCanvasNode(node) && node.data.activeWorktreeId && removed.has(node.data.activeWorktreeId)
-          ? { ...node, data: { ...node.data, activeWorktreeId: undefined, activeWorktreeBranch: undefined } }
-          : node
+        : node
   )
-}
-
-/**
- * Links each claim to the node that wrote it. This is only the weak association: it says which
- * worktree a node started work in, and changes nothing about where the node runs - redeeming it
- * is `adoptClaimedWorktrees`' job, at a boundary where the move is safe. A node that already
- * runs in a worktree is never re-linked, which is also what stops a spent claim from coming
- * back: the claims file is appended to by agents and never pruned.
- */
-export function applyWorktreeClaims(nodes: CanvasNode[], claims: readonly WorktreeClaimMatch[]): CanvasNode[] {
-  if (claims.length === 0) return nodes
-  const worktreesByPath = new Map(
-    nodes.filter(isWorktreeCanvasNode).map((node) => [worktreePathKey(node.data.path), node.data])
-  )
-  const claimedBy = new Map(claims.map((claim) => [claim.nodeId, worktreesByPath.get(worktreePathKey(claim.path))]))
-
-  let changed = false
-  const next = nodes.map<CanvasNode>((node) => {
-    if (!isTerminalCanvasNode(node) || node.data.worktreeId) return node
-    const worktree = claimedBy.get(node.id)
-    if (!worktree || worktree.projectId !== node.data.projectId) return node
-    if (node.data.activeWorktreeId === worktree.worktreeId) return node
-    changed = true
-    return {
-      ...node,
-      data: { ...node.data, activeWorktreeId: worktree.worktreeId, activeWorktreeBranch: worktree.branch }
-    }
-  })
-  return changed ? next : nodes
-}
-
-export interface WorktreeAdoption {
-  nodeId: string
-  worktreeId: string
-  branch: string
-  path: string
-}
-
-/**
- * The claimed associations that are ready to become attachments. Only Codex: loading a
- * conversation in a directory it did not start in works there, which is the whole reason a
- * Codex node can move at all. A Claude node keeps the association and stays where it is,
- * exactly as its handoff rules already require.
- * @internal exported for tests
- */
-export function planWorktreeAdoptions(
-  nodes: CanvasNode[],
-  statuses: Readonly<Record<string, TerminalNodeStatus>>
-): WorktreeAdoption[] {
-  const worktrees = new Map(nodes.filter(isWorktreeCanvasNode).map((node) => [node.data.worktreeId, node.data]))
-
-  return nodes.filter(isTerminalCanvasNode).flatMap((node) => {
-    const { activeWorktreeId, worktreeId, kind, detachedFromWorktree } = node.data
-    if (!activeWorktreeId || worktreeId || detachedFromWorktree || kind !== 'codex') return []
-    const worktree = worktrees.get(activeWorktreeId)
-    // A claim is a file any agent may append to, so a node is only ever moved into a worktree
-    // of the project it already belongs to - a stale entry cannot relocate it across projects.
-    if (!worktree || worktree.unavailable || worktree.projectId !== node.data.projectId) return []
-    if (!ADOPTION_BOUNDARY.includes(sessionNodeStatus(node, statuses))) return []
-    return [{ nodeId: node.id, worktreeId: activeWorktreeId, branch: worktree.branch, path: worktree.path }]
-  })
-}
-
-/**
- * Applies those adoptions. `workingDirectory` is a dependency of the session effect, so writing
- * it is what actually restarts the session in the worktree, and `resume` makes that restart load
- * the conversation rather than begin a new one - the same move `rehome` makes when the skill is
- * recognised up front. The spent association is cleared so the node is adopted exactly once.
- */
-export function adoptClaimedWorktrees(
-  nodes: CanvasNode[],
-  statuses: Readonly<Record<string, TerminalNodeStatus>>
-): CanvasNode[] {
-  const adoptions = new Map(planWorktreeAdoptions(nodes, statuses).map((adoption) => [adoption.nodeId, adoption]))
-  if (adoptions.size === 0) return nodes
-
-  // An adopted chat is shown on its worktree's canvas from now on, so it takes the next free spot
-  // there; its main-canvas position means nothing on that canvas.
-  const children = nodes.filter(isWorktreeCanvasChild)
-  return nodes.map<CanvasNode>((node) => {
-    if (!isTerminalCanvasNode(node)) return node
-    const adoption = adoptions.get(node.id)
-    if (!adoption) return node
-    const position = nextWorktreeChildPosition(worktreeChildren(children, adoption.worktreeId))
-    const adopted: TerminalCanvasNode = { ...node, position }
-    children.push({ ...adopted, data: { ...adopted.data, worktreeId: adoption.worktreeId } })
-    return {
-      ...adopted,
-      data: {
-        ...node.data,
-        worktreeId: adoption.worktreeId,
-        worktreeBranch: adoption.branch,
-        workingDirectory: adoption.path,
-        activeWorktreeId: undefined,
-        activeWorktreeBranch: undefined,
-        launchMode: 'resume' as const
-      }
-    }
-  })
-}
-
-/**
- * Moves one chat into a worktree the way a handoff does: onto its canvas at the next free spot
- * beside the chats already there, and into its directory. `workingDirectory` is a dependency of
- * the session effect, so writing it is what restarts the session there; `launch` says what that
- * restart opens - `resume` to carry the conversation, `new` when there is nothing to carry. The
- * worktree grows to hold the chat, as it does for any chat added to it. A node that is not on the
- * canvas leaves the input array unchanged.
- */
-export function moveChatIntoWorktree(
-  nodes: CanvasNode[],
-  nodeId: string,
-  worktree: { worktreeId: string; branch: string; path: string },
-  launch: Partial<Pick<TerminalNodeData, 'launchMode' | 'conversationId' | 'initialInput'>>
-): CanvasNode[] {
-  if (!nodes.some((node) => isTerminalCanvasNode(node) && node.id === nodeId)) return nodes
-  const position = nextWorktreeChildPosition(
-    worktreeChildren(nodes, worktree.worktreeId).filter((node) => node.id !== nodeId)
-  )
-  const moved = nodes.map<CanvasNode>((node) =>
-    isTerminalCanvasNode(node) && node.id === nodeId
-      ? {
-          ...node,
-          position,
-          data: {
-            ...node.data,
-            worktreeId: worktree.worktreeId,
-            worktreeBranch: worktree.branch,
-            workingDirectory: worktree.path,
-            ...launch
-          }
-        }
-      : node
-  )
-  return withRoomForChat(moved, worktree.worktreeId)
 }
 
 /**

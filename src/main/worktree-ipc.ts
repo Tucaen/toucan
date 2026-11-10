@@ -101,7 +101,7 @@ export function registerWorktreeIpc(
     return result
   })
   ipc.handle(WORKTREE_CHANNELS.discover, async (_event, request) => {
-    const refused = { worktrees: [], claims: [], message: MESSAGE }
+    const refused = { worktrees: [], message: MESSAGE }
     if (
       !isRecord(request) ||
       !isString(request.projectPath) ||

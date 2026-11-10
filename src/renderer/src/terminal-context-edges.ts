@@ -139,8 +139,8 @@ export function planTerminalContextAdoptions(
 
 /**
  * Applies those adoptions: bumping `terminalContextNonce` is what restarts the session effect.
- * `resume` makes the restart load the same conversation - the `adoptClaimedWorktrees` move,
- * except the cwd never changes, which is why this one is safe for both providers. `new` also
+ * `resume` makes the restart load the same conversation, and the cwd
+ * never changes, which is why this is safe for both providers. `new` also
  * drops the empty conversation's id, which names nothing that could ever be loaded; the fresh
  * session reports its own.
  */

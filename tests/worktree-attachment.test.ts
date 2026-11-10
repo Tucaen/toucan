@@ -1,14 +1,8 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'vitest'
-import type { CanvasNode, TerminalNodeCallbacks, TerminalNodeStatus } from '../src/renderer/src/canvas-workspace'
-import { isTerminalCanvasNode, isWorktreeCanvasNode } from '../src/renderer/src/canvas-workspace'
-import {
-  applyAttachedNodeCounts,
-  applyWorktreeClaims,
-  adoptClaimedWorktrees,
-  moveChatIntoWorktree,
-  planWorktreeAdoptions
-} from '../src/renderer/src/worktree-attachment'
+import type { CanvasNode, TerminalNodeCallbacks } from '../src/renderer/src/canvas-workspace'
+import { isWorktreeCanvasNode } from '../src/renderer/src/canvas-workspace'
+import { applyAttachedNodeCounts } from '../src/renderer/src/worktree-attachment'
 import type { AgentProvider } from '../src/shared/agent-provider'
 
 const callbacks = {
@@ -29,8 +23,6 @@ function sessionNode(
   overrides: {
     kind?: AgentProvider | 'terminal'
     worktreeId?: string
-    activeWorktreeId?: string
-    activeWorktreeBranch?: string
   } = {}
 ): CanvasNode {
   return {
@@ -47,8 +39,6 @@ function sessionNode(
       projectPath: 'D:\\Development\\ADE',
       projectColor: '#fff',
       worktreeId: overrides.worktreeId,
-      activeWorktreeId: overrides.activeWorktreeId,
-      activeWorktreeBranch: overrides.activeWorktreeBranch,
       workingDirectory: 'D:\\Development\\ADE',
       focusMode: false,
       dormant: false,
@@ -82,127 +72,6 @@ function worktreeNode(worktreeId: string, attachedNodeCount = 0): CanvasNode {
   }
 }
 
-const statuses = (status: TerminalNodeStatus): Record<string, TerminalNodeStatus> => ({ 'node-1': status })
-
-test('a Codex node that claimed a worktree is adopted into it once its turn is over', () => {
-  const nodes = [sessionNode('node-1', { activeWorktreeId: 'worktree-1' }), worktreeNode('worktree-1')]
-
-  assert.deepEqual(planWorktreeAdoptions(nodes, statuses('idle')), [
-    {
-      nodeId: 'node-1',
-      worktreeId: 'worktree-1',
-      branch: 'feature/thinking-final-presentation',
-      path: WORKTREE_PATH
-    }
-  ])
-})
-
-test('adopting rehomes the node: the worktree becomes its own, and its working directory', () => {
-  const nodes = [sessionNode('node-1', { activeWorktreeId: 'worktree-1' }), worktreeNode('worktree-1')]
-  const adopted = adoptClaimedWorktrees(nodes, statuses('result'))
-  const node = adopted.filter(isTerminalCanvasNode)[0]
-
-  assert.equal(node.data.worktreeId, 'worktree-1')
-  assert.equal(node.data.worktreeBranch, 'feature/thinking-final-presentation')
-  assert.equal(node.data.workingDirectory, WORKTREE_PATH)
-  assert.equal(node.data.launchMode, 'resume')
-  // The weaker association is spent: leaving it would re-adopt the node on the next pass.
-  assert.equal(node.data.activeWorktreeId, undefined)
-  assert.equal(node.data.activeWorktreeBranch, undefined)
-})
-
-test('an adopted chat takes the next free spot on its worktree canvas, beside the chats already there', () => {
-  const resident = { ...sessionNode('resident', { worktreeId: 'worktree-1' }), position: { x: 0, y: 24 } }
-  const claiming = { ...sessionNode('node-1', { activeWorktreeId: 'worktree-1' }), position: { x: 3000, y: 900 } }
-  const adopted = adoptClaimedWorktrees([worktreeNode('worktree-1'), resident, claiming], statuses('idle'))
-  const node = adopted.filter(isTerminalCanvasNode).find((candidate) => candidate.id === 'node-1')!
-
-  // The resident is unmeasured, so it counts at the size a new session opens at.
-  assert.deepEqual(node.position, { x: 750 + 48, y: 24 })
-  assert.equal(node.data.worktreeId, 'worktree-1')
-})
-
-test('a chat handed off into a worktree moves onto its canvas beside the chats there, running in its directory', () => {
-  const resident = { ...sessionNode('resident', { worktreeId: 'worktree-1' }), position: { x: 0, y: 24 } }
-  const moving = { ...sessionNode('node-1'), position: { x: 3000, y: 900 } }
-  const moved = moveChatIntoWorktree(
-    [worktreeNode('worktree-1'), resident, moving],
-    'node-1',
-    { worktreeId: 'worktree-1', branch: 'feature/thinking-final-presentation', path: WORKTREE_PATH },
-    { launchMode: 'new', initialInput: '/implement-in-worktree tidy up' }
-  )
-  const node = moved.filter(isTerminalCanvasNode).find((candidate) => candidate.id === 'node-1')!
-
-  assert.deepEqual(node.position, { x: 750 + 48, y: 24 })
-  assert.equal(node.data.worktreeId, 'worktree-1')
-  assert.equal(node.data.worktreeBranch, 'feature/thinking-final-presentation')
-  assert.equal(node.data.workingDirectory, WORKTREE_PATH)
-  assert.equal(node.data.launchMode, 'new')
-  assert.equal(node.data.initialInput, '/implement-in-worktree tidy up')
-  // The worktree grew to hold a chat at a readable size, as it does for any chat added to it.
-  const host = moved.find(isWorktreeCanvasNode)!
-  assert.ok((host.style?.width as number) >= 800)
-})
-
-test('moving a node that is not on the canvas changes nothing', () => {
-  const nodes = [worktreeNode('worktree-1')]
-  assert.equal(
-    moveChatIntoWorktree(nodes, 'gone', { worktreeId: 'worktree-1', branch: 'b', path: WORKTREE_PATH }, {}),
-    nodes
-  )
-})
-
-test('a node mid-turn keeps its association until the work it is doing is finished', () => {
-  const nodes = [sessionNode('node-1', { activeWorktreeId: 'worktree-1' }), worktreeNode('worktree-1')]
-
-  for (const status of ['working', 'starting', 'attention', 'stalled'] as const) {
-    assert.deepEqual(planWorktreeAdoptions(nodes, statuses(status)), [], status)
-    assert.equal(adoptClaimedWorktrees(nodes, statuses(status)), nodes, status)
-  }
-})
-
-test('a node that has not reported a status yet is treated as still starting', () => {
-  const nodes = [sessionNode('node-1', { activeWorktreeId: 'worktree-1' }), worktreeNode('worktree-1')]
-
-  assert.deepEqual(planWorktreeAdoptions(nodes, {}), [])
-})
-
-test('a dormant node is adopted, so it comes back in the worktree rather than the checkout', () => {
-  const nodes = [sessionNode('node-1', { activeWorktreeId: 'worktree-1' }), worktreeNode('worktree-1')]
-
-  assert.equal(planWorktreeAdoptions(nodes, statuses('dormant')).length, 1)
-})
-
-test('Claude keeps the weaker association: its conversation cannot move directory', () => {
-  const nodes = [sessionNode('node-1', { kind: 'claude', activeWorktreeId: 'worktree-1' }), worktreeNode('worktree-1')]
-
-  assert.deepEqual(planWorktreeAdoptions(nodes, statuses('idle')), [])
-})
-
-test('a plain terminal is not an agent conversation and is never rehomed by a claim', () => {
-  const nodes = [
-    sessionNode('node-1', { kind: 'terminal', activeWorktreeId: 'worktree-1' }),
-    worktreeNode('worktree-1')
-  ]
-
-  assert.deepEqual(planWorktreeAdoptions(nodes, statuses('idle')), [])
-})
-
-test('a node already attached to a worktree is left where it runs', () => {
-  const nodes = [
-    sessionNode('node-1', { worktreeId: 'worktree-2', activeWorktreeId: 'worktree-1' }),
-    worktreeNode('worktree-1')
-  ]
-
-  assert.deepEqual(planWorktreeAdoptions(nodes, statuses('idle')), [])
-})
-
-test('an association whose worktree record is gone adopts nothing', () => {
-  const nodes = [sessionNode('node-1', { activeWorktreeId: 'worktree-gone' })]
-
-  assert.deepEqual(planWorktreeAdoptions(nodes, statuses('idle')), [])
-})
-
 test('the attached count a worktree shows is the number of nodes actually running in it', () => {
   // A diff node reviews the worktree without running anything in it, so it is never attached and
   // never blocks the worktree's removal (issue #144).
@@ -225,7 +94,7 @@ test('the attached count a worktree shows is the number of nodes actually runnin
   const nodes = [
     sessionNode('node-1', { worktreeId: 'worktree-1' }),
     sessionNode('node-2', { worktreeId: 'worktree-1' }),
-    sessionNode('node-3', { activeWorktreeId: 'worktree-1' }),
+    sessionNode('node-3'),
     diffNode,
     worktreeNode('worktree-1')
   ]
@@ -246,65 +115,4 @@ test('recounting nodes that have not changed keeps the same array, so the canvas
     applyAttachedNodeCounts(nodes, [{ id: 'project-1', name: 'ADE', path: 'D:\\Development\\ADE', color: '#fff' }]),
     nodes
   )
-})
-
-test('a claim links the node that wrote it to the worktree, without moving it there', () => {
-  const nodes = [sessionNode('node-1'), worktreeNode('worktree-1')]
-  const linked = applyWorktreeClaims(nodes, [{ path: WORKTREE_PATH, nodeId: 'node-1' }])
-  const node = linked.filter(isTerminalCanvasNode)[0]
-
-  assert.equal(node.data.activeWorktreeId, 'worktree-1')
-  assert.equal(node.data.activeWorktreeBranch, 'feature/thinking-final-presentation')
-  assert.equal(node.data.worktreeId, undefined)
-  assert.equal(node.data.workingDirectory, 'D:\\Development\\ADE')
-})
-
-test('a claim matches a worktree path in whatever slash and case shape it arrives', () => {
-  const nodes = [sessionNode('node-1'), worktreeNode('worktree-1')]
-  const linked = applyWorktreeClaims(nodes, [
-    { path: 'd:/development/ade-worktrees/feature-thinking-final-presentation/', nodeId: 'node-1' }
-  ])
-
-  assert.equal(linked.filter(isTerminalCanvasNode)[0].data.activeWorktreeId, 'worktree-1')
-})
-
-test('a claim naming a node that already runs in a worktree changes nothing', () => {
-  const nodes = [sessionNode('node-1', { worktreeId: 'worktree-2' }), worktreeNode('worktree-1')]
-
-  assert.equal(applyWorktreeClaims(nodes, [{ path: WORKTREE_PATH, nodeId: 'node-1' }]), nodes)
-})
-
-test('a claim already applied is not applied again, so the canvas settles', () => {
-  const nodes = [sessionNode('node-1', { activeWorktreeId: 'worktree-1' }), worktreeNode('worktree-1')]
-
-  assert.equal(applyWorktreeClaims(nodes, [{ path: WORKTREE_PATH, nodeId: 'node-1' }]), nodes)
-})
-
-test('a claim for a path no worktree node records links nothing', () => {
-  const nodes = [sessionNode('node-1'), worktreeNode('worktree-1')]
-
-  assert.equal(applyWorktreeClaims(nodes, [{ path: 'D:\\elsewhere', nodeId: 'node-1' }]), nodes)
-})
-
-test('a stale claim cannot pull a node into another project\u2019s worktree', () => {
-  const nodes = [
-    sessionNode('node-1'),
-    { ...worktreeNode('worktree-1'), data: { ...worktreeNode('worktree-1').data, projectId: 'project-2' } }
-  ] as CanvasNode[]
-
-  assert.equal(applyWorktreeClaims(nodes, [{ path: WORKTREE_PATH, nodeId: 'node-1' }]), nodes)
-  assert.deepEqual(
-    planWorktreeAdoptions([sessionNode('node-1', { activeWorktreeId: 'worktree-1' }), nodes[1]], statuses('idle')),
-    []
-  )
-})
-
-test('a node detached from a vanished worktree is never quietly rehomed by a claim', () => {
-  const detached = sessionNode('node-1', { activeWorktreeId: 'worktree-1' })
-  const nodes = [
-    { ...detached, data: { ...detached.data, detachedFromWorktree: true } },
-    worktreeNode('worktree-1')
-  ] as CanvasNode[]
-
-  assert.deepEqual(planWorktreeAdoptions(nodes, statuses('idle')), [])
 })

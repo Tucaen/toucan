@@ -17,7 +17,6 @@ function state(): WorkspaceState {
         label: 'Codex 1',
         projectId: 'project-1',
         worktreeId: 'duplicate',
-        activeWorktreeId: 'duplicate',
         position: { x: 0, y: 0 },
         width: 520,
         height: 340
@@ -85,6 +84,5 @@ test('workspace normalization keeps the first duplicate and remaps every alias',
   assert.equal(normalized.worktrees[0].id, 'kept')
   assert.equal(normalized.worktrees[0].path, 'D:\\Development\\Toucan-worktrees\\feature-one')
   assert.equal(normalized.nodes[0].worktreeId, 'kept')
-  assert.equal(normalized.nodes[0].activeWorktreeId, 'kept')
   assert.equal(normalized.recentlyClosedNodes?.[0].worktreeId, 'kept')
 })
