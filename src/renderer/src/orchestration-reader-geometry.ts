@@ -12,7 +12,8 @@ import {
  * Where the floating questions reader sits and how big it is. Pure, so the window's bounds are one
  * rule: its position never leaves the viewport. Its size has no limit, like a node's. Alt+Arrow and
  * the header's fit button arrange it through the canvas's own slice vocabulary (`node-snap.ts`),
- * with the viewport as the region.
+ * in the region a node's fullscreen fills: the canvas on screen, so the sidebar, the top bar and a
+ * docked panel stay visible.
  */
 export interface ReaderRect {
   left: number
@@ -89,24 +90,20 @@ export interface ReaderArrangement {
   snap: ReaderSnap | null
 }
 
-function sliceRect(slice: SnapSlice, viewport: ReaderViewport): ReaderRect {
+/** The canvas region in screen coordinates, kept the fit inset away from its edges as a node is. */
+function sliceRect(slice: SnapSlice, canvas: ReaderRect): ReaderRect {
   const region = {
-    position: { x: NODE_FIT_INSET, y: NODE_FIT_INSET },
-    width: Math.max(MIN_EXTENT, viewport.width - NODE_FIT_INSET * 2),
-    height: Math.max(MIN_EXTENT, viewport.height - NODE_FIT_INSET * 2)
+    position: { x: canvas.left + NODE_FIT_INSET, y: canvas.top + NODE_FIT_INSET },
+    width: Math.max(MIN_EXTENT, canvas.width - NODE_FIT_INSET * 2),
+    height: Math.max(MIN_EXTENT, canvas.height - NODE_FIT_INSET * 2)
   }
   const geometry = sliceGeometry(region, slice, NODE_FIT_INSET)
   return { left: geometry.position.x, top: geometry.position.y, width: geometry.width, height: geometry.height }
 }
 
-function placed(
-  rect: ReaderRect,
-  snap: ReaderSnap | null,
-  slice: SnapSlice,
-  viewport: ReaderViewport
-): ReaderArrangement {
+function placed(rect: ReaderRect, snap: ReaderSnap | null, slice: SnapSlice, canvas: ReaderRect): ReaderArrangement {
   return {
-    rect: sliceRect(slice, viewport),
+    rect: sliceRect(slice, canvas),
     snap: { h: slice.h, v: slice.v, restore: snap?.restore ?? rect }
   }
 }
@@ -116,26 +113,27 @@ export function snapReaderRect(
   rect: ReaderRect,
   snap: ReaderSnap | null,
   arrow: SnapArrow,
-  viewport: ReaderViewport
+  canvas: ReaderRect
 ): ReaderArrangement {
   const slice = nextSnapSlice(snap, arrow)
-  return slice ? placed(rect, snap, slice, viewport) : { rect: snap?.restore ?? rect, snap: null }
+  return slice ? placed(rect, snap, slice, canvas) : { rect: snap?.restore ?? rect, snap: null }
 }
 
-/** The header's fit button: maximises, or restores when already maximised. */
-export function toggleReaderFit(
-  rect: ReaderRect,
-  snap: ReaderSnap | null,
-  viewport: ReaderViewport
-): ReaderArrangement {
+/** The header's fit button: fills the canvas as a node's fullscreen does, or restores when it already does. */
+export function toggleReaderFit(rect: ReaderRect, snap: ReaderSnap | null, canvas: ReaderRect): ReaderArrangement {
   return isMaximised(snap ?? undefined)
     ? { rect: snap?.restore ?? rect, snap: null }
-    : placed(rect, snap, MAXIMISED, viewport)
+    : placed(rect, snap, MAXIMISED, canvas)
 }
 
-/** A changed viewport re-lays a snapped window into its slice; a free window is only kept on screen. */
-export function reflowReaderRect(rect: ReaderRect, snap: ReaderSnap | null, viewport: ReaderViewport): ReaderRect {
-  return snap ? sliceRect(snap, viewport) : clampReaderRect(rect, viewport)
+/** A changed canvas or viewport re-lays a snapped window into its slice; a free one is only kept on screen. */
+export function reflowReaderRect(
+  rect: ReaderRect,
+  snap: ReaderSnap | null,
+  canvas: ReaderRect,
+  viewport: ReaderViewport
+): ReaderRect {
+  return snap ? sliceRect(snap, canvas) : clampReaderRect(rect, viewport)
 }
 
 const remembered = new Map<string, ReaderRect>()

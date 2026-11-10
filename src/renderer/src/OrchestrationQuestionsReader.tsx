@@ -1,4 +1,12 @@
-import { useEffect, useId, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent
+} from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { layoutKeyAction } from './canvas-layout'
@@ -31,6 +39,50 @@ function viewport(): { width: number; height: number } {
   return { width: window.innerWidth, height: window.innerHeight }
 }
 
+/** The element a node's fullscreen fills: the canvas between the sidebar, the top bar and a docked panel. */
+function canvasElement(): HTMLElement | null {
+  return document.querySelector<HTMLElement>('.canvas-region')
+}
+
+/** Where Alt+Arrow and the fit button arrange the window; the whole viewport only while there is no canvas. */
+function canvasBounds(): ReaderRect {
+  const rect = canvasElement()?.getBoundingClientRect()
+  return rect
+    ? { left: rect.left, top: rect.top, width: rect.width, height: rect.height }
+    : { left: 0, top: 0, ...viewport() }
+}
+
+/** Into the shown question's answer field, else the window itself; the question still reads from its start. */
+function focusShownQuestion(reader: HTMLElement): void {
+  const field = reader.querySelector<HTMLElement>(
+    '.orchestration-question:not([hidden]) textarea, .orchestration-question:not([hidden]) input'
+  )
+  ;(field ?? reader).focus({ preventScroll: true })
+}
+
+/**
+ * The tab to show once the open questions changed: the selected one while it is still open, else
+ * the next one after it, else the one before it - as a closed browser tab hands over to a
+ * neighbour - and the first one when there was no selection. A question that arrives leaves the
+ * selection alone, so an answer being typed is never pulled away.
+ * @internal exported for tests
+ */
+export function questionTabAfterChange(
+  previous: readonly string[],
+  current: readonly string[],
+  selected: string | undefined
+): string | undefined {
+  if (selected !== undefined && current.includes(selected)) return selected
+  const index = selected === undefined ? -1 : previous.indexOf(selected)
+  if (index >= 0) {
+    const neighbour = [...previous.slice(index + 1), ...previous.slice(0, index).reverse()].find((id) =>
+      current.includes(id)
+    )
+    if (neighbour !== undefined) return neighbour
+  }
+  return current[0]
+}
+
 /**
  * Every open question at real screen size, as a floating window rather than a modal: the canvas and
  * its nodes stay usable beside it, so a long question can be read while its answer is typed. It
@@ -38,7 +90,8 @@ function viewport(): { width: number; height: number } {
  * worktree canvas, by two of them) and clipped by the node. Escape closes it only while focus is
  * inside; a click elsewhere leaves it open. Its title bar moves it, its bottom-right corner resizes
  * it without limit, Alt+Arrow and the header's fit button arrange it like a node on the canvas, and
- * the rectangle is remembered per orchestrator node for the app session.
+ * the rectangle is remembered per orchestrator node for the app session. Each question is a tab
+ * that gets the whole window below the tab row.
  */
 export default function OrchestrationQuestionsReader({
   nodeId,
@@ -62,7 +115,8 @@ export default function OrchestrationQuestionsReader({
   focusSignal: number
   onClose(): void
 }): JSX.Element {
-  const titleId = useId()
+  const baseId = useId()
+  const titleId = `${baseId}-title`
   const root = useRef<HTMLDivElement>(null)
   const [rect, setRect] = useState<ReaderRect>(() =>
     clampReaderRect(recallReaderRect(nodeId) ?? defaultReaderRect(viewport()), viewport())
@@ -74,6 +128,18 @@ export default function OrchestrationQuestionsReader({
   const latestSnap = useRef(snap)
   latestSnap.current = snap
 
+  const ids = questions.map((question) => question.id)
+  const [selected, setSelected] = useState<string | undefined>(undefined)
+  const shownIds = useRef<readonly string[]>([])
+  const activeId = questionTabAfterChange(shownIds.current, ids, selected)
+  useEffect(() => {
+    shownIds.current = ids
+  })
+  // The fallback is kept as the selection, so the next change is measured from the tab now shown.
+  useEffect(() => {
+    if (activeId !== selected) setSelected(activeId)
+  }, [activeId, selected])
+
   const arrange = (next: { rect: ReaderRect; snap: ReaderSnap | null }): void => {
     setRect(next.rect)
     setSnap(next.snap)
@@ -83,20 +149,35 @@ export default function OrchestrationQuestionsReader({
     rememberReaderRect(nodeId, rect)
   }, [nodeId, rect])
 
-  // A smaller window must not strand the reader off screen.
+  // A smaller window must not strand the reader off screen, and an arranged one follows the canvas
+  // when the window, the sidebar or a docked panel changes its size.
   useEffect(() => {
-    const keepInside = (): void => setRect((current) => reflowReaderRect(current, latestSnap.current, viewport()))
-    window.addEventListener('resize', keepInside)
-    return () => window.removeEventListener('resize', keepInside)
+    const reflow = (): void =>
+      setRect((current) => reflowReaderRect(current, latestSnap.current, canvasBounds(), viewport()))
+    window.addEventListener('resize', reflow)
+    const canvas = canvasElement()
+    const observer = canvas && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(reflow) : undefined
+    if (canvas) observer?.observe(canvas)
+    return () => {
+      window.removeEventListener('resize', reflow)
+      observer?.disconnect()
+    }
   }, [])
 
-  // On open and whenever the badge asks for it again: into the first answer field, else the window.
+  // On open and whenever the badge asks for it again.
   useEffect(() => {
-    const element = root.current
-    if (!element) return
-    const field = element.querySelector<HTMLElement>('textarea, input')
-    ;(field ?? element).focus()
+    if (root.current) focusShownQuestion(root.current)
   }, [focusSignal])
+
+  // An answered question takes its focused Send or Submit button with it, and focus would fall to
+  // the page, where Alt+Arrow and typing reach the canvas instead; it goes on to the next question.
+  // Read while rendering, because by the time an effect runs the focused button is already gone.
+  const focusWasInside = useRef(false)
+  focusWasInside.current = !!root.current?.contains(document.activeElement)
+  useLayoutEffect(() => {
+    const element = root.current
+    if (element && focusWasInside.current && !element.contains(document.activeElement)) focusShownQuestion(element)
+  })
 
   const endGesture = useRef<(() => void) | undefined>(undefined)
   useEffect(() => () => endGesture.current?.(), [])
@@ -105,6 +186,10 @@ export default function OrchestrationQuestionsReader({
   const track = (event: ReactMouseEvent, next: (start: ReaderRect, dx: number, dy: number) => ReaderRect): void => {
     if (event.button !== 0) return
     event.preventDefault()
+    // Preventing the default also keeps the focus where it was, outside the window, where Alt+Arrow
+    // would reach the canvas instead; grabbing the window is choosing it.
+    const element = root.current
+    if (element && !element.contains(document.activeElement)) element.focus({ preventScroll: true })
     const start = latest.current
     const originX = event.clientX
     const originY = event.clientY
@@ -124,7 +209,19 @@ export default function OrchestrationQuestionsReader({
     document.addEventListener('mouseup', onUp)
   }
 
-  const single = questions.length === 1
+  const tabId = (questionId: string): string => `${baseId}-tab-${questionId}`
+  const panelId = (questionId: string): string => `${baseId}-panel-${questionId}`
+
+  /** Left and Right on the tab row step through the questions and wrap, as a tab list does. */
+  const stepTab = (event: ReactKeyboardEvent, questionId: string): void => {
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+    const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
+    if (step === 0 || ids.length === 0) return
+    event.preventDefault()
+    const next = ids[(ids.indexOf(questionId) + step + ids.length) % ids.length]
+    setSelected(next)
+    document.getElementById(tabId(next))?.focus()
+  }
 
   return createPortal(
     <div
@@ -147,14 +244,14 @@ export default function OrchestrationQuestionsReader({
       onKeyDown={(event) => {
         event.stopPropagation()
         if (event.key === 'Escape') onClose()
-        const target = event.target as HTMLElement
-        const action = layoutKeyAction(event.nativeEvent, {
-          editingText: target.matches('input, textarea, select, [contenteditable]'),
-          editingTextarea: target.tagName === 'TEXTAREA'
-        })
+        // Every field in the window is where an answer is typed, as the composer is a node's, so
+        // Alt+Arrow arranges the window from any of them - the decision panel's one-line Other field
+        // too, which is where opening the window puts the focus. The canvas leaves a one-line input
+        // its Alt+Arrow; here that would leave the shortcut dead on open.
+        const action = layoutKeyAction(event.nativeEvent, { editingText: false, editingTextarea: false })
         if (action.kind !== 'snap') return
         event.preventDefault()
-        arrange(snapReaderRect(latest.current, latestSnap.current, action.arrow, viewport()))
+        arrange(snapReaderRect(latest.current, latestSnap.current, action.arrow, canvasBounds()))
       }}
     >
       <header
@@ -165,67 +262,103 @@ export default function OrchestrationQuestionsReader({
         }}
       >
         <h2 id={titleId}>Offene Fragen ({questions.length})</h2>
-        <NodeFitContext.Provider value={() => arrange(toggleReaderFit(latest.current, latestSnap.current, viewport()))}>
+        <NodeFitContext.Provider
+          value={() => arrange(toggleReaderFit(latest.current, latestSnap.current, canvasBounds()))}
+        >
           <NodeFitAction nodeId={nodeId} fitted={snap?.h === 'full' && snap.v === 'full'} />
         </NodeFitContext.Provider>
         <button type="button" className="orchestration-reader-close" aria-label="Schließen" onClick={onClose}>
           <X aria-hidden="true" />
         </button>
       </header>
-      <ul className="orchestration-reader-list" data-single={single ? 'true' : undefined}>
-        {questions.map((question) => {
-          const decision = pinnedQuestionDecision(question)
-          const text = answers[question.id] ?? ''
-          const send = (): void => {
-            if (text.trim() === '' || pending === question.id) return
-            void resolve(question.id, pinnedQuestionNote({ [PINNED_QUESTION_FORM.other]: text }))
-          }
-          return (
-            <li key={question.id} className="orchestration-question" data-question-id={question.id}>
-              <div className="orchestration-question-head">
-                <strong>{question.id}</strong>
+      <div className="orchestration-reader-tabs">
+        <div className="orchestration-reader-tablist" role="tablist" aria-labelledby={titleId}>
+          {questions.map((question) => {
+            const active = question.id === activeId
+            return (
+              <button
+                key={question.id}
+                id={tabId(question.id)}
+                type="button"
+                role="tab"
+                className="orchestration-reader-tab"
+                aria-selected={active}
+                aria-controls={panelId(question.id)}
+                tabIndex={active ? 0 : -1}
+                onClick={() => setSelected(question.id)}
+                onKeyDown={(event) => stepTab(event, question.id)}
+              >
+                {question.id}
                 {question.ticketId && <span>#{question.ticketId}</span>}
-                <span className="orchestration-question-actions">
-                  <button type="button" disabled={pending === question.id} onClick={() => void resolve(question.id)}>
-                    Erledigt
-                  </button>
-                </span>
-              </div>
-              <div className="orchestration-question-body">
-                <MarkdownMessage text={question.markdown} />
-                {decision && (
-                  <StructuredDecisionPanel
-                    key={formKey}
-                    decisionRequest={decision}
-                    resolveElicitation={(_requestId, content) => void resolve(question.id, pinnedQuestionNote(content))}
-                  />
-                )}
-              </div>
-              {!decision && (
-                <div className="orchestration-question-answer">
-                  <textarea
-                    aria-label={`Antwort auf ${question.id}`}
-                    placeholder="Antwort schreiben … (Strg/Cmd+Enter sendet)"
-                    rows={3}
-                    maxLength={OTHER_ANSWER_LIMIT}
-                    value={text}
-                    onChange={(event) => onAnswerChange(question.id, event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
-                        event.preventDefault()
-                        send()
-                      }
-                    }}
-                  />
-                  <button type="button" disabled={text.trim() === '' || pending === question.id} onClick={send}>
-                    Senden
-                  </button>
-                </div>
+              </button>
+            )
+          })}
+        </div>
+        {activeId !== undefined && (
+          <span className="orchestration-question-actions">
+            <button
+              type="button"
+              title={`${activeId} als erledigt markieren`}
+              disabled={pending === activeId}
+              onClick={() => void resolve(activeId)}
+            >
+              Erledigt
+            </button>
+          </span>
+        )}
+      </div>
+      {questions.map((question) => {
+        const decision = pinnedQuestionDecision(question)
+        const text = answers[question.id] ?? ''
+        const send = (): void => {
+          if (text.trim() === '' || pending === question.id) return
+          void resolve(question.id, pinnedQuestionNote({ [PINNED_QUESTION_FORM.other]: text }))
+        }
+        // Every question stays mounted, so a half-filled decision panel survives switching tabs.
+        return (
+          <section
+            key={question.id}
+            id={panelId(question.id)}
+            className="orchestration-question"
+            role="tabpanel"
+            aria-labelledby={tabId(question.id)}
+            data-question-id={question.id}
+            hidden={question.id !== activeId}
+          >
+            <div className="orchestration-question-body">
+              <MarkdownMessage text={question.markdown} />
+              {decision && (
+                <StructuredDecisionPanel
+                  key={formKey}
+                  decisionRequest={decision}
+                  resolveElicitation={(_requestId, content) => void resolve(question.id, pinnedQuestionNote(content))}
+                />
               )}
-            </li>
-          )
-        })}
-      </ul>
+            </div>
+            {!decision && (
+              <div className="orchestration-question-answer">
+                <textarea
+                  aria-label={`Antwort auf ${question.id}`}
+                  placeholder="Antwort schreiben … (Strg/Cmd+Enter sendet)"
+                  rows={3}
+                  maxLength={OTHER_ANSWER_LIMIT}
+                  value={text}
+                  onChange={(event) => onAnswerChange(question.id, event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+                      event.preventDefault()
+                      send()
+                    }
+                  }}
+                />
+                <button type="button" disabled={text.trim() === '' || pending === question.id} onClick={send}>
+                  Senden
+                </button>
+              </div>
+            )}
+          </section>
+        )
+      })}
       <div
         className="orchestration-reader-resize"
         aria-hidden="true"

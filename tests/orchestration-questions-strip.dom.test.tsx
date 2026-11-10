@@ -1,6 +1,7 @@
 import { act, createEvent, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, expect, test, vi } from 'vitest'
 import OrchestrationQuestionsStrip, { questionPreview } from '../src/renderer/src/OrchestrationQuestionsStrip'
+import { questionTabAfterChange } from '../src/renderer/src/OrchestrationQuestionsReader'
 import { forgetReaderRects } from '../src/renderer/src/orchestration-reader-geometry'
 import type { OrchestrationControlState } from '../src/shared/ticket-session-spawn'
 
@@ -24,6 +25,7 @@ const api = {
 
 beforeEach(() => {
   forgetReaderRects()
+  document.querySelectorAll('.canvas-region').forEach((element) => element.remove())
   api.orchestrationState.mockReset().mockResolvedValue(state(questions))
   api.resolveQuestion.mockReset().mockResolvedValue(state([questions[1]]))
   api.onOrchestrationState.mockReset().mockImplementation((callback) => {
@@ -36,6 +38,18 @@ beforeEach(() => {
 async function openReader(): Promise<void> {
   fireEvent.click(await screen.findByRole('button', { name: /Offene (Frage|Fragen)/ }))
   await screen.findByRole('dialog')
+}
+
+function selectTab(name: RegExp): void {
+  fireEvent.click(screen.getByRole('tab', { name }))
+}
+
+/** The question shown: the one panel not hidden, which the selected tab controls. */
+function shownQuestion(): string | null {
+  const panels = [...document.querySelectorAll<HTMLElement>('.orchestration-question')].filter((panel) => !panel.hidden)
+  expect(panels).toHaveLength(1)
+  expect(screen.getByRole('tab', { selected: true }).getAttribute('aria-controls')).toBe(panels[0].id)
+  return panels[0].getAttribute('data-question-id')
 }
 
 test('the node shows one badge row with count, first question preview and an open action', async () => {
@@ -63,16 +77,66 @@ test('renders nothing without open questions', async () => {
   expect(container.firstChild).toBeNull()
 })
 
-test('the reader opens on document.body and lists every open question with id, ticket and rendered markdown', async () => {
+test('the reader opens on document.body with one tab per open question, labelled with id and ticket', async () => {
   const { container } = render(<OrchestrationQuestionsStrip request={request} />)
   await openReader()
   const dialog = screen.getByRole('dialog', { name: 'Offene Fragen (2)' })
   expect(container.contains(dialog)).toBe(false)
   expect(document.body.contains(dialog)).toBe(true)
-  expect(screen.getByText('Q1')).toBeTruthy()
-  expect(screen.getByText('#3')).toBeTruthy()
+  const tabs = screen.getAllByRole('tab')
+  expect(tabs.map((tab) => tab.textContent)).toEqual(['Q1#3', 'Q2'])
+  expect(tabs.map((tab) => tab.getAttribute('aria-selected'))).toEqual(['true', 'false'])
+  expect(screen.getByRole('tabpanel', { name: /Q1/ })).toBeTruthy()
   expect(screen.getByRole('link', { name: 'shot' })).toBeTruthy()
+  expect(shownQuestion()).toBe('Q1')
+})
+
+test('a tab shows its question alone and keeps the others mounted', async () => {
+  render(<OrchestrationQuestionsStrip request={request} />)
+  await openReader()
+  selectTab(/Q2/)
+  expect(shownQuestion()).toBe('Q2')
   expect(screen.getByText('bold').tagName).toBe('STRONG')
+  expect(screen.getByRole('tabpanel', { name: /Q2/ })).toBeTruthy()
+  // The hidden question keeps its answer field, so switching tabs loses nothing typed there.
+  expect(screen.getByLabelText('Antwort auf Q1')).toBeTruthy()
+  selectTab(/Q1/)
+  expect(shownQuestion()).toBe('Q1')
+})
+
+test('Arrow keys on the tab row move between questions and wrap around', async () => {
+  render(<OrchestrationQuestionsStrip request={request} />)
+  await openReader()
+  const first = screen.getByRole('tab', { name: /Q1/ })
+  first.focus()
+  fireEvent.keyDown(first, { key: 'ArrowRight' })
+  expect(shownQuestion()).toBe('Q2')
+  expect(document.activeElement).toBe(screen.getByRole('tab', { name: /Q2/ }))
+  fireEvent.keyDown(document.activeElement!, { key: 'ArrowRight' })
+  expect(shownQuestion()).toBe('Q1')
+  fireEvent.keyDown(document.activeElement!, { key: 'ArrowLeft' })
+  expect(shownQuestion()).toBe('Q2')
+})
+
+test('resolving the selected question selects its neighbour, a new question leaves the selection alone', async () => {
+  const third = { id: 'Q4', markdown: 'Third', createdAt: 4 }
+  api.orchestrationState.mockResolvedValue(state([...questions, third]))
+  api.resolveQuestion.mockResolvedValue(state([questions[0], third]))
+  render(<OrchestrationQuestionsStrip request={request} />)
+  await openReader()
+  selectTab(/Q2/)
+  fireEvent.click(screen.getByRole('button', { name: 'Erledigt' }))
+  await waitFor(() => expect(screen.queryByRole('tab', { name: /Q2/ })).toBeNull())
+  expect(api.resolveQuestion).toHaveBeenCalledWith({ ...request, questionId: 'Q2' })
+  // The one after it takes its place, as a closed browser tab hands over to its right neighbour.
+  expect(shownQuestion()).toBe('Q4')
+  act(() => push(state([questions[0], third, choiceQuestion])))
+  expect(screen.getAllByRole('tab')).toHaveLength(3)
+  expect(shownQuestion()).toBe('Q4')
+  // The last tab resolved: its left neighbour is next.
+  act(() => push(state([questions[0], third])))
+  act(() => push(state([questions[0]])))
+  expect(shownQuestion()).toBe('Q1')
 })
 
 test('the reader is a non-modal window: no backdrop, no aria-modal, no focus trap', async () => {
@@ -87,7 +151,7 @@ test('the reader is a non-modal window: no backdrop, no aria-modal, no focus tra
   expect(tab.defaultPrevented).toBe(false)
 })
 
-test('opening the reader moves focus into the first answer field', async () => {
+test('opening the reader moves focus into the selected question’s answer field', async () => {
   render(<OrchestrationQuestionsStrip request={request} />)
   await openReader()
   expect(document.activeElement).toBe(screen.getByLabelText('Antwort auf Q1'))
@@ -156,6 +220,7 @@ test('Erledigt resolves that question and drops it from the reader', async () =>
   await waitFor(() => expect(screen.getByRole('dialog', { name: 'Offene Fragen (1)' })).toBeTruthy())
   expect(api.resolveQuestion).toHaveBeenCalledWith({ ...request, questionId: 'Q1' })
   expect(screen.queryByText('Q1')).toBeNull()
+  expect(shownQuestion()).toBe('Q2')
 })
 
 test('resolving the last question closes the reader and the badge goes away', async () => {
@@ -191,6 +256,7 @@ test('a question with options renders the decision panel with clickable answers 
   api.orchestrationState.mockResolvedValue(state([questions[1], choiceQuestion]))
   render(<OrchestrationQuestionsStrip request={request} />)
   await openReader()
+  selectTab(/Q3/)
   expect(await screen.findByRole('button', { name: /Left/ })).toBeTruthy()
   expect(screen.getByRole('button', { name: /Right/ })).toBeTruthy()
   expect(screen.getByText('the old one')).toBeTruthy()
@@ -291,6 +357,7 @@ test('Ctrl+Enter and Cmd+Enter send the typed answer, Enter alone and an empty f
   fireEvent.keyDown(field, { key: 'Enter', ctrlKey: true })
   await waitFor(() => expect(api.resolveQuestion).toHaveBeenCalledTimes(1))
   expect(api.resolveQuestion).toHaveBeenLastCalledWith({ ...request, questionId: 'Q1', note: 'Answer: one' })
+  selectTab(/Q2/)
   fireEvent.change(screen.getByLabelText('Antwort auf Q2'), { target: { value: 'two' } })
   fireEvent.keyDown(screen.getByLabelText('Antwort auf Q2'), { key: 'Enter', metaKey: true })
   await waitFor(() => expect(api.resolveQuestion).toHaveBeenCalledTimes(2))
@@ -311,6 +378,32 @@ test('typed answers survive closing and reopening the window, and a failed send 
   fireEvent.click(screen.getByRole('button', { name: 'Schließen' }))
   await openReader()
   expect((screen.getByLabelText('Antwort auf Q1') as HTMLTextAreaElement).value).toBe('a long thought')
+})
+
+test('an answered question takes its focused Send button along, and focus moves to the next question', async () => {
+  render(<OrchestrationQuestionsStrip request={request} />)
+  await openReader()
+  fireEvent.change(screen.getByLabelText('Antwort auf Q1'), { target: { value: 'yes' } })
+  const send = screen.getByRole('button', { name: 'Senden' })
+  send.focus()
+  fireEvent.click(send)
+  await waitFor(() => expect(screen.queryByRole('tab', { name: /Q1/ })).toBeNull())
+  // Not the page: from there Alt+Arrow and typing would reach the canvas instead of the window.
+  expect(document.activeElement).toBe(screen.getByLabelText('Antwort auf Q2'))
+})
+
+test('a question resolved elsewhere does not pull focus into the window', async () => {
+  render(<OrchestrationQuestionsStrip request={request} />)
+  await openReader()
+  const outside = document.createElement('button')
+  document.body.append(outside)
+  try {
+    outside.focus()
+    act(() => push(state([questions[1]])))
+    expect(document.activeElement).toBe(outside)
+  } finally {
+    outside.remove()
+  }
 })
 
 test('resolving the last question with a typed answer closes the window', async () => {
@@ -373,7 +466,7 @@ test('Alt+Arrow arranges the window like a node, also from its answer field, and
   render(<OrchestrationQuestionsStrip request={request} />)
   await openReader()
   const before = windowStyle()
-  const field = screen.getByLabelText('Antwort auf Q2')
+  const field = screen.getByLabelText('Antwort auf Q1')
   fireEvent.keyDown(field, { key: 'ArrowLeft', code: 'ArrowLeft', altKey: true })
   expect(windowStyle()).toEqual({
     left: 16,
@@ -387,6 +480,59 @@ test('Alt+Arrow arranges the window like a node, also from its answer field, and
   for (let press = 0; press < 3; press += 1)
     fireEvent.keyDown(field, { key: 'ArrowDown', code: 'ArrowDown', altKey: true })
   expect(windowStyle()).toEqual(before)
+})
+
+test('Alt+Arrow also works from the decision panel’s one-line Other field, which opening focuses', async () => {
+  api.orchestrationState.mockResolvedValue(state([choiceQuestion]))
+  render(<OrchestrationQuestionsStrip request={request} />)
+  await openReader()
+  const other = await screen.findByLabelText('Other answer')
+  expect(other.tagName).toBe('INPUT')
+  const press = createEvent.keyDown(other, { key: 'ArrowLeft', code: 'ArrowLeft', altKey: true })
+  fireEvent(other, press)
+  expect(press.defaultPrevented).toBe(true)
+  expect(windowStyle()).toMatchObject({ left: 16, top: 16 })
+})
+
+test('grabbing the title bar takes focus into the window, so the next Alt+Arrow reaches it', async () => {
+  render(<OrchestrationQuestionsStrip request={request} />)
+  await openReader()
+  const outside = document.createElement('button')
+  document.body.append(outside)
+  try {
+    outside.focus()
+    drag(document.querySelector('.orchestration-reader-header h2')!, [500, 70], [500, 70])
+    expect(document.activeElement).toBe(screen.getByRole('dialog'))
+  } finally {
+    outside.remove()
+  }
+})
+
+/** The app's canvas region, which a node's fullscreen fills: right of the sidebar, under the top bar. */
+function canvasRegion(rect: { left: number; top: number; width: number; height: number }): void {
+  const element = document.createElement('section')
+  element.className = 'canvas-region'
+  element.getBoundingClientRect = () =>
+    ({ ...rect, x: rect.left, y: rect.top, right: rect.left + rect.width, bottom: rect.top + rect.height }) as DOMRect
+  document.body.append(element)
+}
+
+test('fullscreen and the Alt+Arrow slices fill the node-fullscreen area, not the whole window', async () => {
+  canvasRegion({ left: 240, top: 52, width: window.innerWidth - 240, height: window.innerHeight - 52 })
+  render(<OrchestrationQuestionsStrip request={request} />)
+  await openReader()
+  fireEvent.click(screen.getByRole('button', { name: 'Fit to canvas' }))
+  expect(windowStyle()).toEqual({
+    left: 256,
+    top: 68,
+    width: window.innerWidth - 240 - 32,
+    height: window.innerHeight - 52 - 32
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Restore' }))
+  fireEvent.keyDown(screen.getByRole('dialog'), { key: 'ArrowRight', code: 'ArrowRight', altKey: true })
+  const right = windowStyle()
+  expect(right).toMatchObject({ top: 68, width: (window.innerWidth - 240 - 48) / 2 })
+  expect(right.left + right.width).toBe(window.innerWidth - 16)
 })
 
 test('the header has the canvas fit button: it maximises, flips to Restore and restores', async () => {
@@ -447,6 +593,15 @@ test('a pushed state for this orchestration updates the badge, another one is ig
   expect(screen.getByRole('button', { name: /Offene Fragen/ }).textContent).toContain('2')
   act(() => push(state([])))
   expect(screen.queryByRole('button', { name: /Offene Fragen?/ })).toBeNull()
+})
+
+test('questionTabAfterChange keeps a live selection and hands a resolved one to its neighbour', () => {
+  expect(questionTabAfterChange([], ['Q1', 'Q2'], undefined)).toBe('Q1')
+  expect(questionTabAfterChange(['Q1', 'Q2'], ['Q1', 'Q2', 'Q3'], 'Q2')).toBe('Q2')
+  expect(questionTabAfterChange(['Q1', 'Q2', 'Q3'], ['Q1', 'Q3'], 'Q2')).toBe('Q3')
+  expect(questionTabAfterChange(['Q1', 'Q2', 'Q3'], ['Q1', 'Q2'], 'Q3')).toBe('Q2')
+  expect(questionTabAfterChange(['Q1', 'Q2'], ['Q5'], 'Q2')).toBe('Q5')
+  expect(questionTabAfterChange(['Q1'], [], 'Q1')).toBeUndefined()
 })
 
 test('questionPreview is one plain-text line led by the question id', () => {
