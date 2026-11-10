@@ -1884,14 +1884,16 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       const sessionId = running.sessionId
       if (!sessionId) throw new Error('The agent did not return a session ID.')
       running.orchestratorGrant?.setConversation(sessionId)
-      // Only a fresh session is given a mode: a loaded one - resumed, forked, or reopened by a
-      // restart - continues in the mode its own transcript carries.
+      // A fresh session or a fork is given a mode: a fork is a new conversation, and inheriting its
+      // source's mode would carry a Bypass over unnoticed. A session loaded as itself - resumed, or
+      // reopened by a restart - continues in the mode its own transcript carries.
       // The default never replaces Manual: it is stricter than Auto, and what claude-agent-acp starts
       // a model without Auto in - asking for Auto there would run it as Accept edits.
-      const startMode = resumed
-        ? undefined
-        : (running.request.permissionMode ??
-          (modes?.currentModeId === 'default' ? undefined : DEFAULT_START_MODE[running.request.provider]))
+      const startMode =
+        resumed && !running.request.forkFromSessionId
+          ? undefined
+          : (running.request.permissionMode ??
+            (modes?.currentModeId === 'default' ? undefined : DEFAULT_START_MODE[running.request.provider]))
       if (
         startMode &&
         modes?.availableModes.some((mode) => mode.id === startMode) &&

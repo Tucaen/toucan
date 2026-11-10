@@ -43,6 +43,8 @@ const modes = {
     send({ jsonrpc: '2.0', id: request.id, result: { sessionId: 'session-1', modes } })
   } else if (request.method === 'session/load') {
     send({ jsonrpc: '2.0', id: request.id, result: { modes } })
+  } else if (request.method === 'session/fork') {
+    send({ jsonrpc: '2.0', id: request.id, result: { sessionId: 'forked-child' } })
   } else if (request.method === 'session/set_mode') {
     fs.appendFileSync(${JSON.stringify(log)}, request.params.modeId + '\\n')
     const ran = request.params.modeId === 'auto' && ${JSON.stringify(autoRunsAs ?? null)}
@@ -115,6 +117,28 @@ test('a resumed session keeps the mode of its own transcript, even when a mode i
     permissionMode: 'bypassPermissions'
   })
   assert.deepEqual(started, { currentModeId: 'plan', set: [] })
+})
+
+test('a branch of a Bypass conversation starts in Auto while a resume of it keeps Bypass', async () => {
+  const branched = await start('claude-agent-acp', 'bypassPermissions', CLAUDE_MODES, {
+    forkFromSessionId: 'parent-session'
+  })
+  assert.deepEqual(branched, { currentModeId: 'auto', set: ['auto'] })
+  const resumed = await start('claude-agent-acp', 'bypassPermissions', CLAUDE_MODES, {
+    sessionId: 'session-1'
+  })
+  assert.deepEqual(resumed, { currentModeId: 'bypassPermissions', set: [] })
+})
+
+test('a branch on a model without Auto reports the mode the adapter runs', async () => {
+  const started = await start(
+    'claude-agent-acp',
+    'bypassPermissions',
+    CLAUDE_MODES,
+    { forkFromSessionId: 'parent-session' },
+    'acceptEdits'
+  )
+  assert.deepEqual(started, { currentModeId: 'acceptEdits', set: ['auto'] })
 })
 
 test('a new Codex session keeps the adapter default, which has no Auto mode', async () => {
