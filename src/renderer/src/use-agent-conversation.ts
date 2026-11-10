@@ -85,6 +85,8 @@ export interface AgentConversationOptions {
   commandGuard?: false
   /** The chat node's role; an orchestrator's launch is minted its token in main. */
   role?: ChatNodeRole
+  /** A ticket session an orchestrator spawned; read at create time, never a restart trigger. */
+  orchestrated?: boolean
   restartKey?: number
   composePrompt?(text: string): string | Promise<string>
   enabled: boolean
@@ -334,7 +336,8 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
         effortId: options.effortId,
         routineDelegation: options.routineDelegation,
         ...(options.commandGuard === false ? { commandGuard: false as const } : {}),
-        ...(options.role ? { role: options.role } : {})
+        ...(options.role ? { role: options.role } : {}),
+        ...(options.orchestrated ? { orchestrated: true as const } : {})
       })
       .then((result) => {
         if (!active) return

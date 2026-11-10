@@ -130,12 +130,14 @@ test('Claude sessions, orchestrators included, open with the guard in their sess
       .filter(Boolean)
       .map((line) => JSON.parse(line) as { _meta?: { claudeCode?: { options?: { settings?: unknown } } } })
     assert.equal(sessions.length, 2)
-    for (const session of sessions) {
-      assert.deepEqual(
-        session._meta?.claudeCode?.options?.settings,
-        commandGuardSettings(process.execPath, commandGuardFiles(appPath))
-      )
-    }
+    const guard = commandGuardSettings(process.execPath, commandGuardFiles(appPath))
+    assert.deepEqual(sessions[0]?._meta?.claudeCode?.options?.settings, guard)
+    // The orchestrator's settings also switch the `ultracode` keyword off (tests/workflow-keyword-trigger.test.ts);
+    // the guard's hooks stay beside it.
+    assert.deepEqual(sessions[1]?._meta?.claudeCode?.options?.settings, {
+      ...guard,
+      workflowKeywordTriggerEnabled: false
+    })
   } finally {
     manager.killAll()
   }

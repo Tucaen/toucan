@@ -45,6 +45,12 @@ export interface AgentCreateRequest {
    * instruction; absent is an ordinary chat.
    */
   role?: ChatNodeRole
+  /**
+   * `true` for a ticket session an orchestrator spawned (its node carries `orchestratedBy`). Such a
+   * session receives text Toucan composed - ticket prompt, followups, wakes - which claude-agent-acp
+   * stamps as human-typed, so a Claude launch turns the `ultracode` keyword trigger off for it.
+   */
+  orchestrated?: true
 }
 
 export interface AgentAuthMethod {

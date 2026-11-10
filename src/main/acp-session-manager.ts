@@ -225,6 +225,17 @@ export function decisionQuestions(request: CreateElicitationRequest): AgentDecis
   })
 }
 
+/**
+ * The per-session settings object Toucan hands claude-agent-acp in `_meta.claudeCode.options.settings`
+ * (the SDK's programmatic layer: above the user's, project's and local files, below managed policy,
+ * and never written to any of them). One bag, so the command guard's hooks and the keyword switch
+ * are merged into it rather than one replacing the other.
+ */
+interface ClaudeSessionSettings extends Partial<CommandGuardSettings> {
+  /** Claude Code's `workflowKeywordTriggerEnabled`: `false` makes the word `ultracode` plain text. */
+  workflowKeywordTriggerEnabled?: boolean
+}
+
 interface SessionSkillsConfiguration {
   additionalDirectories?: string[]
   _meta?: {
@@ -232,7 +243,7 @@ interface SessionSkillsConfiguration {
       options: {
         plugins?: Array<{ type: 'local'; path: string }>
         agents?: ClaudeDelegationSessionMeta['claudeCode']['options']['agents']
-        settings?: CommandGuardSettings
+        settings?: ClaudeSessionSettings
         disallowedTools?: string[]
       }
       emitRawSDKMessages?: typeof FORWARDED_SDK_MESSAGES
@@ -474,7 +485,31 @@ export function withCommandGuard(
   configuration: SessionSkillsConfiguration,
   settings: CommandGuardSettings
 ): SessionSkillsConfiguration {
-  return withClaudeCodeOptions(configuration, { settings })
+  return withClaudeSessionSettings(configuration, settings)
+}
+
+/** Merges keys into the session's settings object, keeping every one already there. */
+function withClaudeSessionSettings(
+  configuration: SessionSkillsConfiguration,
+  settings: ClaudeSessionSettings
+): SessionSkillsConfiguration {
+  return withClaudeCodeOptions(configuration, {
+    settings: { ...configuration._meta?.claudeCode?.options.settings, ...settings }
+  })
+}
+
+/**
+ * Turns Claude Code's `ultracode` keyword trigger off for a session whose prompts Toucan composes.
+ * claude-agent-acp stamps every `session/prompt` `origin: { kind: 'human' }` (since 0.93.0), the
+ * only origin the keyword honours, and offers no per-prompt override - so text Toucan sends for an
+ * orchestrator (a ticket's first prompt, a followup, a wake) that happens to contain the word would
+ * otherwise start a dynamic workflow of up to 16 parallel subagents. The switch is per session
+ * settings, never the user's settings files. It also covers a human typing the word into such a
+ * session; an ordinary chat is untouched.
+ * @internal exported for tests
+ */
+export function withWorkflowKeywordTriggerOff(configuration: SessionSkillsConfiguration): SessionSkillsConfiguration {
+  return withClaudeSessionSettings(configuration, { workflowKeywordTriggerEnabled: false })
 }
 
 /**
@@ -1808,15 +1843,17 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       // answer depend on the boundary of an autonomous cycle as much as the orchestrator's wake does.
       // The guard alone is optional (`RunningAgent.commandGuard`). The forwarded messages are not a
       // safety feature and stay either way.
+      // An orchestrator and its ticket sessions are prompted with text Toucan composed, which the
+      // adapter stamps as human-typed: the `ultracode` keyword must not start a workflow in them.
+      const guardedConfiguration = running.commandGuard
+        ? withCommandGuard(orchestratingConfiguration, commandGuardSettings(process.execPath, running.commandGuard))
+        : orchestratingConfiguration
       const sessionConfiguration =
         running.request.provider === 'claude'
           ? withForwardedSdkMessages(
-              running.commandGuard
-                ? withCommandGuard(
-                    orchestratingConfiguration,
-                    commandGuardSettings(process.execPath, running.commandGuard)
-                  )
-                : orchestratingConfiguration
+              isOrchestrator(running.request) || running.request.orchestrated
+                ? withWorkflowKeywordTriggerOff(guardedConfiguration)
+                : guardedConfiguration
             )
           : orchestratingConfiguration
       // Included only when a terminal edge stands at this creation; a session without one carries

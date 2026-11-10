@@ -1144,6 +1144,7 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
     // Per node and read at creation too: the switch in More settings applies on the next start.
     commandGuard: data.commandGuard,
     role: data.role,
+    orchestrated: data.orchestratedBy !== undefined,
     // Bumped when a terminal-context edge is adopted mid-session: the restart resumes this same
     // conversation with the read tool included (terminal-context-edges.ts).
     // …and by the Resume action of an exited node (`relaunchNonce`). Both only ever grow, so their

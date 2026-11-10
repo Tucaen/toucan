@@ -1,5 +1,5 @@
 import { ReactFlowProvider } from '@xyflow/react'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import type { WorkspaceState } from '../src/shared/workspace'
 import ChatNode from '../src/renderer/src/ChatNode'
@@ -27,7 +27,12 @@ const callbacks: TerminalNodeCallbacks & WorktreeNodeCallbacks = {
   onRunSetupCommand: vi.fn()
 }
 
-function renderChat(role?: 'orchestrator', conversationId?: string, provider: 'claude' | 'codex' = 'claude') {
+function renderChat(
+  role?: 'orchestrator',
+  conversationId?: string,
+  provider: 'claude' | 'codex' = 'claude',
+  orchestratedBy?: { nodeId: string; conversationId: string }
+) {
   const mock = createMockAgentApi()
   window.agentApi = mock.api
   const state: WorkspaceState = {
@@ -46,7 +51,8 @@ function renderChat(role?: 'orchestrator', conversationId?: string, provider: 'c
         height: 480,
         focusMode: false,
         ...(conversationId ? { conversationId } : {}),
-        ...(role ? { role } : {})
+        ...(role ? { role } : {}),
+        ...(orchestratedBy ? { orchestratedBy } : {})
       }
     ],
     worktrees: []
@@ -95,6 +101,21 @@ test('an ordinary chat has no badge and asks for no role', async () => {
   expect(container.querySelector('.node-orchestrator-badge')).toBeNull()
   await waitFor(() => expect(create).toHaveBeenCalled())
   expect(create.mock.calls[0]?.[0]).not.toHaveProperty('role')
+})
+
+// Text an orchestrator composes reaches a ticket session as a human-stamped prompt, so its launch
+// tells main it is orchestrated (main then switches the `ultracode` keyword trigger off).
+test('a ticket session launches as orchestrated, and an ordinary chat does not', async () => {
+  const ticket = renderChat(undefined, undefined, 'claude', {
+    nodeId: 'orchestrator-1',
+    conversationId: 'conversation-orchestrator'
+  })
+  await waitFor(() => expect(ticket.create).toHaveBeenCalled())
+  expect(ticket.create.mock.calls[0]?.[0]).toMatchObject({ provider: 'claude', orchestrated: true })
+  cleanup()
+  const ordinary = renderChat()
+  await waitFor(() => expect(ordinary.create).toHaveBeenCalled())
+  expect(ordinary.create.mock.calls[0]?.[0]).not.toHaveProperty('orchestrated')
 })
 
 // #36: before its task is sent, an orchestrator shows whether Jev can route its tickets.
