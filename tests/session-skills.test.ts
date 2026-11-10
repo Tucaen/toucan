@@ -17,7 +17,7 @@ test('Toucan ships no tickets skill, so a project only ever sees the one it wrot
   // commit. The skills named are what Toucan does ship; a new one is a decision, this is a guard.
   const shipped = readdirSync(join(process.cwd(), PROJECT_SKILLS_DIRECTORY, 'skills'))
   assert.ok(!shipped.includes(TICKET_SKILL_NAME), 'Toucan must ship no tickets skill of its own')
-  assert.ok(shipped.includes('implement-in-worktree'))
+  assert.ok(shipped.includes('orchestrate'))
 })
 
 test('Toucan skills remain available when a Codex node works in another project', () => {

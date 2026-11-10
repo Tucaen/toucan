@@ -1,6 +1,4 @@
 import { strict as assert } from 'node:assert'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { test } from 'vitest'
 import {
   invokesWorktreeSkill,
@@ -25,16 +23,6 @@ test('talking about the skill is not calling it', () => {
     invokesWorktreeSkill('"Not sent" is wrongly displayed on my /$toucan-project-skills:implement-in-worktree message'),
     false
   )
-})
-
-test('the skill itself gates every side effect on an explicit leading command', () => {
-  const skill = readFileSync(join(process.cwd(), '.agents/skills/implement-in-worktree/SKILL.md'), 'utf8')
-  const gate = skill.indexOf('## Invocation gate')
-  const settle = skill.indexOf('## 1. Settle the worktree')
-
-  assert.ok(gate >= 0 && gate < settle, 'the invocation gate must run before worktree creation')
-  assert.match(skill, /first non-empty line/)
-  assert.match(skill, /skill block attached to a prompt .* is not evidence of invocation/)
 })
 
 test('a different skill with the same prefix does not trigger it', () => {

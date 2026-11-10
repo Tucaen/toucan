@@ -45,7 +45,7 @@ plugin rather than in Toucan.
    hooks. A plugin runs code with the user's rights, like a VS Code extension; this screen is the
    trust step, and it already exists when plugins one day come from other people.
 7. **Built-ins stay as they are.** The shipped skills (`orchestrate`, `session-records`,
-   `session-messaging`, `route-claude-ticket`, `implement-in-worktree`), the command guard, the
+   `session-messaging`, `route-claude-ticket`), the command guard, the
    terminal-context MCP server and the session instructions are not moved onto the plugin
    mechanism. `brain-dump` was removed instead (#57): the orchestrator node made it
    superfluous.
