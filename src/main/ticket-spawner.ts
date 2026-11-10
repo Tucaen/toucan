@@ -78,9 +78,8 @@ export interface TicketSpawner {
   spawn(request: TicketSpawnRequest): Promise<TicketSpawnResult>
 }
 
-/** What the spawner reads of a live session: the orchestrator's mode, the ticket session's model. */
+/** What the spawner reads of a live session: the ticket session's model and effort. */
 export interface SessionSettings {
-  permissionMode?: string
   model?: string
   effort?: string
 }
@@ -164,10 +163,6 @@ export function createTicketSpawner(options: TicketSpawnerOptions): TicketSpawne
         error: `effort "${request.effort}" is not offered for "${request.model}"; the picker offers ${efforts.join(', ')}`
       }
     }
-    // Read before anything is created, so the ticket session inherits the mode the orchestrator
-    // had when it asked.
-    const permissionMode = options.session(request.orchestrator.nodeId)?.permissionMode
-
     const worktree = await createWorktree(request)
     if ('error' in worktree) return { ok: false, error: worktree.error }
     options.onWorktreeCreated(worktree.path)
@@ -210,7 +205,6 @@ export function createTicketSpawner(options: TicketSpawnerOptions): TicketSpawne
       label: ticketSessionTitle(request.ticket),
       modelId: request.model,
       effortId: request.effort,
-      ...(permissionMode ? { permissionMode } : {}),
       orchestratedBy: { ...request.orchestrator, provider },
       prompt: ticketSessionPrompt(request.ticket, worktree, request.implementationSkill, scratchPath)
     }

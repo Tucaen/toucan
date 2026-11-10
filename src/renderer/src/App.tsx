@@ -1103,11 +1103,6 @@ function Canvas(): JSX.Element {
       role?: ChatNodeRole
       /** The effort to open on; like `modelId`, absent leaves it to the adapter. */
       effortId?: string
-      /**
-       * The mode a new session starts in: a ticket session inherits its orchestrator's. Absent starts
-       * the provider's default (Claude's Auto).
-       */
-      permissionMode?: string
       /** The orchestrator that spawned this ticket session; the orchestrated-by edge is drawn from it. */
       orchestratedBy?: OrchestratorLink
       /** Opened on the orchestrator's behalf: the node and the current selection are left as they are. */
@@ -1156,7 +1151,6 @@ function Canvas(): JSX.Element {
           branchedFrom,
           role: options.role,
           orchestratedBy: options.orchestratedBy,
-          preferredPermissionMode: kind === 'terminal' ? undefined : options.permissionMode,
           modelId: options.modelId,
           effortId: options.effortId,
           initialInput: options.initialInput,
@@ -2388,7 +2382,6 @@ function Canvas(): JSX.Element {
         titleSource: 'manual',
         modelId: request.modelId,
         effortId: request.effortId,
-        permissionMode: request.permissionMode,
         orchestratedBy: request.orchestratedBy,
         initialInput: request.prompt,
         background: true

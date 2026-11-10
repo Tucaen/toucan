@@ -43,8 +43,7 @@ export interface TicketSessionCanvasRequest {
   label: string
   modelId: string
   effortId: string
-  /** The orchestrator's current permission mode, inherited; absent starts the provider's default (Claude's Auto). */
-  permissionMode?: string
+  // No permission mode: a ticket session starts in the provider's default (Claude's Auto), never the orchestrator's.
   orchestratedBy: OrchestratorLink
   /** The first prompt: implementation skill, ticket, contract. */
   prompt: string

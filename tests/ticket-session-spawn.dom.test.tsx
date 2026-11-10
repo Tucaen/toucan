@@ -43,7 +43,6 @@ const request: TicketSessionCanvasRequest = {
   label: '#34 Spawn',
   modelId: 'claude-opus-5-5',
   effortId: 'high',
-  permissionMode: 'acceptEdits',
   orchestratedBy: orchestratorLink,
   prompt: '/implement #34 Spawn\n\n## Ticket contract'
 }
@@ -152,7 +151,8 @@ describe('a ticket session requested by an orchestrator', () => {
     expect(created.cwd).toBe('D:\\Development\\Toucan-ticket-34')
     expect(created.modelId).toBe('claude-opus-5-5')
     expect(created.effortId).toBe('high')
-    expect(created.permissionMode).toBe('acceptEdits')
+    // No mode is requested: main starts the session in the provider's default (Claude's Auto).
+    expect(created.permissionMode).toBeUndefined()
     // A ticket session is never an orchestrator, so it is never minted a token: no nesting.
     expect(created.role).toBeUndefined()
     // The id main records is the conversation the session opened under.
@@ -194,8 +194,7 @@ describe('a ticket session requested by an orchestrator', () => {
       provider: 'codex',
       orchestratedBy: { ...orchestratorLink, provider: 'codex' },
       modelId: 'gpt-6',
-      effortId: 'xhigh',
-      permissionMode: 'auto'
+      effortId: 'xhigh'
     }
     start('codex-ticket', codexRequest)
     await waitFor(() => expect(results).toHaveLength(1))
@@ -208,9 +207,9 @@ describe('a ticket session requested by an orchestrator', () => {
       provider: 'codex',
       modelId: 'gpt-6',
       effortId: 'xhigh',
-      permissionMode: 'auto',
       cwd: request.worktree.path
     })
+    expect(launches[0].permissionMode).toBeUndefined()
     expect(launches[0].role).toBeUndefined()
     await waitFor(() => expect(agent.api.prompt).toHaveBeenCalledWith(result.nodeId, request.prompt))
     await waitFor(() => {

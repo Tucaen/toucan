@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'vitest'
 import type { GitResult } from '../src/main/git-worktree'
-import { createTicketSpawner, type TicketSpawnerOptions } from '../src/main/ticket-spawner'
+import { createTicketSpawner, type SessionSettings, type TicketSpawnerOptions } from '../src/main/ticket-spawner'
 import type { OrchestrationTicket } from '../src/shared/orchestration'
 import type { TicketSessionCanvasRequest, TicketSessionCanvasResult } from '../src/shared/ticket-session-spawn'
 import type { WorktreeCreateRequest } from '../src/shared/worktree'
@@ -65,12 +65,7 @@ function harness(overrides: Partial<TicketSpawnerOptions> = {}) {
         return { ok: true, nodeId: 'ticket-node-1', conversationId: 'ticket-conversation-1' }
       }
     },
-    session: (nodeId) =>
-      nodeId === 'orchestrator-1'
-        ? { permissionMode: 'acceptEdits' }
-        : nodeId === 'ticket-node-1'
-          ? { model: 'claude-opus-5-5', effort: 'high' }
-          : undefined,
+    session: (nodeId) => (nodeId === 'ticket-node-1' ? { model: 'claude-opus-5-5', effort: 'high' } : undefined),
     offeredModels: () => ['claude-opus-5-5', 'claude-sonnet-5-5'],
     offeredEfforts: () => ['low', 'medium', 'high'],
     onWorktreeCreated: (path) => log.push(`registered ${path}`),
@@ -110,8 +105,8 @@ test('a spawn creates the worktree, guards it, runs setup and then starts the ch
   assert.equal(started.label, '#34 Spawn')
   assert.equal(started.modelId, 'claude-opus-5-5')
   assert.equal(started.effortId, 'high')
-  // Ticket sessions inherit the orchestrator's permission mode.
-  assert.equal(started.permissionMode, 'acceptEdits')
+  // A Bypass orchestrator does not hand its mode on: the ticket session starts in the default (Auto).
+  assert.equal('permissionMode' in started, false)
   assert.deepEqual(started.orchestratedBy, {
     nodeId: 'orchestrator-1',
     conversationId: 'conversation-1',
@@ -119,6 +114,18 @@ test('a spawn creates the worktree, guards it, runs setup and then starts the ch
   })
   assert.ok(started.prompt.startsWith('/implement #34 Spawn\n\nStart one ticket session.'))
   assert.ok(started.prompt.includes('D:\\project-ticket/34'))
+})
+
+test('a Bypass orchestrator spawns a ticket session that requests no mode, so it starts in Auto', async () => {
+  const { spawner, canvas } = harness({
+    // A broker snapshot still carries the orchestrator's mode; the spawner must not read it.
+    session: (nodeId) =>
+      (nodeId === 'orchestrator-1'
+        ? { permissionMode: 'bypassPermissions' }
+        : { model: 'claude-opus-5-5', effort: 'high' }) as SessionSettings
+  })
+  assert.ok((await spawner.spawn(request)).ok)
+  assert.equal('permissionMode' in canvas[0], false)
 })
 
 test("the ticket prompt names the main checkout's scratch folder, not the worktree's", async () => {
@@ -194,7 +201,7 @@ test('Codex spawning uses its catalogue and mode, and reports confirmed settings
       return ['low', 'high', 'xhigh']
     },
     session: (nodeId) =>
-      nodeId === 'orchestrator-1' ? { permissionMode: 'auto' } : { model: 'gpt-5.6', effort: 'high' }
+      nodeId === 'orchestrator-1' ? { model: 'orchestrator-model' } : { model: 'gpt-5.6', effort: 'high' }
   })
   const codex = {
     ...request,
@@ -214,7 +221,8 @@ test('Codex spawning uses its catalogue and mode, and reports confirmed settings
   assert.equal(canvas.length, 1)
   assert.equal(canvas[0].provider, 'codex')
   assert.equal(canvas[0].orchestratedBy.provider, 'codex')
-  assert.equal(canvas[0].permissionMode, 'auto')
+  // Codex has no Auto mode and keeps its adapter default: nothing is requested.
+  assert.equal('permissionMode' in canvas[0], false)
   assert.equal(canvas[0].modelId, 'gpt-6')
   assert.equal(canvas[0].effortId, 'xhigh')
   assert.match(canvas[0].prompt, /Ticket contract/)
@@ -301,8 +309,7 @@ test('a canvas that cannot start the chat fails the spawn but keeps the worktree
 
 test('a session that came up on another model or effort is reported, not hidden', async () => {
   const { spawner } = harness({
-    session: (nodeId) =>
-      nodeId === 'ticket-node-1' ? { model: 'claude-sonnet-5-5', effort: 'medium' } : { permissionMode: 'default' }
+    session: (nodeId) => (nodeId === 'ticket-node-1' ? { model: 'claude-sonnet-5-5', effort: 'medium' } : undefined)
   })
   const result = await spawner.spawn(request)
   assert.ok(result.ok)

@@ -943,7 +943,6 @@ void app.whenReady().then(async () => {
       const snapshot = agentEvents.snapshot(nodeId)
       return snapshot
         ? {
-            permissionMode: snapshot.modes?.currentModeId,
             model: snapshot.models?.currentModelId,
             effort: snapshot.efforts?.currentEffortId
           }

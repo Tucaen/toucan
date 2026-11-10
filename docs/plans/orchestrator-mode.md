@@ -62,7 +62,8 @@ environment, like `TOUCAN_NODE_ID`. Every call is checked in main at call time:
 - only ticket sessions of the orchestrator's own provider, only in the orchestrator's own
   project, only into worktrees the orchestration created;
 - ticket sessions get no token, so orchestrators never nest;
-- ticket sessions inherit the orchestrator's permission mode;
+- ticket sessions always start in the provider's default mode (Claude's Auto), never the
+  orchestrator's (#3);
 - a spawn budget of 20 per checkpoint (retries and escalations count): at the budget `spawn` is
   refused with `budgetReached` and the orchestration waits on the human, whose **Continue (+20)**
   on the orchestrator node raises the budget for the same orchestration and wakes the
