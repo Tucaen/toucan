@@ -48,6 +48,17 @@ It checks formatting, typed ESLint, architecture dependency rules, strict TypeSc
 both test suites. Tests use temporary local data and do not invoke Claude or Codex.
 `.github/workflows/ci.yml` runs the same gate on every push to `main` and every pull request.
 
+When the full suite is not wanted (an agent's ticket session, a quick iteration), run the quick
+gate instead:
+
+```powershell
+npm run check:quick
+```
+
+It runs the same static checks (`npm run check:static`), the repo-wide guard tests
+(`npm run test:guards`) and the tests affected by what differs from `main`
+(`npm run test:changed`).
+
 Focused commands are available during development:
 
 ```powershell
