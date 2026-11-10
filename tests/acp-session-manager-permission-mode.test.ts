@@ -19,9 +19,17 @@ const owner = { isDestroyed: () => false, send: () => undefined } as unknown as 
 
 /**
  * An adapter that opens every session - new or loaded - in `startMode`, offers `modeIds`, and
- * appends each `session/set_mode` it is asked for to a file the test reads back.
+ * appends each `session/set_mode` it is asked for to a file the test reads back. With `autoRunsAs`
+ * it answers a request for Auto the way claude-agent-acp does on a model without Auto: it runs
+ * that mode instead and reports it through `current_mode_update` before answering.
  */
-function modeAdapter(appPath: string, adapter: AdapterPackage, startMode: string, modeIds: string[]): string {
+function modeAdapter(
+  appPath: string,
+  adapter: AdapterPackage,
+  startMode: string,
+  modeIds: string[],
+  autoRunsAs?: string
+): string {
   const log = join(appPath, 'set-mode.log')
   installScriptedAdapter(appPath, adapter, {
     prelude: `
@@ -37,13 +45,21 @@ const modes = {
     send({ jsonrpc: '2.0', id: request.id, result: { modes } })
   } else if (request.method === 'session/set_mode') {
     fs.appendFileSync(${JSON.stringify(log)}, request.params.modeId + '\\n')
+    const ran = request.params.modeId === 'auto' && ${JSON.stringify(autoRunsAs ?? null)}
+    if (ran) {
+      send({
+        jsonrpc: '2.0',
+        method: 'session/update',
+        params: { sessionId: request.params.sessionId, update: { sessionUpdate: 'current_mode_update', currentModeId: ran } }
+      })
+    }
     send({ jsonrpc: '2.0', id: request.id, result: {} })
   }`
   })
   return log
 }
 
-function modesSet(log: string): string[] {
+function setModeRequests(log: string): string[] {
   try {
     return readFileSync(log, 'utf8').split('\n').filter(Boolean)
   } catch {
@@ -55,16 +71,17 @@ async function start(
   adapter: AdapterPackage,
   startMode: string,
   modeIds: string[],
-  request: Partial<AgentCreateRequest> = {}
+  request: Partial<AgentCreateRequest> = {},
+  autoRunsAs?: string
 ): Promise<{ currentModeId?: string; set: string[] }> {
   const appPath = mkdtempSync(join(tmpdir(), 'toucan-permission-mode-'))
-  const log = modeAdapter(appPath, adapter, startMode, modeIds)
+  const log = modeAdapter(appPath, adapter, startMode, modeIds, autoRunsAs)
   const manager = createAcpSessionManager({ appPath, environment: { PATH: process.env.PATH } })
   try {
     const provider = adapter === 'codex-acp' ? 'codex' : 'claude'
     const created = await manager.create({ id: 'chat', provider, cwd: appPath, ...request }, owner)
     assert.equal(created.status, 'ready')
-    return { currentModeId: created.modes?.currentModeId, set: modesSet(log) }
+    return { currentModeId: created.modes?.currentModeId, set: setModeRequests(log) }
   } finally {
     manager.killAll()
   }
@@ -103,4 +120,15 @@ test('a resumed session keeps the mode of its own transcript, even when a mode i
 test('a new Codex session keeps the adapter default, which has no Auto mode', async () => {
   const started = await start('codex-acp', 'agent', ['read-only', 'agent', 'agent-full-access'])
   assert.deepEqual(started, { currentModeId: 'agent', set: [] })
+})
+
+test('a new Claude session the adapter opened in Manual stays in Manual, which is stricter than Auto', async () => {
+  const started = await start('claude-agent-acp', 'default', CLAUDE_MODES)
+  assert.deepEqual(started, { currentModeId: 'default', set: [] })
+})
+
+test('a session reports the mode the adapter actually runs, not the one it asked for', async () => {
+  // claude-agent-acp runs Auto as Accept edits on a model without Auto, and says so.
+  const started = await start('claude-agent-acp', 'plan', CLAUDE_MODES, {}, 'acceptEdits')
+  assert.deepEqual(started, { currentModeId: 'acceptEdits', set: ['auto'] })
 })

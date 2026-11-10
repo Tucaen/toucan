@@ -1105,7 +1105,7 @@ function Canvas(): JSX.Element {
       effortId?: string
       /**
        * The mode a new session starts in: a ticket session inherits its orchestrator's. Absent starts
-       * the provider's default (Claude's Auto) - never the mode another session was last switched to.
+       * the provider's default (Claude's Auto).
        */
       permissionMode?: string
       /** The orchestrator that spawned this ticket session; the orchestrated-by edge is drawn from it. */

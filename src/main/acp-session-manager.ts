@@ -763,6 +763,12 @@ interface RunningAgent {
    * `starting` then would pin the renderer's composer disabled forever (GitHub issue #158).
    */
   opening: boolean
+  /**
+   * The mode the adapter last reported through `current_mode_update`. A requested mode may not be
+   * the one applied - claude-agent-acp runs Auto as Accept edits on a model without Auto - and the
+   * report arrives before the `session/set_mode` answer, which says nothing about the mode itself.
+   */
+  reportedModeId?: string
   wakeGate?: PromptWakeGate<AgentPromptContent>
 }
 
@@ -1880,16 +1886,20 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       running.orchestratorGrant?.setConversation(sessionId)
       // Only a fresh session is given a mode: a loaded one - resumed, forked, or reopened by a
       // restart - continues in the mode its own transcript carries.
+      // The default never replaces Manual: it is stricter than Auto, and what claude-agent-acp starts
+      // a model without Auto in - asking for Auto there would run it as Accept edits.
       const startMode = resumed
         ? undefined
-        : (running.request.permissionMode ?? DEFAULT_START_MODE[running.request.provider])
+        : (running.request.permissionMode ??
+          (modes?.currentModeId === 'default' ? undefined : DEFAULT_START_MODE[running.request.provider]))
       if (
         startMode &&
         modes?.availableModes.some((mode) => mode.id === startMode) &&
         modes.currentModeId !== startMode
       ) {
+        running.reportedModeId = undefined
         await running.context.request(methods.agent.session.setMode, { sessionId, modeId: startMode })
-        modes = { ...modes, currentModeId: startMode }
+        modes = { ...modes, currentModeId: running.reportedModeId ?? startMode }
       }
       if (models) {
         const applied = await applySavedModel(running, models)
@@ -2336,6 +2346,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           } else if (update.sessionUpdate === 'plan') {
             send(running, { type: 'plan', entries: update.entries })
           } else if (update.sessionUpdate === 'current_mode_update') {
+            running.reportedModeId = update.currentModeId
             send(running, {
               type: 'modes',
               modes: {
