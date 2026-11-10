@@ -1528,7 +1528,7 @@ export function ticketContract(worktree: { path: string; branch: string }, scrat
     `- Commit your work to its branch, ${worktree.branch}.`,
     "- When the ticket only asks a question, answer it from the code: change and commit nothing, skip the skill's implementation steps, and make the answer, with the files and lines it rests on, your final report.",
     '- Never push, never merge, and never open a pull request: the orchestrator merges this branch. Pushing is refused by a hook anyway.',
-    "- Do not run the project's full test suite before your final report; run the tests that cover your change. The orchestrator rebases this branch onto the target right before the merge and decides from the risk of the change whether to ask you for the full suite, an affected subset, or nothing more (CI runs the full suite anyway), so a full run happens at most once, on what is merged.",
+    "- Do not run the project's full test suite before your final report; run the tests that cover your change. When the project's agent instructions (AGENTS.md or CLAUDE.md) name a pre-merge quick check, run it too before you report done, fix what it reports, and report its result with the commit it passed on; that quick check is not the full suite. The orchestrator rebases this branch onto the target right before the merge and decides from the risk of the change whether to ask you for the full suite, an affected subset, or nothing more (CI runs the full suite anyway), so a full run happens at most once, on what is merged.",
     '- When the orchestrator asks, run the full test suite or the tests it names here and report the commit you tested with its result. When it hands you a rebase conflict, rebase this branch onto the target, resolve it, then run what it asks for (the full suite unless it names less) and report the same way. The orchestrator only fast-forwards what it verified.',
     '- End with a final report: commit, verification commands and results, unresolved blocking review findings, skipped or deleted tests with reasons, and open questions.',
     `- ${fileReferenceRule(scratchPath)}`
@@ -1545,7 +1545,7 @@ export const TICKET_CONTRACT_SUMMARY: { must: readonly string[]; mustNot: readon
   must: [
     'Implement, test, review and commit the ticket in the given worktree, on its branch.',
     'Answer a question-only ticket in the final report, without changing or committing anything.',
-    'Run only the tests covering the change before the final report; run the full test suite, or the subset named, on request, right before the merge.',
+    "Run only the tests covering the change before the final report, plus the project's own pre-merge quick check when its agent instructions name one, and report its result; run the full test suite, or the subset named, on request, right before the merge.",
     'On request, resolve a rebase conflict with the target, then run the tests asked for (the full test suite unless less is named).',
     'End with a final report: commit, verification commands and results, unresolved review findings and open questions.'
   ],
