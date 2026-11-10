@@ -129,16 +129,20 @@ export default function OrchestrationQuestionsReader({
   latestSnap.current = snap
 
   const ids = questions.map((question) => question.id)
-  const [selected, setSelected] = useState<string | undefined>(undefined)
-  const shownIds = useRef<readonly string[]>([])
-  const activeId = questionTabAfterChange(shownIds.current, ids, selected)
-  useEffect(() => {
-    shownIds.current = ids
+  const idsKey = ids.join('\n')
+  // The selected tab and the question ids it was chosen among. A changed list re-selects while
+  // rendering, so the next change is measured from the tab now shown.
+  const [tabs, setTabs] = useState<{ key: string; ids: readonly string[]; selected: string | undefined }>({
+    key: '',
+    ids: [],
+    selected: undefined
   })
-  // The fallback is kept as the selection, so the next change is measured from the tab now shown.
-  useEffect(() => {
-    if (activeId !== selected) setSelected(activeId)
-  }, [activeId, selected])
+  let activeId = tabs.selected
+  if (tabs.key !== idsKey) {
+    activeId = questionTabAfterChange(tabs.ids, ids, tabs.selected)
+    setTabs({ key: idsKey, ids, selected: activeId })
+  }
+  const select = (questionId: string): void => setTabs((current) => ({ ...current, selected: questionId }))
 
   const arrange = (next: { rect: ReaderRect; snap: ReaderSnap | null }): void => {
     setRect(next.rect)
@@ -169,14 +173,34 @@ export default function OrchestrationQuestionsReader({
     if (root.current) focusShownQuestion(root.current)
   }, [focusSignal])
 
-  // An answered question takes its focused Send or Submit button with it, and focus would fall to
-  // the page, where Alt+Arrow and typing reach the canvas instead; it goes on to the next question.
-  // Read while rendering, because by the time an effect runs the focused button is already gone.
-  const focusWasInside = useRef(false)
-  focusWasInside.current = !!root.current?.contains(document.activeElement)
+  // Whether focus belongs to the window: given by focus moving in, taken by focus moving elsewhere or
+  // a press outside, but not by focus merely being dropped. Answering a question disables its
+  // focused Send, Erledigt or Submit button and then removes or hides it, and the browser drops focus
+  // to the page, where Alt+Arrow and typing reach the canvas; focus goes on to the shown question.
+  const ownsFocus = useRef(false)
+  useEffect(() => {
+    const onFocusIn = (event: FocusEvent): void => {
+      ownsFocus.current = !!root.current?.contains(event.target as Node)
+    }
+    const onPress = (event: MouseEvent): void => {
+      if (!root.current?.contains(event.target as Node)) ownsFocus.current = false
+    }
+    document.addEventListener('focusin', onFocusIn)
+    document.addEventListener('mousedown', onPress, true)
+    return () => {
+      document.removeEventListener('focusin', onFocusIn)
+      document.removeEventListener('mousedown', onPress, true)
+    }
+  }, [])
   useLayoutEffect(() => {
     const element = root.current
-    if (element && focusWasInside.current && !element.contains(document.activeElement)) focusShownQuestion(element)
+    if (!element || !ownsFocus.current) return
+    const focused = document.activeElement
+    const dropped =
+      !focused ||
+      focused === document.body ||
+      (element.contains(focused) && (focused.matches(':disabled') || !!focused.closest('[hidden]')))
+    if (dropped) focusShownQuestion(element)
   })
 
   const endGesture = useRef<(() => void) | undefined>(undefined)
@@ -219,7 +243,7 @@ export default function OrchestrationQuestionsReader({
     if (step === 0 || ids.length === 0) return
     event.preventDefault()
     const next = ids[(ids.indexOf(questionId) + step + ids.length) % ids.length]
-    setSelected(next)
+    select(next)
     document.getElementById(tabId(next))?.focus()
   }
 
@@ -285,11 +309,11 @@ export default function OrchestrationQuestionsReader({
                 aria-selected={active}
                 aria-controls={panelId(question.id)}
                 tabIndex={active ? 0 : -1}
-                onClick={() => setSelected(question.id)}
+                onClick={() => select(question.id)}
                 onKeyDown={(event) => stepTab(event, question.id)}
               >
                 {question.id}
-                {question.ticketId && <span>#{question.ticketId}</span>}
+                {question.ticketId && <span>{` #${question.ticketId}`}</span>}
               </button>
             )
           })}

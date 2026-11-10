@@ -113,6 +113,9 @@ test('a changed canvas region re-lays a snapped window and only keeps a free one
     height: 716
   })
   expect(reflowReaderRect(start, null, wider, viewport)).toEqual(start)
+  // A canvas with no room yet (hidden, or not laid out) leaves the arranged window where it is.
+  const empty = { left: 0, top: 0, width: 0, height: 0 }
+  expect(reflowReaderRect(fitted.rect, fitted.snap, empty, viewport)).toEqual(fitted.rect)
   expect(reflowReaderRect({ ...start, left: 5000 }, null, wider, viewport).left).toBe(
     viewport.width - 400 - READER_MARGIN
   )

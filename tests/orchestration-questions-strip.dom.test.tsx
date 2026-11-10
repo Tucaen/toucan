@@ -84,7 +84,7 @@ test('the reader opens on document.body with one tab per open question, labelled
   expect(container.contains(dialog)).toBe(false)
   expect(document.body.contains(dialog)).toBe(true)
   const tabs = screen.getAllByRole('tab')
-  expect(tabs.map((tab) => tab.textContent)).toEqual(['Q1#3', 'Q2'])
+  expect(tabs.map((tab) => tab.textContent)).toEqual(['Q1 #3', 'Q2'])
   expect(tabs.map((tab) => tab.getAttribute('aria-selected'))).toEqual(['true', 'false'])
   expect(screen.getByRole('tabpanel', { name: /Q1/ })).toBeTruthy()
   expect(screen.getByRole('link', { name: 'shot' })).toBeTruthy()
@@ -389,6 +389,21 @@ test('an answered question takes its focused Send button along, and focus moves 
   fireEvent.click(send)
   await waitFor(() => expect(screen.queryByRole('tab', { name: /Q1/ })).toBeNull())
   // Not the page: from there Alt+Arrow and typing would reach the canvas instead of the window.
+  expect(document.activeElement).toBe(screen.getByLabelText('Antwort auf Q2'))
+})
+
+test('focus the browser drops off a disabled Erledigt still lands in the next question', async () => {
+  let finish: (next: OrchestrationControlState) => void = () => undefined
+  api.resolveQuestion.mockReturnValue(new Promise((done) => (finish = done)))
+  render(<OrchestrationQuestionsStrip request={request} />)
+  await openReader()
+  const erledigt = screen.getByRole('button', { name: 'Erledigt' })
+  erledigt.focus()
+  fireEvent.click(erledigt)
+  // Chromium drops focus off a disabled button to the page; jsdom does not, so it is done by hand.
+  act(() => (document.activeElement as HTMLElement).blur())
+  expect(document.activeElement).toBe(document.body)
+  await act(async () => finish(state([questions[1]])))
   expect(document.activeElement).toBe(screen.getByLabelText('Antwort auf Q2'))
 })
 

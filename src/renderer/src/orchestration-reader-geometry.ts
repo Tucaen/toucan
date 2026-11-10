@@ -126,14 +126,19 @@ export function toggleReaderFit(rect: ReaderRect, snap: ReaderSnap | null, canva
     : placed(rect, snap, MAXIMISED, canvas)
 }
 
-/** A changed canvas or viewport re-lays a snapped window into its slice; a free one is only kept on screen. */
+/**
+ * A changed canvas or viewport re-lays a snapped window into its slice; a free one is only kept on
+ * screen. A canvas with no room inside the inset (hidden, or not laid out yet) is ignored, as the
+ * node snap ignores it, rather than squeezing the window into its corner.
+ */
 export function reflowReaderRect(
   rect: ReaderRect,
   snap: ReaderSnap | null,
   canvas: ReaderRect,
   viewport: ReaderViewport
 ): ReaderRect {
-  return snap ? sliceRect(snap, canvas) : clampReaderRect(rect, viewport)
+  const roomy = canvas.width > NODE_FIT_INSET * 2 && canvas.height > NODE_FIT_INSET * 2
+  return snap && roomy ? sliceRect(snap, canvas) : clampReaderRect(rect, viewport)
 }
 
 const remembered = new Map<string, ReaderRect>()
