@@ -114,6 +114,8 @@ import type { OrchestratorLink, TicketSessionCanvasRequest } from '../../shared/
 import { useTicketSessionSpawns, type TicketSessionCanvas, type TicketSessionStart } from './use-ticket-session-spawns'
 import { ticketCleanupNodes } from './ticket-cleanup'
 import { backspaceChatShield } from './chat-backspace-shield'
+import MultiCloseDialog from './MultiCloseDialog'
+import { withMultiCloseConfirmation, type PendingMultiClose } from './multi-close-confirmation'
 import { installTypingDeleteGuard } from './typing-delete-guard'
 import ConversationHistoryDialog from './ConversationHistoryDialog'
 import { ModalDialog } from './ModalDialog'
@@ -942,6 +944,30 @@ function Canvas(): JSX.Element {
       }
     },
     [forgetNodeAttention, nodeFit, onNodesChange, setEdges, setNodes]
+  )
+
+  // A close that would take more than one node asks first. One pending question at a time: a
+  // newer delete resolves the older one as declined rather than leaving its promise hanging.
+  const [multiClose, setMultiClose] = useState<{
+    pending: PendingMultiClose
+    settle(confirmed: boolean): void
+  } | null>(null)
+  const multiCloseRef = useRef<((confirmed: boolean) => void) | null>(null)
+  const confirmMultiClose = useCallback((pending: PendingMultiClose): Promise<boolean> => {
+    multiCloseRef.current?.(false)
+    return new Promise<boolean>((resolve) => {
+      const settle = (confirmed: boolean): void => {
+        if (multiCloseRef.current === settle) multiCloseRef.current = null
+        setMultiClose((current) => (current?.settle === settle ? null : current))
+        resolve(confirmed)
+      }
+      multiCloseRef.current = settle
+      setMultiClose({ pending, settle })
+    })
+  }, [])
+  const beforeDelete = useMemo(
+    () => withMultiCloseConfirmation(backspaceChatShield.beforeDelete, confirmMultiClose),
+    [confirmMultiClose]
   )
 
   /** Clicking a canvas's empty pane leaves nothing selected on any other canvas either. */
@@ -2668,6 +2694,7 @@ function Canvas(): JSX.Element {
       summaries: new Map(worktreeSummaries.map((summary) => [summary.worktreeId, summary])),
       onReveal: focusNode,
       onNodesChange: handleNodesChange,
+      beforeDelete,
       onEdgesChange,
       onConnect: connectTerminalContext,
       isValidConnection: isValidCanvasConnection,
@@ -2679,6 +2706,7 @@ function Canvas(): JSX.Element {
     [
       canvasEdgeSplit,
       canvasPartition,
+      beforeDelete,
       clearSelectionOutside,
       connectTerminalContext,
       focusNode,
@@ -2871,7 +2899,7 @@ function Canvas(): JSX.Element {
                               defaultViewport={{ x: 0, y: 0, zoom: 1 }}
                               colorMode="dark"
                               deleteKeyCode={['Backspace', 'Delete']}
-                              onBeforeDelete={backspaceChatShield.beforeDelete}
+                              onBeforeDelete={beforeDelete}
                             >
                               <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} color="#303744" />
                             </ReactFlow>
@@ -2967,6 +2995,14 @@ function Canvas(): JSX.Element {
                 onChange={(patch) => setWorktreeDraft((current) => (current ? { ...current, ...patch } : current))}
                 onCancel={() => setWorktreeDraft(null)}
                 onConfirm={confirmWorktreeDraft}
+              />
+            )}
+
+            {multiClose && (
+              <MultiCloseDialog
+                pending={multiClose.pending}
+                onConfirm={() => multiClose.settle(true)}
+                onCancel={() => multiClose.settle(false)}
               />
             )}
 

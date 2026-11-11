@@ -1,8 +1,11 @@
 import type { Connection, EdgeChange, IsValidConnection, NodeChange, Viewport } from '@xyflow/react'
 import { createContext, type MouseEvent } from 'react'
 import type { CanvasNode } from './canvas-workspace'
+import { backspaceChatShield } from './chat-backspace-shield'
 import type { WorktreeCanvasEdges, WorktreeCanvasPartition } from './worktree-canvas'
 import type { WorktreeSummary } from './worktree-overview'
+
+type BeforeDelete = typeof backspaceChatShield.beforeDelete
 
 /**
  * What the workspace may do to one worktree's canvas from outside it: measure it, read and move
@@ -47,6 +50,8 @@ export interface WorktreeCanvasHost {
   onPaneClick(canvas: string): void
   /** One of its nodes was clicked, even one already selected: the sidebar follows its project. */
   onNodeClick(event: MouseEvent, node: CanvasNode): void
+  /** React Flow's `onBeforeDelete`: the Backspace shield plus the multi-node close confirmation. */
+  beforeDelete: BeforeDelete
   /** The canvas mounted and lends its instance to the workspace; the return unregisters it. */
   registerCanvas(canvas: string, handle: WorktreeCanvasHandle): () => void
   /** The canvas's layout size changed - its worktree was resized, focused or restored. */
@@ -65,6 +70,7 @@ export const WorktreeCanvasContext = createContext<WorktreeCanvasHost>({
   isValidConnection: () => false,
   onPaneClick: () => undefined,
   onNodeClick: () => undefined,
+  beforeDelete: backspaceChatShield.beforeDelete,
   registerCanvas: () => () => undefined,
   onCanvasResize: () => undefined
 })

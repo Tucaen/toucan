@@ -14,7 +14,6 @@ import { useCallback, useContext, useEffect, useRef } from 'react'
 import type { TerminalKind } from '../../shared/terminal'
 import type { WorktreeViewport } from '../../shared/worktree'
 import type { WorktreeChildCanvasNode } from './canvas-workspace'
-import { backspaceChatShield } from './chat-backspace-shield'
 import DiffNode from './DiffNode'
 import FileNode from './FileNode'
 import SessionKindIcon from './SessionKindIcon'
@@ -162,7 +161,7 @@ export default function WorktreeCanvas({
           autoPanOnSelection={false}
           colorMode="dark"
           deleteKeyCode={['Backspace', 'Delete']}
-          onBeforeDelete={backspaceChatShield.beforeDelete}
+          onBeforeDelete={host.beforeDelete}
           proOptions={{ hideAttribution: true }}
         >
           <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#2a2436" />
