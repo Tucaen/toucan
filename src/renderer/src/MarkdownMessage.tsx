@@ -202,6 +202,10 @@ function MarkdownLink(props: { href?: string; children?: React.ReactNode }): JSX
         data-link-kind={action.kind}
         onClick={(event) => {
           event.preventDefault()
+          // A file link selects the file node it opens. Left to bubble, the click would reach
+          // React Flow's wrapper of the chat holding the link and select that chat again, so
+          // closing the file node would take the chat with it (#2).
+          if (action.kind === 'file-node') event.stopPropagation()
           open()
         }}
         onKeyDown={(event) => {

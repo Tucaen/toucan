@@ -64,7 +64,11 @@ function FilePathActions({ path }: { path: string }): JSX.Element {
           type="button"
           className="tool-inline-button"
           title="Open this file as a node on the canvas"
-          onClick={() => openFile(path)}
+          onClick={(event) => {
+            // The new file node takes the selection; see the file link in MarkdownMessage (#2).
+            event.stopPropagation()
+            openFile(path)
+          }}
         >
           Open
         </button>
