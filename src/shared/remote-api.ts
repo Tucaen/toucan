@@ -1,4 +1,5 @@
 import type { RemoteAccessSettings, RemoteAccessState, RemoteWorkspaceProjection } from './remote-access'
+import type { RemoteChatCloseResult } from './remote-close'
 import type { RemoteChatSpawnRequest, RemoteChatSpawnResult } from './remote-spawn'
 
 /**
@@ -29,4 +30,10 @@ export interface RemoteApi {
    * cleared badge reaches the phone in the next published projection, like every other change.
    */
   onMarkChatRead(callback: (chatId: string) => void): () => void
+  /**
+   * A paired reader closing a chat. The node is the canvas's, so the renderer removes it through
+   * its own path and answers on `completeClose`; the phone's request is waiting on that verdict.
+   */
+  onCloseChat(callback: (requestId: string, chatId: string) => void): () => void
+  completeClose(requestId: string, result: RemoteChatCloseResult): void
 }

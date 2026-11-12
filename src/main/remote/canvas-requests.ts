@@ -1,4 +1,5 @@
 import { REMOTE_CHANNELS } from '../../shared/ipc-channels'
+import type { RemoteChatCloseResult } from '../../shared/remote-close'
 import type { RemoteChatSpawnRequest, RemoteChatSpawnResult } from '../../shared/remote-spawn'
 import { createWindowRequests, type DesktopWindow } from '../window-requests'
 
@@ -31,6 +32,11 @@ export interface RemoteCanvasRequests {
    */
   markRead(chatId: string): void
   /**
+   * Asks the desktop to close this chat's node through the canvas's own remove path. Awaited like a
+   * spawn, because the phone leaves the chat on the verdict. Never rejects.
+   */
+  close(chatId: string): Promise<RemoteChatCloseResult>
+  /**
    * Registers the window that performs these requests and returns a disposer. The most recently
    * attached live window wins, so a reopened window takes over from a destroyed one without a
    * restart.
@@ -38,6 +44,8 @@ export interface RemoteCanvasRequests {
   attach(window: DesktopWindow): () => void
   /** The renderer's answer to a spawn, routed in from IPC. Unknown ids are ignored: a late reply is not news. */
   complete(requestId: string, result: RemoteChatSpawnResult): void
+  /** The renderer's answer to a close, routed in from IPC. Unknown ids are ignored. */
+  completeClose(requestId: string, result: RemoteChatCloseResult): void
 }
 
 export interface RemoteCanvasRequestsOptions {
@@ -47,12 +55,15 @@ export interface RemoteCanvasRequestsOptions {
    * refusal the reader can retry.
    */
   timeoutMs?: number
+  /** How long the renderer has to remove a node it was asked to close. */
+  closeTimeoutMs?: number
   requestId?: () => string
   /** Injectable so tests do not wait in real time. */
   schedule?: (run: () => void, delayMs: number) => { cancel(): void }
 }
 
 const DEFAULT_TIMEOUT_MS = 45_000
+const DEFAULT_CLOSE_TIMEOUT_MS = 10_000
 
 export function createRemoteCanvasRequests(options: RemoteCanvasRequestsOptions = {}): RemoteCanvasRequests {
   const spawns = createWindowRequests<RemoteChatSpawnRequest, RemoteChatSpawnResult>({
@@ -73,12 +84,36 @@ export function createRemoteCanvasRequests(options: RemoteCanvasRequestsOptions 
     schedule: options.schedule
   })
 
+  // Removing a node is synchronous on the canvas, so the wait is short: a renderer that has not
+  // answered in this long is not going to, and the phone should hear so rather than hang.
+  const closes = createWindowRequests<string, RemoteChatCloseResult>({
+    channel: REMOTE_CHANNELS.closeChat,
+    messages: {
+      noWindow: 'Toucan is not open on the desktop, so there is nothing to close the chat in.',
+      windowGone: 'The Toucan window closed before the chat was closed.',
+      timeout: 'The desktop did not confirm closing the chat in time. Check the chat list.'
+    },
+    refuse: (message) => ({ ok: false, message }),
+    timeoutMs: options.closeTimeoutMs ?? DEFAULT_CLOSE_TIMEOUT_MS,
+    requestId: options.requestId,
+    schedule: options.schedule
+  })
+
   return {
     spawn: (request) => spawns.request(request),
+    close: (chatId) => closes.request(chatId),
     markRead(chatId): void {
       spawns.liveWindow()?.send(REMOTE_CHANNELS.markChatRead, chatId)
     },
-    attach: (window) => spawns.attach(window),
-    complete: (requestId, result) => spawns.complete(requestId, result)
+    attach: (window) => {
+      const detachSpawns = spawns.attach(window)
+      const detachCloses = closes.attach(window)
+      return () => {
+        detachSpawns()
+        detachCloses()
+      }
+    },
+    complete: (requestId, result) => spawns.complete(requestId, result),
+    completeClose: (requestId, result) => closes.complete(requestId, result)
   }
 }

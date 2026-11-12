@@ -1096,6 +1096,8 @@ void app.whenReady().then(async () => {
     // behind that badge are the canvas's - so this is a request to the window, like spawning, and
     // not something main applies on its own.
     read: (chatId) => canvasRequests.markRead(chatId),
+    // Closing is the canvas's remove path too, so a phone's close is the same as Delete on the node.
+    close: (chatId) => canvasRequests.close(chatId),
     // The header chip's updater, unchanged. Only the restart differs: the phone has already shown its
     // reader the guard's warning and had it confirmed, so the exit is cleared rather than asked again
     // in a desktop modal nobody may be looking at.

@@ -13,6 +13,7 @@ import {
   createRemoteAccessServer,
   type RemoteAccessServer,
   type RemoteAppUpdate,
+  type RemoteChatClose,
   type RemoteChatRead,
   type RemoteChatSessionOperations,
   type RemoteChatSpawn,
@@ -96,6 +97,7 @@ function harness(
     chats?: AgentEventBroker
     sessions?: RemoteChatSessionOperations
     read?: RemoteChatRead
+    close?: RemoteChatClose
     spawn?: RemoteChatSpawn
     orchestration?: RemoteOrchestration
     appUpdate?: RemoteAppUpdate
@@ -124,6 +126,7 @@ function harness(
     ...(options.chats ? { chats: options.chats } : {}),
     ...(options.sessions ? { sessions: options.sessions } : {}),
     ...(options.read ? { read: options.read } : {}),
+    ...(options.close ? { close: options.close } : {}),
     ...(options.spawn ? { spawn: options.spawn } : {}),
     ...(options.orchestration ? { orchestration: options.orchestration } : {}),
     ...(options.appUpdate ? { appUpdate: options.appUpdate } : {}),
@@ -2574,5 +2577,62 @@ describe('the app update over HTTP', () => {
     assert.equal((await created.get('/api/app-update', token)).status, 503)
     assert.equal((await created.post('/api/app-update/check', '', token)).status, 503)
     assert.equal((await created.post('/api/app-update/restart', '', token)).status, 503)
+  })
+})
+
+describe('closing a chat over HTTP', () => {
+  const PROJECTION = {
+    projects: [{ id: 'toucan', name: 'Toucan', color: '#71a9ff' }],
+    chats: [
+      {
+        id: 'chat-1',
+        kind: 'claude' as const,
+        title: 'Chat',
+        projectId: 'toucan',
+        status: 'idle' as const,
+        unread: 0
+      }
+    ]
+  }
+
+  async function closeHarness(close?: RemoteChatClose): Promise<Harness> {
+    const created = harness(close ? { close } : {})
+    await created.server.applySettings({ enabled: true, port: await freePort() })
+    created.server.publishWorkspace(PROJECTION)
+    return created
+  }
+
+  test('reaches the desktop canvas for a listed chat and answers once it is closed', async () => {
+    const closed: string[] = []
+    const created = await closeHarness(async (chatId) => {
+      closed.push(chatId)
+      return { ok: true }
+    })
+    const response = await created.post('/api/chats/chat-1/close', '', created.store.read().token)
+    assert.equal(response.status, 200)
+    assert.deepEqual(JSON.parse(response.body), { ok: true })
+    assert.deepEqual(closed, ['chat-1'])
+  })
+
+  test('an unpaired caller and an unlisted chat never reach the canvas', async () => {
+    const closed: string[] = []
+    const created = await closeHarness(async (chatId) => {
+      closed.push(chatId)
+      return { ok: true }
+    })
+    const token = created.store.read().token
+    assert.equal((await created.post('/api/chats/chat-1/close', '', 'wrong-token')).status, 401)
+    assert.equal((await created.post('/api/chats/ghost/close', '', token)).status, 404)
+    assert.deepEqual(closed, [])
+  })
+
+  test('a desktop refusal is passed through, and a host without the seam says so', async () => {
+    const refused = await closeHarness(async () => ({ ok: false, message: 'Toucan is not open on the desktop.' }))
+    const response = await refused.post('/api/chats/chat-1/close', '', refused.store.read().token)
+    assert.equal(response.status, 503)
+    assert.deepEqual(JSON.parse(response.body), { error: 'Toucan is not open on the desktop.' })
+
+    const bare = await closeHarness()
+    assert.equal((await bare.post('/api/chats/chat-1/close', '', bare.store.read().token)).status, 503)
   })
 })

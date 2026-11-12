@@ -11,13 +11,15 @@ import {
   type RemoteChatSpawnRequest,
   type RemoteChatSpawnResult
 } from '../../shared/remote-spawn'
+import type { RemoteChatCloseResult } from '../../shared/remote-close'
 import type { TerminalNodeStatus } from '../../shared/terminal'
 
 /**
  * The renderer's one owner of remote access. It holds no policy - the host decides whether a
  * listener comes up and what the pairing token is - and does exactly four jobs: it keeps the
  * settings dialog looking at the host's real state, it publishes the canvas projection a paired
- * phone lists, it performs the spawns the host asks for, and it applies the reads a phone reports.
+ * phone lists, it performs the spawns and closes the host asks for, and it applies the reads a
+ * phone reports.
  *
  * Publishing is deduplicated on purpose. The workspace snapshot is rebuilt on every drag frame
  * and every keystroke in a composer draft, none of which changes what a phone shows, so the
@@ -49,7 +51,8 @@ export function useRemoteAccess(
   source: RemoteWorkspaceSource,
   statuses: Readonly<Record<string, TerminalNodeStatus>>,
   startSpawn?: RemoteChatSpawnStarter,
-  markChatRead?: (chatId: string) => void
+  markChatRead?: (chatId: string) => void,
+  closeChat?: (chatId: string) => RemoteChatCloseResult
 ): RemoteAccessController {
   const [state, setState] = useState<RemoteAccessState | null>(null)
   const [busy, setBusy] = useState(false)
@@ -129,6 +132,23 @@ export function useRemoteAccess(
 
   useEffect(() => {
     return window.remoteApi.onMarkChatRead((chatId) => markChatReadRef.current?.(chatId))
+  }, [])
+
+  /**
+   * A phone closing a chat. Removing a node is synchronous on the canvas, so the verdict is the
+   * closer's own answer - there is no session coming up to wait on, as there is for a spawn.
+   */
+  const closer = useRef(closeChat)
+  closer.current = closeChat
+
+  useEffect(() => {
+    return window.remoteApi.onCloseChat((requestId, chatId) => {
+      const result = closer.current?.(chatId) ?? {
+        ok: false as const,
+        message: 'This desktop cannot close chats right now.'
+      }
+      window.remoteApi.completeClose(requestId, result)
+    })
   }, [])
 
   const run = useCallback(async (operation: () => Promise<RemoteAccessState>): Promise<void> => {

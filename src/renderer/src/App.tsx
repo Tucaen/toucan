@@ -110,6 +110,7 @@ import { CommandGuardGloballyOffContext } from './command-guard-context'
 import { OrchestrationSettingsDialog } from './OrchestrationSettingsDialog'
 import { useRemoteAccess } from './use-remote-access'
 import type { RemoteChatSpawnRequest, RemoteChatSpawnResult } from '../../shared/remote-spawn'
+import type { RemoteChatCloseResult } from '../../shared/remote-close'
 import type { OrchestratorLink, TicketSessionCanvasRequest } from '../../shared/ticket-session-spawn'
 import { useTicketSessionSpawns, type TicketSessionCanvas, type TicketSessionStart } from './use-ticket-session-spawns'
 import { ticketCleanupNodes } from './ticket-cleanup'
@@ -1795,7 +1796,26 @@ function Canvas(): JSX.Element {
     [handleAttention]
   )
 
-  const remoteAccess = useRemoteAccess(workspaceSnapshot, nodeStatuses, startRemoteSpawn, markRemoteChatRead)
+  // A phone's close is Delete on the node: the same remove path, so the session stops and the node
+  // lands in recently closed exactly as it would from the canvas. Only chat nodes are addressable -
+  // the projection lists nothing else - so anything else is refused rather than removed.
+  const closeRemoteChat = useCallback(
+    (chatId: string): RemoteChatCloseResult => {
+      const node = nodesRef.current.find((candidate) => candidate.id === chatId)
+      if (!node || !isChatCanvasNode(node)) return { ok: false, message: 'That chat is no longer open on the desktop.' }
+      handleNodesChange([{ type: 'remove', id: chatId }])
+      return { ok: true }
+    },
+    [handleNodesChange]
+  )
+
+  const remoteAccess = useRemoteAccess(
+    workspaceSnapshot,
+    nodeStatuses,
+    startRemoteSpawn,
+    markRemoteChatRead,
+    closeRemoteChat
+  )
   const appUpdate = useAppUpdate()
 
   const {

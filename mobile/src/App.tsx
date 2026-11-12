@@ -31,7 +31,14 @@ import { effectiveHostStatus, hostStatusLabel, type HostProbe, type HostStatuses
 import HostsScreen from './HostsScreen'
 import NewChatScreen from './NewChatScreen'
 import { WORKSPACE_POLL_MS, fetchWorkspace, verifyHost } from './remote-client'
-import { chatPathname, routeFromPathname, HOSTS_PATHNAME, NEW_CHAT_PATHNAME, type MobileRoute } from './routes'
+import {
+  chatPathname,
+  chatQuestionsPathname,
+  routeFromPathname,
+  HOSTS_PATHNAME,
+  NEW_CHAT_PATHNAME,
+  type MobileRoute
+} from './routes'
 import { useHostDirectory } from './use-host-directory'
 import { useProviderUsage } from './use-provider-usage'
 import { describeProviderUsage, type ProviderUsageCard } from './provider-usage'
@@ -102,6 +109,32 @@ export default function App(): JSX.Element {
     setOpenedChat(null)
     window.history.replaceState({ pushed: true }, '', chatPathname(chatId))
     setRoute({ screen: 'chat', chatId })
+  }, [])
+
+  /** An orchestrator's open questions, as their own history entry so Back closes them. */
+  const openQuestions = useCallback((chatId: string) => {
+    window.history.pushState({ pushed: true }, '', chatQuestionsPathname(chatId))
+    setRoute({ screen: 'chat', chatId, view: 'questions' })
+  }, [])
+
+  /**
+   * Back to the orchestrator the questions were opened from. Opened from its chat, the pushed entry
+   * is popped; a reloaded questions link has none, so the chat takes its place instead.
+   */
+  const closeQuestions = useCallback((chatId: string) => {
+    if (window.history.state && (window.history.state as { pushed?: boolean }).pushed) {
+      window.history.back()
+      return
+    }
+    window.history.replaceState(null, '', chatPathname(chatId))
+    setRoute({ screen: 'chat', chatId })
+  }, [])
+
+  /** The chat was closed on the desktop: there is nothing left to show, so the list takes over. */
+  const leaveClosedChat = useCallback(() => {
+    setOpenedChat(null)
+    window.history.replaceState(null, '', '/')
+    setRoute({ screen: 'list' })
   }, [])
 
   const backToList = useCallback(() => {
@@ -184,11 +217,15 @@ export default function App(): JSX.Element {
         key={`${host.id}:${route.chatId}`}
         host={host}
         chatId={route.chatId}
+        view={route.view ?? 'chat'}
         summary={openedChat?.id === route.chatId ? openedChat : null}
         // The same reading the list's chips draw, so "which window bites first" cannot say one
         // thing on the list and another inside the conversation it is about to stop.
         rateLimits={usage}
         onBack={backToList}
+        onOpenQuestions={openQuestions}
+        onCloseQuestions={closeQuestions}
+        onClosed={leaveClosedChat}
         onUnauthorized={revokeSelected}
       />
     )

@@ -272,6 +272,18 @@ export async function createChat(host: HostEndpoint, spawn: RemoteChatSpawnReque
 }
 
 /**
+ * Closes a chat on the desktop - the same as Delete on its node, so its session stops. The host
+ * answers only once the canvas has removed the node, so `ok` means the chat is gone.
+ */
+export async function closeChat(host: HostEndpoint, chatId: string): Promise<RemoteResult<true>> {
+  const sent = await send(`/api/chats/${encodeURIComponent(chatId)}/close`, host, { method: 'POST' })
+  if (!sent.ok) return sent
+  if (sent.value.ok) return { ok: true, value: true }
+  const payload = await readJsonBody(sent.value)
+  return { ok: false, kind: 'unreachable', message: hostRefusal(payload, sent.value.status) }
+}
+
+/**
  * The orchestrator's Continue (+20) at its spawn budget: the host runs the same controller
  * operation the desktop button does. A stale press (already continued) is accepted as a no-op, so
  * a refusal here is only ever a reason the reader can read - not an orchestrator, not open.

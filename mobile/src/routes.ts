@@ -9,7 +9,12 @@
  */
 export type MobileRoute =
   | { screen: 'list' }
-  | { screen: 'chat'; chatId: string }
+  /**
+   * One chat. `view: 'questions'` is an orchestrator's open questions, shown in place of the
+   * transcript by the same chat screen - so its socket and draft carry on underneath, and closing
+   * the view lands back on that orchestrator.
+   */
+  | { screen: 'chat'; chatId: string; view?: 'questions' }
   | { screen: 'new' }
   /** Managing and switching the saved hosts. */
   | { screen: 'hosts' }
@@ -20,10 +25,11 @@ export const HOSTS_PATHNAME = '/hosts'
 export function routeFromPathname(pathname: string): MobileRoute {
   if (pathname === NEW_CHAT_PATHNAME) return { screen: 'new' }
   if (pathname === HOSTS_PATHNAME) return { screen: 'hosts' }
-  const match = /^\/chats\/([^/]+)$/.exec(pathname)
+  const match = /^\/chats\/([^/]+)(\/questions)?$/.exec(pathname)
   if (!match) return { screen: 'list' }
   try {
-    return { screen: 'chat', chatId: decodeURIComponent(match[1]) }
+    const chatId = decodeURIComponent(match[1])
+    return match[2] ? { screen: 'chat', chatId, view: 'questions' } : { screen: 'chat', chatId }
   } catch {
     return { screen: 'list' }
   }
@@ -31,4 +37,8 @@ export function routeFromPathname(pathname: string): MobileRoute {
 
 export function chatPathname(chatId: string): string {
   return `/chats/${encodeURIComponent(chatId)}`
+}
+
+export function chatQuestionsPathname(chatId: string): string {
+  return `${chatPathname(chatId)}/questions`
 }

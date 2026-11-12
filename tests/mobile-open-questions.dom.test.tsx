@@ -1,12 +1,15 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { useState } from 'react'
 import { beforeEach, describe, expect, test, vi, type Mock } from 'vitest'
 import ChatScreen from '../mobile/src/ChatScreen'
 import type { SavedHost } from '../mobile/src/hosts'
 import type { RemoteChatSummary } from '../src/shared/remote-access'
 
 /**
- * The pinned open-questions banner on the phone: each question once, verbatim, above the
- * transcript; Erledigt resolves it on the host, Antworten starts the composer with `Zu Q<n>: `.
+ * An orchestrator's open questions on the phone: a link in the chat's sticky header opens a view
+ * of their own, one tab per question, in place of the transcript. Erledigt resolves one on the
+ * host, Antworten returns to the chat with the composer started as `Zu Q<n>: `, and closing the
+ * view returns to the orchestrator it was opened from.
  */
 
 class StubSocket {
@@ -37,7 +40,7 @@ const ORCHESTRATOR: RemoteChatSummary = {
 }
 const QUESTIONS = [
   { id: 'Q1', ticketId: '3', markdown: 'Which **branch** should ship?', createdAt: 1 },
-  { id: 'Q2', ticketId: '4', markdown: 'See [shot](file:///D:/x/shot.png) first', createdAt: 2 }
+  { id: 'Q2', ticketId: '4', markdown: 'See the screenshot first', createdAt: 2 }
 ]
 const CHOICE = {
   id: 'Q3',
@@ -46,20 +49,56 @@ const CHOICE = {
   options: [{ label: 'Left', description: 'the old one' }, { label: 'Right' }],
   createdAt: 3
 }
-const WITH_CHOICE: RemoteChatSummary = { ...ORCHESTRATOR, openQuestions: [QUESTIONS[0], CHOICE] }
+const WITH_CHOICE: RemoteChatSummary = { ...ORCHESTRATOR, openQuestions: [CHOICE, QUESTIONS[0]] }
 const WITH_QUESTIONS: RemoteChatSummary = { ...ORCHESTRATOR, openQuestions: QUESTIONS }
 
-function open(summary: RemoteChatSummary): void {
-  render(
+/** The chat screen with the view switching App does, so a test can walk between the two. */
+function Harness({
+  summary,
+  initialView,
+  onOpenQuestions,
+  onCloseQuestions
+}: {
+  summary: RemoteChatSummary
+  initialView: 'chat' | 'questions'
+  onOpenQuestions(chatId: string): void
+  onCloseQuestions(chatId: string): void
+}): JSX.Element {
+  const [view, setView] = useState(initialView)
+  return (
     <ChatScreen
       host={HOST}
       chatId={summary.id}
+      view={view}
       summary={summary}
       rateLimits={{}}
       onBack={() => {}}
+      onOpenQuestions={(chatId) => {
+        onOpenQuestions(chatId)
+        setView('questions')
+      }}
+      onCloseQuestions={(chatId) => {
+        onCloseQuestions(chatId)
+        setView('chat')
+      }}
+      onClosed={() => {}}
       onUnauthorized={() => {}}
     />
   )
+}
+
+function open(summary: RemoteChatSummary, initialView: 'chat' | 'questions' = 'chat') {
+  const onOpenQuestions = vi.fn()
+  const onCloseQuestions = vi.fn()
+  render(
+    <Harness
+      summary={summary}
+      initialView={initialView}
+      onOpenQuestions={onOpenQuestions}
+      onCloseQuestions={onCloseQuestions}
+    />
+  )
+  return { onOpenQuestions, onCloseQuestions }
 }
 
 const posted = (fetchStub: Mock): string[] =>
@@ -75,55 +114,107 @@ beforeEach(() => {
   window.localStorage.clear()
 })
 
-describe('open questions on the phone', () => {
-  test('pins every question with its count and markdown', () => {
+describe('the open-questions link in the chat', () => {
+  test('counts the questions in the header and keeps them out of the transcript', () => {
     open(WITH_QUESTIONS)
-    expect(screen.getByRole('heading', { name: 'Offene Fragen (2)' })).toBeInTheDocument()
-    expect(screen.getByText('branch')).toBeInTheDocument()
-    expect(screen.getByText('Q1')).toBeInTheDocument()
-    expect(screen.getByText('Q2')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '2 offene Fragen ›' })).toBeInTheDocument()
+    expect(screen.queryByText('branch')).not.toBeInTheDocument()
   })
 
   test('is absent without open questions', () => {
     open(ORCHESTRATOR)
-    expect(screen.queryByText(/Offene Fragen/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/offene Frage/)).not.toBeInTheDocument()
   })
 
-  test('Erledigt asks the host to resolve that question', async () => {
-    open(WITH_QUESTIONS)
+  test('opens the questions view of this orchestrator', () => {
+    const { onOpenQuestions } = open(WITH_QUESTIONS)
+    fireEvent.click(screen.getByRole('button', { name: '2 offene Fragen ›' }))
+    expect(onOpenQuestions).toHaveBeenCalledWith('orch-1')
+    expect(screen.getByRole('heading', { name: 'Offene Fragen' })).toBeInTheDocument()
+    expect(screen.queryByLabelText('Message')).not.toBeInTheDocument()
+  })
+
+  test('goes when a later workspace read lists no questions', async () => {
+    vi.useFakeTimers()
+    try {
+      fetchStub.mockImplementation(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ updatedAt: 1, projects: [], chats: [ORCHESTRATOR] }), { status: 200 })
+        )
+      )
+      open(WITH_QUESTIONS)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3_100)
+      })
+      expect(screen.queryByText(/offene Frage/)).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('the questions view', () => {
+  test('has one tab per question and shows the oldest first', () => {
+    open(WITH_QUESTIONS, 'questions')
+    const tabs = screen.getAllByRole('tab')
+    expect(tabs.map((tab) => tab.textContent)).toEqual(['Q1 · #3', 'Q2 · #4'])
+    expect(tabs[0]).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tabpanel')).toHaveTextContent('Which branch should ship?')
+  })
+
+  test('a tab shows its own question', () => {
+    open(WITH_QUESTIONS, 'questions')
+    fireEvent.click(screen.getByRole('tab', { name: 'Q2 · #4' }))
+    expect(screen.getByRole('tabpanel')).toHaveTextContent('See the screenshot first')
+  })
+
+  test('closing returns to the orchestrator it was opened from', () => {
+    const { onCloseQuestions } = open(WITH_QUESTIONS, 'questions')
+    fireEvent.click(screen.getByRole('button', { name: 'Back to the orchestrator' }))
+    expect(onCloseQuestions).toHaveBeenCalledWith('orch-1')
+    expect(screen.getByLabelText('Message')).toBeInTheDocument()
+  })
+
+  test('Erledigt resolves the shown question and its tab goes at once', async () => {
+    open(WITH_QUESTIONS, 'questions')
+    fireEvent.click(screen.getByRole('tab', { name: 'Q2 · #4' }))
     await act(async () => {
-      fireEvent.click(screen.getAllByRole('button', { name: 'Erledigt' })[1])
+      fireEvent.click(screen.getByRole('button', { name: 'Erledigt' }))
     })
     await waitFor(() =>
       expect(posted(fetchStub)).toEqual(['http://work-pc:1789/api/chats/orch-1/questions/Q2/resolve'])
     )
+    expect(fetchStub.mock.calls.find(([, call]) => call?.method === 'POST')![1].body).toBeUndefined()
+    await waitFor(() => expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Q1 · #3']))
+    expect(screen.getByRole('tabpanel')).toHaveTextContent('Which branch should ship?')
   })
 
-  test('a refusal is shown in the host words', async () => {
+  test('a refusal is shown in the host words and the tab stays', async () => {
     fetchStub.mockImplementation(() =>
       Promise.resolve(new Response(JSON.stringify({ error: 'That question is gone.' }), { status: 409 }))
     )
-    open(WITH_QUESTIONS)
-    fireEvent.click(screen.getAllByRole('button', { name: 'Erledigt' })[0])
+    open(WITH_QUESTIONS, 'questions')
+    fireEvent.click(screen.getByRole('button', { name: 'Erledigt' }))
     expect(await screen.findByText('That question is gone.')).toBeInTheDocument()
+    expect(screen.getAllByRole('tab')).toHaveLength(2)
   })
 
-  test('Antworten prefills the composer with Zu Q<n>: ', () => {
-    open(WITH_QUESTIONS)
-    fireEvent.click(screen.getAllByRole('button', { name: 'Antworten' })[0])
+  test('Antworten returns to the chat with the composer started as Zu Q<n>: ', () => {
+    const { onCloseQuestions } = open(WITH_QUESTIONS, 'questions')
+    fireEvent.click(screen.getByRole('button', { name: 'Antworten' }))
+    expect(onCloseQuestions).toHaveBeenCalledWith('orch-1')
     expect(screen.getByLabelText('Message')).toHaveValue('Zu Q1: ')
   })
 
-  test('a question with options shows a decision card; plain ones do not', () => {
-    open(WITH_CHOICE)
-    expect(screen.getByRole('button', { name: /Left/ })).toBeInTheDocument()
-    expect(screen.getByText('the old one')).toBeInTheDocument()
-    expect(screen.getByLabelText('Other answer')).toBeInTheDocument()
-    expect(document.querySelectorAll('.pending-request[data-kind="decision"]')).toHaveLength(1)
+  test('says so when every question is resolved', () => {
+    open(ORCHESTRATOR, 'questions')
+    expect(screen.getByText('Keine offenen Fragen.')).toBeInTheDocument()
   })
 
-  test('submitting a picked option resolves the question with the answer as its note', async () => {
-    open(WITH_CHOICE)
+  test('a question with options shows a decision card and resolves with the pick as its note', async () => {
+    open(WITH_CHOICE, 'questions')
+    expect(screen.getByText('the old one')).toBeInTheDocument()
+    expect(screen.getByLabelText('Other answer')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /Right/ }))
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Submit answers' }))
@@ -136,30 +227,8 @@ describe('open questions on the phone', () => {
     expect(init.headers['content-type']).toBe('application/json')
   })
 
-  test('Erledigt on a plain question still posts no body', async () => {
-    open(WITH_QUESTIONS)
-    await act(async () => {
-      fireEvent.click(screen.getAllByRole('button', { name: 'Erledigt' })[0])
-    })
-    await waitFor(() => expect(posted(fetchStub)).toHaveLength(1))
-    expect(fetchStub.mock.calls.find(([, call]) => call?.method === 'POST')![1].body).toBeUndefined()
-  })
-
-  test('the banner goes when a later workspace read lists no questions', async () => {
-    vi.useFakeTimers()
-    try {
-      fetchStub.mockImplementation(() =>
-        Promise.resolve(
-          new Response(JSON.stringify({ updatedAt: 1, projects: [], chats: [ORCHESTRATOR] }), { status: 200 })
-        )
-      )
-      open(WITH_QUESTIONS)
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(3_100)
-      })
-      expect(screen.queryByText(/Offene Fragen/)).not.toBeInTheDocument()
-    } finally {
-      vi.useRealTimers()
-    }
+  test('a plain question shows no decision card', () => {
+    open(WITH_QUESTIONS, 'questions')
+    expect(document.querySelectorAll('.pending-request[data-kind="decision"]')).toHaveLength(0)
   })
 })

@@ -428,6 +428,16 @@ describe('routing', () => {
     assert.deepEqual(resolveRemoteRoute('GET', undefined), { kind: 'not-found' })
   })
 
+  test('closing a chat is a POST-only route per chat, behind the same gate', () => {
+    const route = resolveRemoteRoute('POST', '/api/chats/chat-1/close')
+    assert.deepEqual(route, { kind: 'close-chat', chatId: 'chat-1' })
+    assert.equal(routeRequiresPairing(route), true)
+    assert.deepEqual(resolveRemoteRoute('GET', '/api/chats/chat-1/close'), {
+      kind: 'method-not-allowed',
+      allow: 'POST'
+    })
+  })
+
   test('continuing an orchestration is a POST-only route per chat, behind the same gate', () => {
     const route = resolveRemoteRoute('POST', '/api/chats/orch-1/continue-spawns')
     assert.deepEqual(route, { kind: 'continue-spawns', chatId: 'orch-1' })

@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Power } from 'lucide-react'
 import type {
   AgentDecisionQuestion,
   AgentDecisionRequest,
@@ -55,8 +56,10 @@ import ChatKindBadge from './ChatKindBadge'
 import ChatMarkdown from './ChatMarkdown'
 import type { SavedHost } from './hosts'
 import MobileVoiceInput from './MobileVoiceInput'
+import { orchestratorTicketWorktrees, questionTabLabel, selectedQuestion, visibleQuestions } from './open-questions'
 import {
   WORKSPACE_POLL_MS,
+  closeChat,
   continueSpawns,
   fetchWorkspace,
   rememberFocusMode,
@@ -81,14 +84,23 @@ import { useChatConnection, type ChatConnection } from './use-chat-connection'
 export default function ChatScreen({
   host,
   chatId,
+  view,
   summary: initialSummary,
   rateLimits,
   onBack,
+  onOpenQuestions,
+  onCloseQuestions,
+  onClosed,
   onUnauthorized
 }: {
   /** The host this chat lives on; every request and the socket are addressed to it. */
   host: SavedHost
   chatId: string
+  /**
+   * The transcript, or an orchestrator's open questions in its place. One screen for both, so the
+   * socket and the draft carry on while the questions are open and Antworten lands in the composer.
+   */
+  view: 'chat' | 'questions'
   /** What the chat list knew when it navigated here; null on a reloaded deep link. */
   summary: RemoteChatSummary | null
   /**
@@ -98,6 +110,10 @@ export default function ChatScreen({
    */
   rateLimits: ProviderUsageReport
   onBack(): void
+  onOpenQuestions(chatId: string): void
+  onCloseQuestions(chatId: string): void
+  /** The chat was closed on the desktop; the screen has nothing left to show. */
+  onClosed(): void
   onUnauthorized(): void
 }): JSX.Element {
   const connection = useChatConnection(host, chatId, onUnauthorized)
@@ -141,6 +157,32 @@ export default function ChatScreen({
       controller.abort()
     }
   }, [isOrchestrator, host, chatId])
+
+  // Closing asks first, and an orchestrator's ask names the ticket worktrees it would leave behind -
+  // read fresh from the workspace at the tap, since the list may have changed since it was opened.
+  const [closing, setClosing] = useState<ClosingState | null>(null)
+  const askToClose = async (): Promise<void> => {
+    setClosing({ stage: 'loading', worktrees: [] })
+    const result = await fetchWorkspace(host)
+    if (!result.ok && result.kind === 'unauthorized') {
+      onUnauthorized()
+      return
+    }
+    const worktrees = result.ok ? orchestratorTicketWorktrees(result.value.chats, chatId) : []
+    setClosing((current) => (current ? { stage: 'confirming', worktrees } : current))
+  }
+  const confirmClose = async (): Promise<void> => {
+    if (!closing) return
+    const worktrees = closing.worktrees
+    setClosing({ stage: 'closing', worktrees })
+    const result = await closeChat(host, chatId)
+    if (result.ok) {
+      onClosed()
+      return
+    }
+    if (result.kind === 'unauthorized') onUnauthorized()
+    else setClosing({ stage: 'confirming', worktrees, problem: result.message })
+  }
 
   const [focusMode, setFocusMode] = useState(storedFocusMode)
   const toggleFocusMode = (): void => {
@@ -219,6 +261,24 @@ export default function ChatScreen({
     return () => window.removeEventListener('scroll', remember)
   }, [items])
 
+  const openQuestions = summary?.openQuestions ?? []
+  if (view === 'questions') {
+    return (
+      <QuestionsView
+        host={host}
+        chatId={chatId}
+        title={summary?.title ?? 'Orchestrator'}
+        questions={openQuestions}
+        onAnswer={(id) => {
+          connection.onDraftChange(answerDraft(connection.draft, id))
+          onCloseQuestions(chatId)
+        }}
+        onClose={() => onCloseQuestions(chatId)}
+        onUnauthorized={onUnauthorized}
+      />
+    )
+  }
+
   return (
     <main className="screen chat-screen">
       <header className="chat-head">
@@ -232,6 +292,13 @@ export default function ChatScreen({
               {status.label}
             </span>
           )}
+          {/* In the sticky header so it stays in reach: pinned above the transcript, the questions
+              sat under a page that always scrolls to its newest message. */}
+          {openQuestions.length > 0 && (
+            <button type="button" className="chat-questions-link" onClick={() => onOpenQuestions(chatId)}>
+              {openQuestions.length === 1 ? '1 offene Frage' : `${openQuestions.length} offene Fragen`} ›
+            </button>
+          )}
         </div>
         <button
           type="button"
@@ -243,22 +310,32 @@ export default function ChatScreen({
           Focus
         </button>
         {summary && <ChatKindBadge kind={summary.kind} />}
+        <button
+          type="button"
+          className="chat-close"
+          aria-label="Close session"
+          title="Close this session on the desktop"
+          aria-expanded={closing !== null}
+          onClick={() => void askToClose()}
+        >
+          <Power aria-hidden="true" />
+        </button>
       </header>
+
+      {closing && (
+        <CloseConfirmation
+          closing={closing}
+          orchestrator={summary?.orchestrator === true}
+          onConfirm={() => void confirmClose()}
+          onCancel={() => setClosing(null)}
+        />
+      )}
 
       {summary?.spawnCheckpoint && (
         <SpawnCheckpoint
           host={host}
           chatId={chatId}
           checkpoint={summary.spawnCheckpoint}
-          onUnauthorized={onUnauthorized}
-        />
-      )}
-      {summary?.openQuestions && summary.openQuestions.length > 0 && (
-        <OpenQuestions
-          host={host}
-          chatId={chatId}
-          questions={summary.openQuestions}
-          onAnswer={(id) => connection.onDraftChange(answerDraft(connection.draft, id))}
           onUnauthorized={onUnauthorized}
         />
       )}
@@ -360,47 +437,143 @@ function answerDraft(draft: string, questionId: string): string {
   return draft.startsWith(lead) ? draft : `${lead}${draft}`
 }
 
+/** Where a close stands: reading what it would orphan, waiting for the reader, or on the wire. */
+interface ClosingState {
+  stage: 'loading' | 'confirming' | 'closing'
+  /** Branches of the ticket worktrees closing this orchestrator leaves behind. */
+  worktrees: string[]
+  problem?: string
+}
+
 /**
- * The orchestrator's open questions, pinned above the transcript (not part of its paged history):
- * each is stored once, verbatim, so its links and context are here and not far up the scroll.
- * Erledigt resolves one on the host; Antworten starts the composer with `Zu Q<n>: `. A question
- * leaves when the next workspace read no longer lists it.
+ * Asked before a session is closed from the phone. Closing stops the agent on the desktop, so it
+ * is never one tap; an orchestrator with ticket worktrees says which ones it would orphan, the same
+ * warning the desktop canvas gives.
  */
-function OpenQuestions({
+function CloseConfirmation({
+  closing,
+  orchestrator,
+  onConfirm,
+  onCancel
+}: {
+  closing: ClosingState
+  orchestrator: boolean
+  onConfirm(): void
+  onCancel(): void
+}): JSX.Element {
+  const { stage, worktrees, problem } = closing
+  return (
+    <section className="chat-close-confirm" role="alertdialog" aria-label="Close session">
+      <p>
+        {orchestrator ? 'Close this orchestrator?' : 'Close this session?'} It stops on the desktop and moves to
+        recently closed there.
+      </p>
+      {worktrees.length > 0 && (
+        <>
+          <p>
+            {worktrees.length === 1
+              ? 'This worktree still holds a ticket session of the orchestrator. It stays behind with no orchestrator to merge or clean it up:'
+              : `These ${worktrees.length} worktrees still hold ticket sessions of the orchestrator. They stay behind with no orchestrator to merge or clean them up:`}
+          </p>
+          <ul>
+            {worktrees.map((branch) => (
+              <li key={branch}>{branch}</li>
+            ))}
+          </ul>
+        </>
+      )}
+      {problem && <p role="alert">{problem}</p>}
+      <div className="chat-close-actions">
+        <button type="button" onClick={onCancel} disabled={stage === 'closing'}>
+          Cancel
+        </button>
+        <button type="button" className="danger" onClick={onConfirm} disabled={stage !== 'confirming'}>
+          {stage === 'loading' ? 'Checking…' : stage === 'closing' ? 'Closing…' : 'Close session'}
+        </button>
+      </div>
+    </section>
+  )
+}
+
+/**
+ * An orchestrator's open questions, one tab each, in place of its transcript. Each is stored once,
+ * verbatim, so its links and context are all here. Erledigt resolves one on the host; Antworten
+ * returns to the chat with the composer started as `Zu Q<n>: `. Closing returns to the
+ * orchestrator; a question leaves when the next workspace read no longer lists it.
+ */
+function QuestionsView({
   host,
   chatId,
+  title,
   questions,
   onAnswer,
+  onClose,
   onUnauthorized
 }: {
   host: SavedHost
   chatId: string
+  title: string
   questions: OrchestrationOpenQuestion[]
   onAnswer(questionId: string): void
+  onClose(): void
   onUnauthorized(): void
 }): JSX.Element {
+  const [picked, setPicked] = useState<string | null>(null)
+  const [resolved, setResolved] = useState<ReadonlySet<string>>(new Set())
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
+  const shown = visibleQuestions(questions, resolved)
+  const question = selectedQuestion(shown, picked)
   const resolve = async (id: string, note?: string): Promise<void> => {
     setPendingId(id)
     setProblem(null)
     const result = await resolveQuestion(host, chatId, id, note)
     setPendingId(null)
-    if (result.ok) return
+    if (result.ok) {
+      setResolved((current) => new Set(current).add(id))
+      return
+    }
     if (result.kind === 'unauthorized') onUnauthorized()
     else setProblem(result.message)
   }
+  const decision = question ? pinnedQuestionDecision(question) : null
   return (
-    <section className="open-questions" aria-label="Offene Fragen">
-      <h2>Offene Fragen ({questions.length})</h2>
-      {questions.map((question) => {
-        const decision = pinnedQuestionDecision(question)
-        return (
-          <article key={question.id} className="open-question">
-            <header>
-              <strong>{question.id}</strong>
-              {question.ticketId !== undefined && <span> · #{question.ticketId}</span>}
-            </header>
+    <main className="screen questions-screen">
+      <header className="chat-head">
+        <button type="button" className="back" onClick={onClose} aria-label="Back to the orchestrator">
+          ‹
+        </button>
+        <div className="chat-head-copy">
+          <h1>Offene Fragen</h1>
+          <span className="chat-status">{title}</span>
+        </div>
+      </header>
+      {!question ? (
+        <p className="empty">Keine offenen Fragen.</p>
+      ) : (
+        <>
+          <div className="question-tabs" role="tablist" aria-label="Offene Fragen">
+            {shown.map((candidate) => (
+              <button
+                key={candidate.id}
+                type="button"
+                role="tab"
+                id={`question-tab-${candidate.id}`}
+                aria-selected={candidate.id === question.id}
+                aria-controls="question-panel"
+                onClick={() => setPicked(candidate.id)}
+              >
+                {questionTabLabel(candidate)}
+              </button>
+            ))}
+          </div>
+          <article
+            key={question.id}
+            id="question-panel"
+            className="open-question"
+            role="tabpanel"
+            aria-labelledby={`question-tab-${question.id}`}
+          >
             <ChatMarkdown host={host} text={question.markdown} />
             {decision && (
               <section className="pending-request" data-kind="decision" aria-label={`Answer ${question.id}`}>
@@ -420,10 +593,10 @@ function OpenQuestions({
               </button>
             </div>
           </article>
-        )
-      })}
+        </>
+      )}
       {problem && <p role="alert">{problem}</p>}
-    </section>
+    </main>
   )
 }
 

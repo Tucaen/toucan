@@ -16,6 +16,8 @@ export type RemoteRoute =
   | { kind: 'pairing' }
   /** Starts a chat that does not exist yet. */
   | { kind: 'create-chat' }
+  /** Closes the chat named in the path, through the desktop canvas's own remove path. */
+  | { kind: 'close-chat'; chatId: string }
   /** The orchestrator's Continue (+20) at its spawn budget, for the chat named in the path. */
   | { kind: 'continue-spawns'; chatId: string }
   /** The human resolving a pinned question (#2) of the orchestrator named in the path. */
@@ -90,6 +92,12 @@ export function resolveRemoteRoute(method: string | undefined, target: string | 
     // chats exist is already the workspace projection's answer.
     return method === 'POST' ? { kind: 'create-chat' } : { kind: 'method-not-allowed', allow: 'POST' }
   }
+  const closeChat = /^\/api\/chats\/([^/]+)\/close$/.exec(pathname)
+  if (closeChat) {
+    return method === 'POST'
+      ? { kind: 'close-chat', chatId: closeChat[1] }
+      : { kind: 'method-not-allowed', allow: 'POST' }
+  }
   const continueSpawns = /^\/api\/chats\/([^/]+)\/continue-spawns$/.exec(pathname)
   if (continueSpawns) {
     return method === 'POST'
@@ -126,6 +134,7 @@ export function routeRequiresPairing(route: RemoteRoute): boolean {
     route.kind === 'workspace' ||
     route.kind === 'pairing' ||
     route.kind === 'create-chat' ||
+    route.kind === 'close-chat' ||
     route.kind === 'continue-spawns' ||
     route.kind === 'resolve-question' ||
     route.kind === 'app-update' ||

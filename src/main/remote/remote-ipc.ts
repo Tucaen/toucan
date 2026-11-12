@@ -4,6 +4,7 @@ import {
   type RemoteAccessState,
   type RemoteWorkspaceProjection
 } from '../../shared/remote-access'
+import { isRemoteChatCloseResult } from '../../shared/remote-close'
 import type { RemoteChatSpawnResult } from '../../shared/remote-spawn'
 import { type RemoteCanvasRequests } from './canvas-requests'
 import type { RemoteAccessServer } from './remote-server'
@@ -36,6 +37,10 @@ export function registerRemoteIpc(
   // and inventing a refusal here could retire a request whose node is on its way up.
   ipc.on(REMOTE_CHANNELS.spawnChatResult, (_event, requestId: unknown, result: unknown) => {
     if (typeof requestId === 'string' && isSpawnResult(result)) canvasRequests.complete(requestId, result)
+  })
+  ipc.on(REMOTE_CHANNELS.closeChatResult, (_event, requestId: unknown, result: unknown) => {
+    if (typeof requestId === 'string' && isRemoteChatCloseResult(result))
+      canvasRequests.completeClose(requestId, result)
   })
 }
 

@@ -32,6 +32,7 @@ import {
   type RemoteChatSpawnRequest,
   type RemoteChatSpawnResult
 } from '../../shared/remote-spawn'
+import type { RemoteChatCloseResult } from '../../shared/remote-close'
 import {
   decodePcm16,
   isRemoteVoiceContentType,
@@ -150,6 +151,11 @@ export interface RemoteAccessServerOptions {
    */
   read?: RemoteChatRead
   /**
+   * How a phone closes a chat. A canvas request like `spawn`, for the same reason: removing a node
+   * is the canvas's path, not the session manager's. Absent, the host cannot close chats and says so.
+   */
+  close?: RemoteChatClose
+  /**
    * What each provider was last seen to advertise, for clients that must name a model *before* a
    * session exists. Read per request rather than captured, so a provider that advertises something
    * new is offered without restarting the listener. Absent, `/api/models` reports an empty
@@ -236,6 +242,9 @@ export type RemoteChatSpawn = (request: RemoteChatSpawnRequest) => Promise<Remot
  * badge comes back to the phone in the next published projection.
  */
 export type RemoteChatRead = (chatId: string) => void
+
+/** Closes a chat through the canvas's own remove path and answers once it has. Never rejects. */
+export type RemoteChatClose = (chatId: string) => Promise<RemoteChatCloseResult>
 
 export interface RemoteChatSessionOperations {
   /**
@@ -408,6 +417,24 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
       })
     )
     return { ...snapshot, chats }
+  }
+
+  /** `POST /api/chats/:id/close`. Gated on the projection like every chat-addressed call. */
+  const closeChat = async (request: IncomingMessage, response: ServerResponse, chatId: string): Promise<void> => {
+    const reply = (status: number, body: unknown): void =>
+      send(request, response, status, JSON.stringify(body), { 'content-type': 'application/json; charset=utf-8' })
+    const close = options.close
+    if (!close) {
+      reply(503, { error: 'This host does not close chats.' })
+      return
+    }
+    if (!snapshot.chats.some((chat) => chat.id === chatId)) {
+      reply(404, { error: 'That chat is not open on the desktop.' })
+      return
+    }
+    const result = await close(chatId)
+    if (result.ok) reply(200, { ok: true })
+    else reply(503, { error: result.message })
   }
 
   /** `POST /api/chats/:id/continue-spawns`. Gated on the projection like every chat-addressed call. */
@@ -651,6 +678,9 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
         return
       case 'create-chat':
         await createChat(request, response)
+        return
+      case 'close-chat':
+        await closeChat(request, response, route.chatId)
         return
       case 'continue-spawns':
         await continueSpawns(request, response, route.chatId)

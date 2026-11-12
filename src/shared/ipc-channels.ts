@@ -101,7 +101,10 @@ export const REMOTE_CHANNELS = {
    * A phone reached a chat's content. One way only: the canvas applies its own read and republishes
    * the projection, which is the answer the phone is already polling for.
    */
-  markChatRead: 'remote:mark-chat-read'
+  markChatRead: 'remote:mark-chat-read',
+  /** Main asks the renderer to close a chat node on this; the renderer answers on `closeChatResult`. */
+  closeChat: 'remote:close-chat',
+  closeChatResult: 'remote:close-chat-result'
 } as const
 
 export const ORCHESTRATOR_CHANNELS = {

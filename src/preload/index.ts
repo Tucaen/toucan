@@ -195,7 +195,10 @@ const remoteApi: RemoteApi = {
       callback(requestId, request)
     ),
   completeSpawn: (requestId, result) => ipcRenderer.send(REMOTE_CHANNELS.spawnChatResult, requestId, result),
-  onMarkChatRead: (callback) => subscribe(REMOTE_CHANNELS.markChatRead, (chatId: string) => callback(chatId))
+  onMarkChatRead: (callback) => subscribe(REMOTE_CHANNELS.markChatRead, (chatId: string) => callback(chatId)),
+  onCloseChat: (callback) =>
+    subscribe(REMOTE_CHANNELS.closeChat, (requestId: string, chatId: string) => callback(requestId, chatId)),
+  completeClose: (requestId, result) => ipcRenderer.send(REMOTE_CHANNELS.closeChatResult, requestId, result)
 }
 
 contextBridge.exposeInMainWorld('remoteApi', remoteApi)

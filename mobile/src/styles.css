@@ -359,6 +359,65 @@ body {
   font-size: 14px;
 }
 
+/* Closing a session is destructive on the desktop, so it is an icon apart from the reading controls. */
+.chat-close {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--raised);
+  color: var(--ink-faint);
+}
+
+.chat-close svg {
+  width: 18px;
+  height: 18px;
+}
+
+.chat-close[aria-expanded='true'] {
+  border-color: var(--usage-critical);
+  color: var(--usage-critical);
+}
+
+.chat-close-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--usage-critical);
+  border-radius: 12px;
+  background: var(--raised);
+}
+
+.chat-close-confirm p,
+.chat-close-confirm ul {
+  margin: 0;
+  font-size: 14px;
+}
+
+.chat-close-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.chat-close-actions button {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--ground);
+  color: var(--ink);
+}
+
+.chat-close-actions .danger {
+  border-color: var(--usage-critical);
+  color: var(--usage-critical);
+}
+
 .chat-focus-toggle[aria-pressed='true'] {
   border-color: var(--working);
   color: var(--ink);
@@ -1780,21 +1839,43 @@ body {
   align-self: flex-start;
 }
 
-/* Pinned open questions: capped so a long one scrolls inside the strip, not the transcript away. */
-.open-questions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 8px 12px;
-  max-height: 40vh;
-  overflow-y: auto;
-  border-bottom: 1px solid var(--line);
+/* An orchestrator's open questions: a link in the sticky header, opening a view of their own. */
+.chat-questions-link {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--attention);
+  font-size: 12px;
+  text-align: left;
 }
 
-.open-questions h2,
-.open-questions p {
-  margin: 0;
-  font-size: 0.9rem;
+.question-tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+}
+
+.question-tabs [role='tab'] {
+  flex: 0 0 auto;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--raised);
+  color: var(--ink-dim);
+  font-size: 14px;
+}
+
+.question-tabs [role='tab'][aria-selected='true'] {
+  border-color: var(--attention);
+  color: var(--ink);
+}
+
+.open-question {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .open-question-actions {

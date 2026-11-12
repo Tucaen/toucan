@@ -1,7 +1,8 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
 import type { RemoteAccessState, RemoteWorkspaceProjection } from '../src/shared/remote-access'
 import type { RemoteChatSpawnRequest, RemoteChatSpawnResult } from '../src/shared/remote-spawn'
+import type { RemoteChatCloseResult } from '../src/shared/remote-close'
 import type { AgentApi } from '../src/shared/agent'
 import type { WorkspaceState } from '../src/shared/workspace'
 import { attentionItemId, type AttentionItem } from '../src/shared/attention'
@@ -58,6 +59,9 @@ let requestSpawn: ((requestId: string, request: RemoteChatSpawnRequest) => void)
 let spawnResults: { requestId: string; result: RemoteChatSpawnResult; publishedByThen: number }[]
 /** The host's side of a phone reporting that it read a chat. One way: there is nothing to answer. */
 let reportRead: ((chatId: string) => void) | null
+/** The host's side of a phone closing a chat: what it asked, and the renderer's verdict. */
+let requestClose: ((requestId: string, chatId: string) => void) | null
+let closeResults: { requestId: string; result: RemoteChatCloseResult }[]
 
 /** The bridges this suite is actually about, over the harness defaults. */
 function remoteApis(
@@ -71,6 +75,8 @@ function remoteApis(
   requestSpawn = null
   spawnResults = []
   reportRead = null
+  requestClose = null
+  closeResults = []
 
   return {
     shellApi: { copyText: vi.fn((text: string) => copied.push(text)) },
@@ -102,7 +108,14 @@ function remoteApis(
         return () => {
           reportRead = null
         }
-      }
+      },
+      onCloseChat: (callback: (requestId: string, chatId: string) => void) => {
+        requestClose = callback
+        return () => {
+          requestClose = null
+        }
+      },
+      completeClose: (requestId: string, result: RemoteChatCloseResult) => closeResults.push({ requestId, result })
     }
   }
 }
@@ -333,5 +346,30 @@ describe('a chat read on the phone', () => {
 
     // Still exactly what it was: an unknown id matches no record, so nothing is retired.
     await waitFor(() => expect(published[published.length - 1].chats[0].unread).toBe(1))
+  })
+})
+
+describe('a phone closing a chat', () => {
+  test('removes the node through the canvas and answers once it is gone', async () => {
+    await renderApp()
+    await waitFor(() => expect(published[published.length - 1]?.chats.map((chat) => chat.id)).toEqual(['chat-1']))
+    await waitFor(() => expect(requestClose).not.toBeNull())
+
+    act(() => requestClose!('close-1', 'chat-1'))
+
+    expect(closeResults).toEqual([{ requestId: 'close-1', result: { ok: true } }])
+    await waitFor(() => expect(published[published.length - 1].chats).toEqual([]))
+  })
+
+  test('refuses a chat the canvas no longer has, and removes nothing', async () => {
+    await renderApp()
+    await waitFor(() => expect(requestClose).not.toBeNull())
+
+    act(() => requestClose!('close-1', 'a-node-that-was-closed'))
+
+    expect(closeResults).toEqual([
+      { requestId: 'close-1', result: { ok: false, message: 'That chat is no longer open on the desktop.' } }
+    ])
+    expect(published[published.length - 1].chats.map((chat) => chat.id)).toEqual(['chat-1'])
   })
 })

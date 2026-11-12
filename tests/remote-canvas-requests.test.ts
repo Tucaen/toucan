@@ -164,3 +164,45 @@ describe('telling the desktop a phone read a chat', () => {
     assert.deepEqual(window.sent, [])
   })
 })
+
+describe('closing a chat through the desktop renderer', () => {
+  test('asks the attached window and answers with its verdict', async () => {
+    const requests = createRemoteCanvasRequests({ requestId: () => 'req-1' })
+    const window = fakeWindow()
+    requests.attach(window)
+
+    const pending = requests.close('node-9')
+    assert.deepEqual(window.sent, [{ channel: REMOTE_CHANNELS.closeChat, args: ['req-1', 'node-9'] }])
+
+    requests.completeClose('req-1', { ok: true })
+    assert.deepEqual(await pending, { ok: true })
+  })
+
+  test('with no window open it refuses immediately', async () => {
+    const requests = createRemoteCanvasRequests()
+    const result = await requests.close('node-9')
+    assert.equal(result.ok, false)
+  })
+
+  test('a renderer that never answers is refused rather than left open', async () => {
+    const clock = manualClock()
+    const requests = createRemoteCanvasRequests({ requestId: () => 'req-1', schedule: clock.schedule })
+    requests.attach(fakeWindow())
+    const pending = requests.close('node-9')
+    clock.fire()
+    const result = await pending
+    assert.equal(result.ok, false)
+    requests.completeClose('req-1', { ok: true })
+    assert.equal((await pending).ok, false)
+  })
+
+  test('a spawn answer never settles a close, nor the other way round', async () => {
+    let id = 0
+    const requests = createRemoteCanvasRequests({ requestId: () => `req-${++id}` })
+    requests.attach(fakeWindow())
+    const closing = requests.close('node-9')
+    requests.complete('req-1', { ok: true, chatId: 'node-1' })
+    requests.completeClose('req-1', { ok: false, message: 'gone' })
+    assert.deepEqual(await closing, { ok: false, message: 'gone' })
+  })
+})
