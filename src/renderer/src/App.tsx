@@ -951,7 +951,7 @@ function Canvas(): JSX.Element {
     [forgetNodeAttention, nodeFit, onNodesChange, setEdges, setNodes]
   )
 
-  // A close that would take more than one node asks first. One pending question at a time: a
+  // A close that would take more than one node, or orphan an orchestrator's worktrees, asks first. One pending question at a time: a
   // newer delete resolves the older one as declined rather than leaving its promise hanging.
   const [multiClose, setMultiClose] = useState<{
     pending: PendingMultiClose
@@ -971,7 +971,7 @@ function Canvas(): JSX.Element {
     })
   }, [])
   const beforeDelete = useMemo(
-    () => withMultiCloseConfirmation(backspaceChatShield.beforeDelete, confirmMultiClose),
+    () => withMultiCloseConfirmation(backspaceChatShield.beforeDelete, confirmMultiClose, () => nodesRef.current),
     [confirmMultiClose]
   )
 
