@@ -280,6 +280,15 @@ test('Start now asks main for a one-shot force grant on the chosen pending ticke
       ticketId: '34'
     })
   )
+  // The request only reaches the orchestrator; until 34 spawns its option is locked and the
+  // selector moves on to the next ticket, so repeated clicks cannot ask for 34 twice.
+  const select = container.querySelector('.node-orchestration-start select') as HTMLSelectElement
+  await waitFor(() => expect(select.value).toBe('35'))
+  fireEvent.change(select, { target: { value: '34' } })
+  expect(start).toBeDisabled()
+  expect(start).toHaveTextContent('Starting 34…')
+  fireEvent.click(start)
+  expect(forceStartTicket).toHaveBeenCalledTimes(1)
   fireEvent.change(container.querySelector('.node-orchestration-start select') as HTMLSelectElement, {
     target: { value: '35' }
   })
