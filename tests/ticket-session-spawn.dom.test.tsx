@@ -1,4 +1,4 @@
-import { act, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
 import type { AgentApi, AgentCreateRequest, AgentProvider } from '../src/shared/agent'
 import type {
@@ -165,6 +165,67 @@ describe('a ticket session requested by an orchestrator', () => {
     // Titled by its ticket, on the worktree's canvas.
     expect((await screen.findAllByText('#34 Spawn')).length).toBeGreaterThan(0)
     expect(screen.getAllByText('ticket/34').length).toBeGreaterThan(0)
+  })
+
+  test('its worktree is kept off the canvas, running, and the sidebar eye shows and hides it', async () => {
+    const { harness, agent, results, start } = await render()
+    start('ticket-1')
+    await waitFor(() => expect(results).toHaveLength(1))
+    const { nodeId } = results[0].result as { nodeId: string }
+
+    // The session runs: created, prompted with its ticket - from a worktree the canvas does not show.
+    await waitFor(() =>
+      expect(JSON.stringify(vi.mocked(agent.api.prompt).mock.calls)).toContain('/implement #34 Spawn')
+    )
+    const frame = (): HTMLElement =>
+      document.querySelector<HTMLElement>('.react-flow__node-worktreeNode') ??
+      (() => {
+        throw new Error('the ticket worktree is not rendered')
+      })()
+    // Concealed, not removed: the frame and its chat stay mounted, so the session is never killed.
+    await waitFor(() => expect(frame()).toHaveClass('worktree-concealed'))
+    expect(frame().querySelector(`.react-flow__node[data-id="${nodeId}"]`)).not.toBeNull()
+    await waitFor(() => {
+      const saved = harness.saved.at(-1)?.worktrees.find((entry) => entry.branch === 'ticket/34')
+      expect(saved?.concealed).toBe(true)
+    })
+
+    // The eye shows it, pressed while shown...
+    fireEvent.click(screen.getByRole('button', { name: 'Show ticket/34 on the canvas' }))
+    await waitFor(() => expect(frame()).not.toHaveClass('worktree-concealed'))
+    expect(screen.getByRole('button', { name: 'Hide ticket/34 from the canvas' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+    await waitFor(() =>
+      expect(harness.saved.at(-1)?.worktrees.find((entry) => entry.branch === 'ticket/34')?.concealed).toBeUndefined()
+    )
+
+    // ...and hides it again.
+    fireEvent.click(screen.getByRole('button', { name: 'Hide ticket/34 from the canvas' }))
+    await waitFor(() => expect(frame()).toHaveClass('worktree-concealed'))
+    expect(screen.getByRole('button', { name: 'Show ticket/34 on the canvas' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    )
+    // Through all of it the session was never stopped and never started again.
+    expect(agent.api.kill).not.toHaveBeenCalledWith(nodeId)
+    expect(createRequests(agent).filter((entry) => entry.id === nodeId)).toHaveLength(1)
+  })
+
+  test('going to a concealed ticket chat from the sidebar shows its worktree', async () => {
+    const { results, start } = await render()
+    start('ticket-1')
+    await waitFor(() => expect(results).toHaveLength(1))
+    const frame = (): HTMLElement => document.querySelector<HTMLElement>('.react-flow__node-worktreeNode')!
+    await waitFor(() => expect(frame()).toHaveClass('worktree-concealed'))
+
+    const row = screen
+      .getAllByText('#34 Spawn')
+      .map((element) => element.closest('.project-node-row'))
+      .find((element): element is HTMLElement => element !== null)!
+    fireEvent.click(row)
+    await waitFor(() => expect(frame()).not.toHaveClass('worktree-concealed'))
   })
 
   test('is saved with its manual title, its worktree and the orchestrated-by link', async () => {

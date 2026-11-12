@@ -1,6 +1,7 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'vitest'
 import {
+  concealedWorktreeNode,
   createSessionCanvasNode,
   createWorktreeCanvasNode,
   type CanvasNode,
@@ -262,4 +263,31 @@ test('ownership that would loop never hides a worktree', () => {
   ])
   assert.deepEqual(renderedBranches(summary), ['ticket/a', 'ticket/b', 'ticket/self'])
   assert.ok(summary.worktrees.length > 0, 'a loop surfaces at the top level')
+})
+
+test('a ticket worktree row is marked for the eye, and says whether it is concealed', () => {
+  const plain = worktree('plain', TOUCAN)
+  const ticket = concealedWorktreeNode(worktree('1', TOUCAN), true)
+  const summary = summaryOf([
+    plain,
+    ticket,
+    chatIn('orch', TOUCAN, { role: 'orchestrator' }),
+    chatIn('ticket-chat', TOUCAN, { in: ticket, orchestratedBy: 'orch' })
+  ])
+  const [row] = summary.sessions[0].ticketWorktrees
+  assert.deepEqual({ ticket: row.ticket, concealed: row.concealed }, { ticket: true, concealed: true })
+  assert.deepEqual(
+    { ticket: summary.worktrees[0].ticket, concealed: summary.worktrees[0].concealed },
+    { ticket: false, concealed: false }
+  )
+  // Concealed is still a node of its project: counts do not change.
+  assert.equal(summary.nodeCount, 4)
+
+  const shown = summaryOf([
+    plain,
+    concealedWorktreeNode(ticket, false),
+    chatIn('orch', TOUCAN, { role: 'orchestrator' }),
+    chatIn('ticket-chat', TOUCAN, { in: ticket, orchestratedBy: 'orch' })
+  ])
+  assert.equal(shown.sessions[0].ticketWorktrees[0].concealed, false)
 })

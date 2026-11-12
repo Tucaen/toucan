@@ -35,7 +35,8 @@ function intentsSpy(): ProjectSidebarIntents {
     moveProject: vi.fn(),
     moveGroup: vi.fn(),
     dragStarted: vi.fn(),
-    toggleTicketBoard: vi.fn()
+    toggleTicketBoard: vi.fn(),
+    toggleWorktreeShown: vi.fn()
   }
 }
 
@@ -262,6 +263,8 @@ describe('orchestrator-owned worktrees', () => {
     path: 'D:/Worktrees/1',
     selected: false,
     collapsed: false,
+    concealed: true,
+    ticket: true,
     attachedNodeCount: 1,
     sessions: [
       {
@@ -322,6 +325,83 @@ describe('orchestrator-owned worktrees', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Show Orchestrator worktrees/ }))
     expect(screen.getByText('ticket/1')).toBeTruthy()
+  })
+
+  test('a ticket worktree carries an eye instead of its count, and the eye raises the show/hide intent', () => {
+    const intents = renderSidebar({ summaries })
+
+    const entry = screen.getByText('ticket/1').closest('.project-worktree-entry') as HTMLElement
+    // The count is gone; the eye is at the row's right end, off while the worktree is concealed.
+    expect(entry.querySelector('.project-node-state[data-status="worktree"]')).toBeNull()
+    const eye = within(entry).getByRole('button', { name: 'Show ticket/1 on the canvas' })
+    expect(eye).toHaveAttribute('aria-pressed', 'false')
+    expect(eye.querySelector('.lucide-eye-off')).not.toBeNull()
+
+    fireEvent.click(eye)
+    expect(intents.toggleWorktreeShown).toHaveBeenCalledWith('worktree:1')
+    // The eye is its own control: it neither focuses the worktree nor the orchestrator.
+    expect(intents.focusNode).not.toHaveBeenCalled()
+  })
+
+  test('a shown ticket worktree has its eye pressed, and the eye offers to hide it', () => {
+    renderSidebar({
+      summaries: new Map([
+        [
+          alpha.id,
+          {
+            sessions: [{ ...orchestrator, ticketWorktrees: [{ ...ticketWorktree, concealed: false }] }],
+            worktrees: [],
+            nodeCount: 3,
+            sessionNodeIds: ['orch', 'ticket-chat']
+          }
+        ]
+      ])
+    })
+    const eye = screen.getByRole('button', { name: 'Hide ticket/1 from the canvas' })
+    expect(eye).toHaveAttribute('aria-pressed', 'true')
+    expect(eye.querySelector('.lucide-eye')).not.toBeNull()
+  })
+
+  test('a session that needs the human lights up the eye of its concealed worktree', () => {
+    const needsYou = {
+      ...ticketWorktree,
+      sessions: [{ ...ticketWorktree.sessions[0], status: 'attention' as const }]
+    }
+    renderSidebar({
+      summaries: new Map([
+        [
+          alpha.id,
+          {
+            sessions: [{ ...orchestrator, ticketWorktrees: [needsYou] }],
+            worktrees: [],
+            nodeCount: 3,
+            sessionNodeIds: ['orch', 'ticket-chat']
+          }
+        ]
+      ])
+    })
+    const eye = screen.getByRole('button', { name: 'Show ticket/1 on the canvas' })
+    expect(eye).toHaveAttribute('data-attention', 'true')
+    expect(eye.title).toMatch(/needs you/)
+  })
+
+  test('a worktree no orchestrator owns keeps its count and has no eye', () => {
+    renderSidebar({
+      summaries: new Map([
+        [
+          alpha.id,
+          {
+            sessions: [],
+            worktrees: [{ ...ticketWorktree, branch: 'feature/x', concealed: false, ticket: false }],
+            nodeCount: 2,
+            sessionNodeIds: ['ticket-chat']
+          }
+        ]
+      ])
+    })
+    const entry = screen.getByText('feature/x').closest('.project-worktree-entry') as HTMLElement
+    expect(entry.querySelector('.project-node-state[data-status="worktree"]')?.textContent).toBe('1')
+    expect(entry.querySelector('.project-worktree-eye')).toBeNull()
   })
 
   test('the chevron does not focus the orchestrator', () => {

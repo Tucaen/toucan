@@ -38,6 +38,11 @@ export interface WorkspaceWorktree {
    * stays the height it expands back to. Absent means expanded, as every earlier snapshot reads.
    */
   collapsed?: boolean
+  /**
+   * Kept off the canvas, listed only in the sidebar (an orchestrator's ticket worktree, until the
+   * user shows it). Its chats still run. Absent means shown, as every earlier snapshot reads.
+   */
+  concealed?: boolean
 }
 
 /** An inner canvas viewport in React Flow's terms: translation in screen pixels, then zoom. */

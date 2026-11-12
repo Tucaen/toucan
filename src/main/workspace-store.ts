@@ -61,6 +61,7 @@ function isWorkspaceWorktree(value: unknown): boolean {
     typeof worktree.height === 'number' &&
     (worktree.snapSlice === undefined || isWorkspaceSnapSlice(worktree.snapSlice)) &&
     (worktree.collapsed === undefined || typeof worktree.collapsed === 'boolean') &&
+    (worktree.concealed === undefined || typeof worktree.concealed === 'boolean') &&
     (worktree.viewport === undefined ||
       (!!worktree.viewport &&
         typeof worktree.viewport === 'object' &&

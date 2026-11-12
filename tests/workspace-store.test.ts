@@ -251,6 +251,13 @@ test("a worktree canvas's viewport and a chat's placement on it round-trip, and 
     true
   )
   assert.equal(parseWorkspaceState({ ...base, nodes: [chat], worktrees: [{ ...worktree, collapsed: 'yes' }] }), null)
+  // So is concealed, the sidebar-only ticket worktree.
+  assert.equal(
+    parseWorkspaceState({ ...base, nodes: [chat], worktrees: [{ ...worktree, concealed: true }] })?.worktrees[0]
+      .concealed,
+    true
+  )
+  assert.equal(parseWorkspaceState({ ...base, nodes: [chat], worktrees: [{ ...worktree, concealed: 1 }] }), null)
 
   for (const viewport of [null, { x: 0, y: 0 }, { x: 0, y: 0, zoom: 0 }, { x: Number.NaN, y: 0, zoom: 1 }]) {
     assert.equal(parseWorkspaceState({ ...base, nodes: [chat], worktrees: [{ ...worktree, viewport }] }), null)

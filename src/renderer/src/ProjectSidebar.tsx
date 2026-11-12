@@ -3,6 +3,8 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardList,
+  Eye,
+  EyeOff,
   FolderPlus,
   GitBranch,
   GripVertical,
@@ -62,6 +64,8 @@ export interface ProjectSidebarIntents {
   removeProject: (projectId: string) => void
   locateProject: (projectId: string) => void
   focusNode: (nodeId: string) => void
+  /** The eye on a ticket worktree: shows it on the canvas (and goes to it), or takes it off again. */
+  toggleWorktreeShown: (nodeId: string) => void
   openProjectSettings: (projectId: string) => void
   /** The row menu at a pointer or anchor position; `page` jumps straight to a submenu. */
   openMenu: (anchor: { x: number; y: number }, target: ProjectMenuTarget, page?: ProjectMenuPage) => void
@@ -289,36 +293,77 @@ export function ProjectSidebar({
     )
   }
 
-  /** One worktree row and its sessions, the same whether top-level or nested under an orchestrator. */
+  /**
+   * One worktree row and its sessions, the same whether top-level or nested under an orchestrator.
+   * A ticket worktree - or any kept off the canvas - carries an eye where the count would be: the
+   * row is where it lives, and the eye brings it onto the canvas or takes it off again. A session
+   * in it that needs the human lights the eye up, so a prompt is not lost with the node out of view.
+   */
   const renderWorktreeEntry = (worktree: SidebarWorktreeRow): JSX.Element => {
     const worktreeUnread = countUnread(worktree.sessions.map((session) => session.id))
-    return (
-      <div className="project-worktree-entry" key={worktree.id}>
-        <button
-          type="button"
-          className={`project-node-row project-worktree-row ${worktree.selected ? 'selected' : ''}`}
-          data-collapsed={worktree.collapsed ? 'true' : undefined}
-          title={[
-            `Focus worktree ${worktree.branch}`,
-            worktree.path,
-            worktree.collapsed ? 'Collapsed; its chats keep running' : null
-          ]
-            .filter(Boolean)
-            .join('\n')}
-          onClick={(event) => {
-            event.stopPropagation()
-            intents.focusNode(worktree.id)
-          }}
-        >
-          <span className="project-node-kind">
-            <GitBranch aria-hidden="true" />
-          </span>
-          <span className="project-node-name">{worktree.branch}</span>
-          {worktreeUnread > 0 && <span className="unread-badge">{worktreeUnread}</span>}
+    const eye = worktree.ticket || worktree.concealed
+    const needsYou = worktree.sessions.some((session) => session.status === 'attention')
+    const row = (
+      <button
+        type="button"
+        className={`project-node-row project-worktree-row ${worktree.selected ? 'selected' : ''}`}
+        data-collapsed={worktree.collapsed ? 'true' : undefined}
+        data-concealed={worktree.concealed ? 'true' : undefined}
+        title={[
+          worktree.concealed ? `Show and focus worktree ${worktree.branch}` : `Focus worktree ${worktree.branch}`,
+          worktree.path,
+          worktree.concealed ? 'Not on the canvas; its chats keep running' : null,
+          worktree.collapsed ? 'Collapsed; its chats keep running' : null
+        ]
+          .filter(Boolean)
+          .join('\n')}
+        onClick={(event) => {
+          event.stopPropagation()
+          intents.focusNode(worktree.id)
+        }}
+      >
+        <span className="project-node-kind">
+          <GitBranch aria-hidden="true" />
+        </span>
+        <span className="project-node-name">{worktree.branch}</span>
+        {worktreeUnread > 0 && <span className="unread-badge">{worktreeUnread}</span>}
+        {!eye && (
           <span className="project-node-state" data-status="worktree">
             {worktree.attachedNodeCount}
           </span>
-        </button>
+        )}
+      </button>
+    )
+    return (
+      <div className="project-worktree-entry" key={worktree.id}>
+        {eye ? (
+          <div className="project-worktree-line">
+            {row}
+            <button
+              type="button"
+              className="project-worktree-eye"
+              aria-pressed={!worktree.concealed}
+              aria-label={
+                worktree.concealed ? `Show ${worktree.branch} on the canvas` : `Hide ${worktree.branch} from the canvas`
+              }
+              data-attention={needsYou ? 'true' : undefined}
+              title={[
+                needsYou ? 'A session here needs you' : null,
+                worktree.concealed ? 'Show on the canvas' : 'Hide from the canvas; its chats keep running'
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+              onClick={(event) => {
+                event.stopPropagation()
+                intents.toggleWorktreeShown(worktree.id)
+              }}
+            >
+              {worktree.concealed ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
+            </button>
+          </div>
+        ) : (
+          row
+        )}
         {worktree.sessions.length > 0 && (
           <div className="project-node-list project-worktree-sessions">{worktree.sessions.map(renderSessionRow)}</div>
         )}

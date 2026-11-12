@@ -4611,6 +4611,13 @@ button.global-status-chip:hover {
   background: #0f0d14;
 }
 
+/* Concealed (an orchestrator's ticket worktree the sidebar has not shown), the node stays rendered,
+   so every chat on its canvas keeps its session - only invisible and out of the pointer's way. */
+.react-flow__node.worktree-concealed {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 /* Collapsed, the canvas is taken out of the column and hidden - not removed, and not shrunk:
    it keeps the size it expands back to, so the chats on it keep their layout, their scroll
    positions and their sessions, and the node is exactly its header and bottom row. */
@@ -4920,6 +4927,59 @@ button.worktree-agent-unread:focus-visible {
   display: grid;
   gap: 2px;
   min-width: 0;
+}
+
+/* A ticket worktree's row with its eye at the right end, where other worktrees show their count. */
+.project-worktree-line {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.project-worktree-line > .project-node-row {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.project-worktree-row[data-concealed='true'] .project-node-name {
+  color: #687484;
+}
+
+.project-worktree-eye {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 25px;
+  height: 25px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: #5d6675;
+  background: transparent;
+  cursor: pointer;
+}
+
+.project-worktree-eye:hover {
+  color: #dce2ea;
+  background: #1a2028;
+}
+
+.project-worktree-eye[aria-pressed='true'] {
+  color: #c992ff;
+}
+
+.project-worktree-eye[data-attention='true'] {
+  color: #efb36e;
+}
+
+.project-worktree-eye[data-attention='true'] svg {
+  animation: attention-pulse 1.4s ease-in-out infinite;
+}
+
+.project-worktree-eye svg {
+  width: 14px;
+  height: 14px;
 }
 
 /* A worktree's own sessions, one step in under the worktree that runs them. */

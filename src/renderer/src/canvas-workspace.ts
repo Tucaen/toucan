@@ -214,6 +214,12 @@ export interface WorktreeNodeData
   collapsed?: boolean
   /** The height the worktree expands back to. Set only while collapsed, from the height it had. */
   expandedHeight?: number
+  /**
+   * Kept off the canvas: an orchestrator's ticket worktree is born this way, and the sidebar's eye
+   * shows or hides it. Its node - and every chat on its canvas - stays in the workspace and mounted,
+   * only invisible and out of reach; see `concealedWorktreeNode`.
+   */
+  concealed?: boolean
 }
 
 export interface FileNodeCallbacks {
@@ -296,6 +302,38 @@ export const MIN_WORKTREE_SIZE = { width: 360, height: 232 }
 export const WORKTREE_CHROME_HEIGHT = 76
 /** What a collapsed worktree is: its chrome and nothing else. */
 export const COLLAPSED_WORKTREE_HEIGHT = WORKTREE_CHROME_HEIGHT
+/** The React Flow node class the stylesheet hides a concealed worktree by. */
+export const CONCEALED_WORKTREE_CLASS = 'worktree-concealed'
+
+/**
+ * A worktree shown or kept off the canvas. Concealed is not React Flow's `hidden`: that unmounts
+ * the node, and with it every chat on its canvas - and a chat that unmounts kills its session. So
+ * the node stays rendered, made invisible by its class and unreachable by pointer, keyboard and
+ * selection; its chats are deselected with it in `concealWorktree`. Shown again, it is the node it
+ * was, minus nothing it had before.
+ */
+export function concealedWorktreeNode(node: WorktreeCanvasNode, concealed: boolean): WorktreeCanvasNode {
+  if (concealed) {
+    return {
+      ...node,
+      className: CONCEALED_WORKTREE_CLASS,
+      selected: false,
+      selectable: false,
+      draggable: false,
+      focusable: false,
+      data: { ...node.data, concealed: true }
+    }
+  }
+  const {
+    className: _className,
+    selectable: _selectable,
+    draggable: _draggable,
+    focusable: _focusable,
+    ...shown
+  } = node
+  const { concealed: _concealed, ...data } = node.data
+  return { ...shown, data }
+}
 /** The gap between chats set side by side on a worktree canvas, and between a worktree and its neighbours. */
 export const WORKTREE_CHILD_GAP = 48
 /**
@@ -897,7 +935,8 @@ export function serializeWorktreeNode(node: WorktreeCanvasNode): WorkspaceWorktr
     // the collapsed height as the worktree's size.
     height: node.data.collapsed ? (node.data.expandedHeight ?? DEFAULT_WORKTREE_SIZE.height) : size.height,
     ...(node.data.viewport ? { viewport: node.data.viewport } : {}),
-    ...(node.data.collapsed ? { collapsed: true } : {})
+    ...(node.data.collapsed ? { collapsed: true } : {}),
+    ...(node.data.concealed ? { concealed: true } : {})
   }
 }
 
@@ -989,6 +1028,8 @@ export interface WorktreeNodeSeed {
   viewport?: WorktreeViewport
   /** Restored collapsed: `height` is then the height it expands back to. */
   collapsed?: boolean
+  /** Kept off the canvas from the start: an orchestrator's ticket worktree, or one saved hidden. */
+  concealed?: boolean
   /** Selected when the user asked for this worktree themselves; a swept one appears quietly. */
   selected?: boolean
 }
@@ -1004,7 +1045,7 @@ export function createWorktreeCanvasNode(
   project: WorkspaceProject,
   callbacks: WorktreeNodeCallbacks
 ): WorktreeCanvasNode {
-  return {
+  const node: WorktreeCanvasNode = {
     id: `worktree:${seed.worktreeId}`,
     type: 'worktreeNode',
     dragHandle: NODE_DRAG_HANDLE,
@@ -1040,6 +1081,7 @@ export function createWorktreeCanvasNode(
       height: seed.collapsed ? COLLAPSED_WORKTREE_HEIGHT : (seed.height ?? DEFAULT_WORKTREE_SIZE.height)
     }
   }
+  return seed.concealed ? concealedWorktreeNode(node, true) : node
 }
 
 /** @internal exported for tests */

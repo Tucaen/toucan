@@ -3,6 +3,7 @@ import type { Edge } from '@xyflow/react'
 import { test } from 'vitest'
 import {
   COLLAPSED_WORKTREE_HEIGHT,
+  CONCEALED_WORKTREE_CLASS,
   createSessionCanvasNode,
   createWorktreeCanvasNode,
   DEFAULT_WORKTREE_SIZE,
@@ -15,12 +16,15 @@ import {
 } from '../src/renderer/src/canvas-workspace'
 import {
   collapseWorktree,
+  concealWorktree,
   expandWorktree,
   isCollapsedWorktree,
+  isConcealedWorktree,
   keepCollapsed,
   layoutGeometry,
   nextWorktreeChildPosition,
   partitionWorktreeCanvases,
+  revealWorktree,
   selectOnlyWithinCanvas,
   splitWorktreeCanvasEdges,
   withRoomForChat
@@ -379,4 +383,78 @@ test('a layout slot remembers a collapsed worktree at its expanded height and re
   assert.equal(expandWorktree(kept, 'a')[0].style?.height, 500)
   assert.equal(keepCollapsed(collapsed)[0], collapsed[0])
   assert.equal(keepCollapsed([host])[0], host)
+})
+
+test('concealing a worktree keeps it and its chats on the canvas, mounted, but invisible and out of reach', () => {
+  const host = { ...worktree('a', { width: 900, height: 700 }), selected: true }
+  const chat = { ...session('in-a', 'claude', 'a'), selected: true }
+  const other = { ...session('in-b', 'codex', 'b'), selected: true }
+  const nodes: CanvasNode[] = [host, worktree('b'), chat, other]
+
+  const concealed = concealWorktree(nodes, 'a')
+  const hidden = concealed[0] as WorktreeCanvasNode
+  assert.equal(isConcealedWorktree(hidden), true)
+  // Not React Flow's `hidden`, which would unmount the node and kill every session on its canvas.
+  assert.equal(hidden.hidden, undefined)
+  assert.equal(hidden.className, CONCEALED_WORKTREE_CLASS)
+  assert.deepEqual(
+    {
+      selected: hidden.selected,
+      selectable: hidden.selectable,
+      draggable: hidden.draggable,
+      focusable: hidden.focusable
+    },
+    { selected: false, selectable: false, draggable: false, focusable: false }
+  )
+  // Its chat is deselected with it, so no Delete or layout key can reach what cannot be seen.
+  assert.equal(concealed[2].selected, false)
+  // Every other node is untouched.
+  assert.equal(concealed[1], nodes[1])
+  assert.equal(concealed[3], other)
+  // Still partitioned exactly as before: the frame on the main canvas, its chat on its own.
+  const partition = partitionWorktreeCanvases(concealed)
+  assert.deepEqual(
+    partition.main.map((node) => node.id),
+    ['worktree:a', 'worktree:b']
+  )
+  assert.deepEqual(
+    partition.children.get('a')?.map((node) => node.id),
+    ['in-a']
+  )
+  // Saved as concealed, and restored that way.
+  assert.equal(serializeWorktreeNode(hidden).concealed, true)
+  assert.equal(serializeWorktreeNode(host).concealed, undefined)
+
+  const revealed = revealWorktree(concealed, 'a')
+  const shown = revealed[0] as WorktreeCanvasNode
+  assert.equal(isConcealedWorktree(shown), false)
+  for (const key of ['className', 'selectable', 'draggable', 'focusable'] as const) assert.equal(key in shown, false)
+  assert.equal('concealed' in shown.data, false)
+  assert.equal(shown.style, host.style)
+  assert.equal(revealed[2], concealed[2])
+
+  // Idempotent, and quiet about worktrees that are not there.
+  assert.equal(concealWorktree(concealed, 'a'), concealed)
+  assert.equal(revealWorktree(nodes, 'a'), nodes)
+  assert.equal(concealWorktree(nodes, 'missing'), nodes)
+})
+
+test('a worktree created or restored concealed is concealed from its first render', () => {
+  const restored = createWorktreeCanvasNode(
+    {
+      worktreeId: 'a',
+      branch: 'ticket/1',
+      path: 'D:\\Development\\toucan-worktrees\\ticket-1',
+      baseRef: 'main',
+      createdAt: '2026-11-12T00:00:00.000Z',
+      position: { x: 0, y: 0 },
+      concealed: true
+    },
+    PROJECT,
+    worktreeCallbacks
+  )
+  assert.equal(isConcealedWorktree(restored), true)
+  assert.equal(restored.className, CONCEALED_WORKTREE_CLASS)
+  assert.equal(restored.selectable, false)
+  assert.equal(serializeWorktreeNode(restored).concealed, true)
 })

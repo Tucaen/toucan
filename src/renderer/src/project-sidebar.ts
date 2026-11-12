@@ -42,6 +42,16 @@ export interface SidebarWorktreeRow {
   path: string
   selected: boolean
   collapsed: boolean
+  /**
+   * Kept off the canvas (`WorktreeNodeData.concealed`): an orchestrator's ticket worktree is born
+   * that way. The row is then the only place it shows, and its eye is how it comes onto the canvas.
+   */
+  concealed: boolean
+  /**
+   * An orchestrator's ticket worktree, nested under it. Such a row carries the eye that shows or
+   * hides it on the canvas in place of the attached-node count; so does any concealed row.
+   */
+  ticket: boolean
   attachedNodeCount: number
   /** The sessions attached to this worktree, in canvas order; they are listed under it, not the project. */
   sessions: SidebarSessionRow[]
@@ -130,6 +140,8 @@ export function projectSidebarSummaries(
       path: node.data.path,
       selected: node.selected ?? false,
       collapsed: node.data.collapsed === true,
+      concealed: node.data.concealed === true,
+      ticket: false,
       attachedNodeCount: node.data.attachedNodeCount,
       sessions: []
     }
@@ -164,6 +176,7 @@ export function projectSidebarSummaries(
     const ownerId = owners.get(worktreeId)
     const orchestrator = ownerId === undefined ? undefined : sessionRows.get(ownerId)
     if (!orchestrator) continue
+    row.ticket = true
     orchestrator.ticketWorktrees.push(row)
     nested.add(row)
   }

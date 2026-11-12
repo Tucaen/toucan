@@ -152,13 +152,17 @@ import WorktreeNode from './WorktreeNode'
 import { summarizeWorktrees } from './worktree-overview'
 import {
   collapseWorktree,
+  concealWorktree,
   expandWorktree,
   isCollapsedWorktree,
+  isConcealedWorktree,
   keepCollapsed,
   layoutGeometry,
   nextWorktreeChildPosition,
   partitionWorktreeCanvases,
+  revealWorktree,
   selectOnlyWithinCanvas,
+  shownOnCanvas,
   splitWorktreeCanvasEdges,
   withRoomForChat,
   worktreeChildren,
@@ -804,9 +808,10 @@ function Canvas(): JSX.Element {
     (canvas: string | null): void => {
       const region = canvas === null ? visibleCanvasRegion() : worktreeCanvasRegion(canvas)
       if (!region) return
-      // A collapsed worktree is shelved work: it keeps its place rather than taking a cell.
+      // A collapsed worktree is shelved work: it keeps its place rather than taking a cell. A
+      // concealed one is not on screen at all, so it takes no cell either.
       const current = getCanvasNodes().filter(
-        (node) => snapCanvases.canvasOf(node) === canvas && !isCollapsedWorktree(node)
+        (node) => snapCanvases.canvasOf(node) === canvas && !isCollapsedWorktree(node) && shownOnCanvas(node)
       )
       const selected = current.filter((node) => node.selected).map((node) => node.id)
       const ids = selected.length >= 2 ? selected : current.map((node) => node.id)
@@ -832,7 +837,7 @@ function Canvas(): JSX.Element {
     (action: LayoutKeyAction, origin: string | null = null): void => {
       const current = getCanvasNodes()
       const pressedIn = current.find((node) => node.id === origin)
-      if (pressedIn && isCollapsedWorktree(pressedIn)) return
+      if (pressedIn && (isCollapsedWorktree(pressedIn) || !shownOnCanvas(pressedIn))) return
       const selected = current.filter((node) => node.selected && !isCollapsedWorktree(node))
       const targets = pressedIn && !pressedIn.selected ? [pressedIn] : selected
       const canvas = targets.length > 0 ? snapCanvases.canvasOf(targets[0]) : null
@@ -1938,7 +1943,8 @@ function Canvas(): JSX.Element {
 
   const locateProject = useCallback(
     (projectId: string): void => {
-      const matchingNodes = nodes.filter((node) => node.data.projectId === projectId)
+      // A concealed ticket worktree has no place on screen to frame.
+      const matchingNodes = nodes.filter((node) => node.data.projectId === projectId && shownOnCanvas(node))
       if (matchingNodes.length > 0) {
         void fitView({ nodes: matchingNodes, padding: 0.28, duration: 350 })
       }
@@ -1983,8 +1989,10 @@ function Canvas(): JSX.Element {
           candidate !== target && isWorktreeCanvasNode(candidate) && isMaximised(nodeFit.state()[candidate.id])
       )
       if (focused) nodeFit.restore(focused.id)
-      // A chat in a collapsed worktree cannot be seen until the worktree is expanded.
+      // A chat in a collapsed worktree cannot be seen until the worktree is expanded, nor one in a
+      // concealed worktree until it is shown: going to a node is asking to see it.
       if (isCollapsedWorktree(target)) setNodes((current) => expandWorktree(current, target.data.worktreeId))
+      if (isConcealedWorktree(target)) setNodes((current) => revealWorktree(current, target.data.worktreeId))
       // Selecting a node is enough: each node reports its own status once it sees the focus.
       // Shown means on top: above any node sharing its slice, and a chat's worktree above the main canvas.
       setNodes((current) =>
@@ -2009,6 +2017,25 @@ function Canvas(): JSX.Element {
     [getViewport, nodeFit, nodes, setNodes, setViewport]
   )
   focusNodeRef.current = focusNode
+
+  /**
+   * The sidebar's eye on a ticket worktree. Showing goes through `focusNode`, which reveals the
+   * worktree and pans to it so its chats can be read; hiding takes it off the canvas again, giving
+   * back the room first if it was focused. Either way nothing is removed: the node and its chats
+   * stay mounted, so the ticket session runs on exactly as before (see `concealedWorktreeNode`).
+   */
+  const toggleWorktreeShown = useCallback(
+    (nodeId: string): void => {
+      const node = nodesRef.current.find((candidate) => candidate.id === nodeId)
+      if (!node || !isWorktreeCanvasNode(node)) return
+      if (node.data.concealed) {
+        focusNode(nodeId)
+        return
+      }
+      setNodes(concealWorktree(nodeFit.restore(node.id), node.data.worktreeId))
+    },
+    [focusNode, nodeFit, setNodes]
+  )
 
   /** The board's live session cards; which report becomes which chip is `ticket-activity.ts`. */
   const ticketSessions = useMemo(
@@ -2320,7 +2347,7 @@ function Canvas(): JSX.Element {
       created: { path: string; branch: string; baseRef: string },
       project: Project,
       position: { x: number; y: number },
-      background = false
+      { background = false, concealed = false }: { background?: boolean; concealed?: boolean } = {}
     ): WorktreeCanvasNode['data'] => {
       const worktreeNode = createWorktreeCanvasNode(
         {
@@ -2330,13 +2357,28 @@ function Canvas(): JSX.Element {
           baseRef: created.baseRef,
           createdAt: new Date().toISOString(),
           position,
-          selected: false
+          selected: false,
+          concealed
         },
         project,
         worktreeCallbacks
       )
-      const register = (current: CanvasNode[]): CanvasNode[] =>
-        registerWorktreeNode(background ? current : current.map((node) => ({ ...node, selected: false })), worktreeNode)
+      const register = (current: CanvasNode[]): CanvasNode[] => {
+        const registered = registerWorktreeNode(
+          background ? current : current.map((node) => ({ ...node, selected: false })),
+          worktreeNode
+        )
+        if (!concealed) return registered
+        // A record discovery placed first is kept under its own id, and concealed all the same.
+        const placed = registered
+          .filter(isWorktreeCanvasNode)
+          .find(
+            (node) =>
+              node.data.projectId === project.id &&
+              worktreePathKey(node.data.path) === worktreePathKey(worktreeNode.data.path)
+          )
+        return placed ? concealWorktree(registered, placed.data.worktreeId) : registered
+      }
       // `addSessionNode` runs next, in this same tick, and resolves the worktree from
       // `nodesRef`, which would otherwise lag until the next render: a record discovery had
       // already placed - kept under its own id, and possibly still marked unavailable - has to
@@ -2397,8 +2439,13 @@ function Canvas(): JSX.Element {
             })
           : centredDropPosition(DEFAULT_WORKTREE_SIZE)
       // In the background: the captain may be typing elsewhere, and a selected new chat would
-      // take the caret out of that field.
-      const worktree = registerCreatedWorktree(request.worktree, project, position, true)
+      // take the caret out of that field. And off the canvas: ticket worktrees are listed under
+      // their orchestrator in the sidebar, whose eye shows one on the canvas when it is wanted.
+      // Concealed is not removed - the chat mounts and runs exactly as a shown one does.
+      const worktree = registerCreatedWorktree(request.worktree, project, position, {
+        background: true,
+        concealed: true
+      })
       const nodeId = addSessionNode({
         kind: request.provider,
         project,
@@ -2623,6 +2670,7 @@ function Canvas(): JSX.Element {
       removeProject,
       locateProject,
       focusNode,
+      toggleWorktreeShown,
       openProjectSettings,
       openMenu: openProjectMenu,
       toggleGroup: toggleProjectGroup,
@@ -2649,7 +2697,8 @@ function Canvas(): JSX.Element {
       selectProject,
       toggleProjectGroup,
       toggleSidebarCollapsed,
-      toggleTicketBoardPanel
+      toggleTicketBoardPanel,
+      toggleWorktreeShown
     ]
   )
 
@@ -2837,7 +2886,7 @@ function Canvas(): JSX.Element {
                       className="canvas-zoom-button"
                       title="Fit view"
                       aria-label="Fit view"
-                      onClick={() => void fitView()}
+                      onClick={() => void fitView({ nodes: nodesRef.current.filter(shownOnCanvas) })}
                     >
                       <Maximize aria-hidden="true" />
                     </button>

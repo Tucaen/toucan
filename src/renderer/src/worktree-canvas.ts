@@ -1,6 +1,7 @@
 import type { Edge } from '@xyflow/react'
 import {
   COLLAPSED_WORKTREE_HEIGHT,
+  concealedWorktreeNode,
   DEFAULT_WORKTREE_SIZE,
   isWorktreeCanvasChild,
   isWorktreeCanvasNode,
@@ -138,6 +139,45 @@ export function withRoomForChat(nodes: CanvasNode[], worktreeId: string): Canvas
 /** A worktree shown as its header and bottom row only. Its chats are mounted and running, out of view. */
 export function isCollapsedWorktree(node: CanvasNode): node is WorktreeCanvasNode {
   return isWorktreeCanvasNode(node) && node.data.collapsed === true
+}
+
+/**
+ * A worktree kept off the canvas - an orchestrator's ticket worktree until the user shows it from
+ * the sidebar. It is still a node, with its chats mounted and running; nothing arranges, fits or
+ * selects it while it is concealed.
+ */
+export function isConcealedWorktree(node: CanvasNode): node is WorktreeCanvasNode {
+  return isWorktreeCanvasNode(node) && node.data.concealed === true
+}
+
+/**
+ * Takes a worktree off the canvas without removing anything (see `concealedWorktreeNode`). Its
+ * chats are deselected with it: a selected chat answers Delete and the layout keys, and nothing
+ * the user cannot see may. Already concealed, or not on the canvas: the same array.
+ */
+export function concealWorktree(nodes: CanvasNode[], worktreeId: string): CanvasNode[] {
+  const host = worktreeHost(nodes, worktreeId)
+  if (!host || host.data.concealed) return nodes
+  return nodes.map((node) => {
+    if (node === host) return concealedWorktreeNode(host, true)
+    if (node.selected && isWorktreeCanvasChild(node) && node.data.worktreeId === worktreeId) {
+      return { ...node, selected: false }
+    }
+    return node
+  })
+}
+
+/** The inverse of `concealWorktree`: shown where it was. Not concealed: the same array. */
+export function revealWorktree(nodes: CanvasNode[], worktreeId: string): CanvasNode[] {
+  const host = worktreeHost(nodes, worktreeId)
+  if (!host || !host.data.concealed) return nodes
+  const shown = concealedWorktreeNode(host, false)
+  return nodes.map((node) => (node === host ? shown : node))
+}
+
+/** What a geometry action may act on: everything but a concealed worktree, which has no place on screen. */
+export function shownOnCanvas(node: CanvasNode): boolean {
+  return !isConcealedWorktree(node)
 }
 
 /** The worktree node hosting `worktreeId`, if it is on the canvas. */
