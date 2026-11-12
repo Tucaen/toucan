@@ -83,7 +83,7 @@ When Jev is unavailable (no `TYPESAFE_API_KEY`, a timeout, an error), `route` ex
 {
   "ok": true,
   "ticket": "1",
-  "session": { "nodeId": "...", "conversationId": "...", "worktreePath": "...", "branch": "ticket/1" },
+  "session": { "nodeId": "...", "conversationId": "...", "worktreePath": "...", "branch": "ticket/k3x9a0/1" },
   "model": "claude-opus-5-5",
   "effort": "high",
   "warnings": [],
@@ -103,7 +103,7 @@ When Jev is unavailable (no `TYPESAFE_API_KEY`, a timeout, an error), `route` ex
 - With only `--ticket`, the session runs on the ticket's recorded route, which is the usual case after `route` or `escalate`. If the picker has dropped the recorded model since, it is resolved again. `--tier` resolves that tier through the mapping instead and records it as your own route. `--model` and `--effort` bypass the mapping entirely. `--effort` overrides a resolved effort. A ticket with no route and neither flag is refused, without counting a spawn.
 - The reply's `route` is what was recorded; `warnings` includes any model fallback.
 - The session's first prompt is the configured implementation skill (default `/implement`) with the ticket, then the ticket contract.
-- Toucan creates a worktree on a fresh `ticket/<id>` branch from `targetBranch` (a retry gets `ticket/<id>-2`, and so on), runs the project's setup command there (up to 15 minutes), and then opens the session on the canvas with the ticket as its first prompt. The call returns once the session is up, so expect it to take minutes. A session that is slow to come up returns [pending](#spawn-pending) instead.
+- Toucan creates a worktree on a fresh `ticket/<scope>/<id>` branch from `targetBranch` (a retry gets `ticket/<scope>/<id>-2`, and so on; the folder is `ticket-<scope>-<id>`), runs the project's setup command there (up to 15 minutes), and then opens the session on the canvas with the ticket as its first prompt. The call returns once the session is up, so expect it to take minutes. A session that is slow to come up returns [pending](#spawn-pending) instead.
 - `model` and `effort` are what the running session reports, `null` when it reports none. When they differ from what you asked for, `warnings` says so: treat the session as running on the reported values.
 - Orchestrations are provider-homogeneous: the ticket session runs on your own provider, so a Claude orchestrator spawns Claude sessions and a Codex orchestrator Codex sessions, each routed through that provider's own tier mapping. `--provider` may only name your own provider, and `--project` only the orchestrator's own project.
 - Ticket sessions commit to their branch and cannot push: a hook refuses it. Land each branch in `targetBranch` with `merge`.
@@ -131,7 +131,7 @@ An attempt is unresolved while its session is `starting`, `working` or `auth_req
 
 ### Unrecorded attempts
 
-Toucan compares Git's `ticket/*` worktrees and branches with the record. One no recorded attempt names, or a worktree a live session runs in that the record does not name, is an unrecorded attempt: somebody's work Toucan lost track of (a spawn that failed after the canvas, a lost record, a session the human started there). It is never deleted by `merge` or `cleanup`. `status` lists each under `unrecorded` (and `unrecordedError` when Git could not be read); a sweep keeps it in `retained` with reason `unrecorded attempt`.
+Toucan compares this orchestration's `ticket/*` worktrees and branches with the record: those under its own `ticket/<scope>/`, never another orchestration's, plus unscoped `ticket/<id>` ones only for an orchestration started before scoped names, which still sees every such branch as before. One no recorded attempt names, or a worktree a live session runs in that the record does not name, is an unrecorded attempt: somebody's work Toucan lost track of (a spawn that failed after the canvas, a lost record, a session the human started there). It is never deleted by `merge` or `cleanup`. `status` lists each under `unrecorded` (and `unrecordedError` when Git could not be read); a sweep keeps it in `retained` with reason `unrecorded attempt`.
 
 Each `unrecorded` entry is `{ ticket, path?, branch, ahead, liveSession, nodeId?, conversationId? }`: `ticket` is the ticket id the branch name belongs to (a plan ticket's id, else the bare slug), `path` is absent for a branch no worktree holds, and `ahead` is the commits the target lacks (`null` when Git could not count them).
 
@@ -145,7 +145,7 @@ Settle each one of two ways:
 `discard --ticket <id> --attempt <n>` throws one recorded attempt away; `discard --branch <ticket/...>` does the same for an entry of `status.unrecorded` (the branch exactly as listed). It stops the attempt's session, force-removes its worktree even with uncommitted or unpublished work, deletes its branch with `git branch -D` (commits the target lacks are lost), and for a recorded attempt marks its `runs` entry `discarded`. It never touches the target branch. It prints `{ ok: true, ticket, attempt?, branch, worktree?, removedWorktree, deletedBranch, discardedCommits }`; `discardedCommits` is the commits that were on the branch and not in the target (`null` when Git could not count them).
 
 - `--attempt` is the one-based position in the ticket's `runs` in `plan show`, the number the duplicate refusal and the adopt reply give. Both forms take only their own flags.
-- Refused, with nothing marked discarded: a ticket already `merged` or `answered` (use `cleanup --ticket <id>`), an attempt already discarded, an attempt with no recorded branch (a run from before Toucan kept it: discard it with `--branch`), a branch that is not in `unrecorded`, and a Git failure that left the worktree or branch in place (`error` says why; fix it and discard again).
+- Refused, with nothing marked discarded: a ticket already `merged` or `answered` (use `cleanup --ticket <id>`), an attempt already discarded, an attempt with no recorded branch (a run from before Toucan kept it: discard it with `--branch`), a branch that is not in `unrecorded` (another orchestration's branch never is), and a Git failure that left the worktree or branch in place (`error` says why; fix it and discard again).
 - Run it only after the human confirmed that this attempt's work may be lost. Whatever the ticket session left uncommitted, and every unmerged commit, is gone with it. `discard` is the only deliberate deletion of unmerged work in this CLI.
 
 ## Being woken

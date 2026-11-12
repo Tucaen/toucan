@@ -68,7 +68,7 @@ Call `escalate --ticket <id>` once per failed attempt, then respawn on that reco
 
 ## Unrecorded attempts
 
-`status.unrecorded` lists worktrees and `ticket/*` branches no recorded attempt names, with their `ahead` commit count and whether a `liveSession` runs there. Read it on every resume and after each `cleanup`: they are work Toucan lost track of, and no `merge` or `cleanup` deletes them (a sweep reports them as retained with reason `unrecorded attempt`). `unrecordedError` means Git could not be read: say the list is unknown, never that it is empty.
+`status.unrecorded` lists this orchestration's worktrees and `ticket/*` branches no recorded attempt names, with their `ahead` commit count and whether a `liveSession` runs there. Read it on every resume and after each `cleanup`: they are work Toucan lost track of, and no `merge` or `cleanup` deletes them (a sweep reports them as retained with reason `unrecorded attempt`). `unrecordedError` means Git could not be read: say the list is unknown, never that it is empty.
 
 Settle every entry whose ticket is not yet merged or answered, one at a time:
 
