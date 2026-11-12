@@ -680,7 +680,10 @@ test('ticket branch names never run out, however many retries a continued budget
 
 test('two orchestrations of one project give the same ticket distinct branches and worktree folders', () => {
   const first = orchestrationBranchScope({ provider: 'claude', conversationId: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b' })
-  const second = orchestrationBranchScope({ provider: 'claude', conversationId: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c' })
+  const second = orchestrationBranchScope({
+    provider: 'claude',
+    conversationId: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c'
+  })
   const codex = orchestrationBranchScope({ provider: 'codex', conversationId: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b' })
   assert.match(first, /^[a-z0-9]{6}$/)
   assert.equal(
