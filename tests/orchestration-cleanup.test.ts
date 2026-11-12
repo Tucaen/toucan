@@ -253,6 +253,8 @@ test(
       'now'
     )
     await git(['branch', `${secondBranch}-2`, 'main'])
+    // An unscoped legacy branch no record names: whose it is cannot be told from its name.
+    await git(['branch', 'ticket/7', 'main'])
 
     assert.deepEqual(await cleanup.unrecorded(first), [], "neither legacy nor the second orchestration's attempts")
     assert.deepEqual(await cleanup.unrecorded(second), [
@@ -262,7 +264,7 @@ test(
     // A record from before scoping still sees unscoped legacy branches, and none of the scoped ones.
     assert.deepEqual(
       (await cleanup.unrecorded(legacy)).map((attempt) => attempt.branch),
-      []
+      ['ticket/7']
     )
     assert.deepEqual(
       (await cleanup.run(first)).retained.filter((entry) => entry.reason === 'unrecorded attempt'),

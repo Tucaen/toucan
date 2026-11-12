@@ -713,6 +713,15 @@ test('a branch belongs to its own orchestration; an unscoped legacy one only to 
   assert.equal(ticketBranchBelongsTo(legacy, 'ticket/7'), true)
   assert.equal(ticketBranchBelongsTo(legacy, `ticket/${other}/34`), false)
   assert.equal(ticketBranchBelongsTo(legacy, `ticket/${own}/34-2`), true)
+
+  // A record written before scoping has no flag: its lost legacy attempt is still its own to adopt or discard.
+  assert.equal(record.scopedBranches, true)
+  const { scopedBranches: _scoped, ...older } = record
+  assert.equal(ticketBranchBelongsTo(older, 'ticket/34'), true)
+  assert.equal(ticketBranchBelongsTo(older, `ticket/${other}/34`), false)
+  // A re-plan keeps either kind as it was.
+  assert.equal(applyPlan(record, planned(twoTickets), identity, LATER).record?.scopedBranches, true)
+  assert.equal(applyPlan(older, planned(twoTickets), identity, LATER).record?.scopedBranches, undefined)
 })
 
 test('the ticket a branch belongs to reads through the orchestration scope and a retry suffix', () => {

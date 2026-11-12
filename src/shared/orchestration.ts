@@ -263,6 +263,11 @@ export interface OrchestrationRecord {
    * the open ones through `openOrchestrationQuestions`. Never reset by a re-plan; absent is none.
    */
   openQuestions?: OrchestrationQuestion[]
+  /**
+   * Set when the record is created: its ticket branches are scoped (`orchestrationBranchScope`).
+   * Absent on a record from before scoping, which may own unscoped legacy `ticket/<id>` attempts.
+   */
+  scopedBranches?: true
   createdAt: string
   updatedAt: string
 }
@@ -445,6 +450,8 @@ export function applyPlan(
       ...(existing?.lifecycle ? { lifecycle: existing.lifecycle } : {}),
       ...(existing?.pacing ? { pacing: existing.pacing } : {}),
       ...(existing?.openQuestions ? { openQuestions: existing.openQuestions } : {}),
+      // Only a new record is scoped: an older one keeps reading its legacy attempts as its own.
+      ...(!existing || existing.scopedBranches ? { scopedBranches: true as const } : {}),
       createdAt: existing?.createdAt ?? now,
       updatedAt: now
     }
@@ -904,6 +911,7 @@ export function isOrchestrationRecord(value: unknown): value is OrchestrationRec
     (value.lifecycle === undefined || isOrchestrationLifecycle(value.lifecycle)) &&
     (value.pacing === undefined || isOrchestrationRecordPacing(value.pacing)) &&
     (value.openQuestions === undefined || isOrchestrationQuestionList(value.openQuestions)) &&
+    (value.scopedBranches === undefined || value.scopedBranches === true) &&
     typeof value.createdAt === 'string' &&
     typeof value.updatedAt === 'string'
   )
@@ -1470,8 +1478,12 @@ function isLegacyTicketBranch(branch: string): boolean {
   return /^ticket\/[^/]+$/.test(branch)
 }
 
-/** Whether the record names a ticket branch from before scoping, so its own attempts can be legacy ones. */
-function predatesBranchScopes(record: Pick<OrchestrationRecord, 'tickets'>): boolean {
+/**
+ * Whether the record may own legacy attempts: it was created before scoping (no `scopedBranches`,
+ * which also covers one whose only legacy attempt went unrecorded), or it names a legacy branch.
+ */
+function predatesBranchScopes(record: Pick<OrchestrationRecord, 'tickets' | 'scopedBranches'>): boolean {
+  if (!record.scopedBranches) return true
   return record.tickets.some((ticket) =>
     [ticket.session?.branch, ...(ticket.runs ?? []).map((run) => run.branch)].some(
       (branch) => branch !== undefined && isLegacyTicketBranch(branch)
@@ -1482,11 +1494,11 @@ function predatesBranchScopes(record: Pick<OrchestrationRecord, 'tickets'>): boo
 /**
  * Whether a `ticket/*` branch is this orchestration's to report, adopt or discard: one under its
  * own `ticket/<scope>/`, never another orchestration's. An unscoped legacy `ticket/<slug>` cannot
- * say whose it is, so it belongs only to a record that itself ran attempts under legacy names -
- * which sees them as before - and never to an orchestration started since.
+ * say whose it is, so it belongs only to a record from before scoping - which sees every legacy
+ * branch as before - and never to an orchestration started since.
  */
 export function ticketBranchBelongsTo(
-  record: Pick<OrchestrationRecord, 'provider' | 'conversationId' | 'tickets'>,
+  record: Pick<OrchestrationRecord, 'provider' | 'conversationId' | 'tickets' | 'scopedBranches'>,
   branch: string
 ): boolean {
   if (branch.startsWith(`ticket/${orchestrationBranchScope(record)}/`)) return true
