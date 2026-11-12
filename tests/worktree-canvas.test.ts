@@ -3,7 +3,7 @@ import type { Edge } from '@xyflow/react'
 import { test } from 'vitest'
 import {
   COLLAPSED_WORKTREE_HEIGHT,
-  CONCEALED_WORKTREE_CLASS,
+  concealedWorktreeNode,
   createSessionCanvasNode,
   createWorktreeCanvasNode,
   DEFAULT_WORKTREE_SIZE,
@@ -29,6 +29,7 @@ import {
   splitWorktreeCanvasEdges,
   withRoomForChat
 } from '../src/renderer/src/worktree-canvas'
+import { registerWorktreeNode } from '../src/renderer/src/worktree-attachment'
 import type { WorkspaceProject } from '../src/shared/workspace'
 
 const PROJECT: WorkspaceProject = { id: 'project-1', name: 'Toucan', path: 'D:\\Development\\toucan', color: '#8ab4f8' }
@@ -396,7 +397,9 @@ test('concealing a worktree keeps it and its chats on the canvas, mounted, but i
   assert.equal(isConcealedWorktree(hidden), true)
   // Not React Flow's `hidden`, which would unmount the node and kill every session on its canvas.
   assert.equal(hidden.hidden, undefined)
-  assert.equal(hidden.className, CONCEALED_WORKTREE_CLASS)
+  assert.equal(hidden.className, 'worktree-concealed')
+  // React Flow writes visibility and pointer-events inline, so `inert` is what keeps the pointer out.
+  assert.deepEqual(hidden.domAttributes, { inert: '', 'aria-hidden': true })
   assert.deepEqual(
     {
       selected: hidden.selected,
@@ -428,7 +431,9 @@ test('concealing a worktree keeps it and its chats on the canvas, mounted, but i
   const revealed = revealWorktree(concealed, 'a')
   const shown = revealed[0] as WorktreeCanvasNode
   assert.equal(isConcealedWorktree(shown), false)
-  for (const key of ['className', 'selectable', 'draggable', 'focusable'] as const) assert.equal(key in shown, false)
+  for (const key of ['className', 'selectable', 'draggable', 'focusable', 'domAttributes'] as const) {
+    assert.equal(key in shown, false)
+  }
   assert.equal('concealed' in shown.data, false)
   assert.equal(shown.style, host.style)
   assert.equal(revealed[2], concealed[2])
@@ -454,7 +459,20 @@ test('a worktree created or restored concealed is concealed from its first rende
     worktreeCallbacks
   )
   assert.equal(isConcealedWorktree(restored), true)
-  assert.equal(restored.className, CONCEALED_WORKTREE_CLASS)
+  assert.equal(restored.className, 'worktree-concealed')
   assert.equal(restored.selectable, false)
   assert.equal(serializeWorktreeNode(restored).concealed, true)
+})
+
+test('a concealed registration conceals a record discovery placed first, under its own id', () => {
+  const discovered = worktree('discovered')
+  const incoming = concealedWorktreeNode(
+    { ...worktree('fresh'), data: { ...worktree('fresh').data, path: discovered.data.path } },
+    true
+  )
+  const [registered] = registerWorktreeNode([discovered], incoming) as WorktreeCanvasNode[]
+  assert.equal(registered.id, discovered.id)
+  assert.equal(isConcealedWorktree(registered), true)
+  // A plain registration leaves a discovered record as it was shown.
+  assert.equal(isConcealedWorktree(registerWorktreeNode([discovered], worktree('fresh'))[0]), false)
 })

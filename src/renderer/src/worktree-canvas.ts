@@ -175,9 +175,12 @@ export function revealWorktree(nodes: CanvasNode[], worktreeId: string): CanvasN
   return nodes.map((node) => (node === host ? shown : node))
 }
 
-/** What a geometry action may act on: everything but a concealed worktree, which has no place on screen. */
-export function shownOnCanvas(node: CanvasNode): boolean {
-  return !isConcealedWorktree(node)
+/**
+ * A worktree that takes no part in an arrangement - tiling, the layout keys: a collapsed one is
+ * shelved work that keeps its place, and a concealed one has no place on screen at all.
+ */
+export function isShelvedWorktree(node: CanvasNode): node is WorktreeCanvasNode {
+  return isCollapsedWorktree(node) || isConcealedWorktree(node)
 }
 
 /** The worktree node hosting `worktreeId`, if it is on the canvas. */

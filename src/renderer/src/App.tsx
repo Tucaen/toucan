@@ -156,13 +156,13 @@ import {
   expandWorktree,
   isCollapsedWorktree,
   isConcealedWorktree,
+  isShelvedWorktree,
   keepCollapsed,
   layoutGeometry,
   nextWorktreeChildPosition,
   partitionWorktreeCanvases,
   revealWorktree,
   selectOnlyWithinCanvas,
-  shownOnCanvas,
   splitWorktreeCanvasEdges,
   withRoomForChat,
   worktreeChildren,
@@ -811,7 +811,7 @@ function Canvas(): JSX.Element {
       // A collapsed worktree is shelved work: it keeps its place rather than taking a cell. A
       // concealed one is not on screen at all, so it takes no cell either.
       const current = getCanvasNodes().filter(
-        (node) => snapCanvases.canvasOf(node) === canvas && !isCollapsedWorktree(node) && shownOnCanvas(node)
+        (node) => snapCanvases.canvasOf(node) === canvas && !isShelvedWorktree(node)
       )
       const selected = current.filter((node) => node.selected).map((node) => node.id)
       const ids = selected.length >= 2 ? selected : current.map((node) => node.id)
@@ -837,7 +837,7 @@ function Canvas(): JSX.Element {
     (action: LayoutKeyAction, origin: string | null = null): void => {
       const current = getCanvasNodes()
       const pressedIn = current.find((node) => node.id === origin)
-      if (pressedIn && (isCollapsedWorktree(pressedIn) || !shownOnCanvas(pressedIn))) return
+      if (pressedIn && isShelvedWorktree(pressedIn)) return
       const selected = current.filter((node) => node.selected && !isCollapsedWorktree(node))
       const targets = pressedIn && !pressedIn.selected ? [pressedIn] : selected
       const canvas = targets.length > 0 ? snapCanvases.canvasOf(targets[0]) : null
@@ -1944,7 +1944,7 @@ function Canvas(): JSX.Element {
   const locateProject = useCallback(
     (projectId: string): void => {
       // A concealed ticket worktree has no place on screen to frame.
-      const matchingNodes = nodes.filter((node) => node.data.projectId === projectId && shownOnCanvas(node))
+      const matchingNodes = nodes.filter((node) => node.data.projectId === projectId && !isConcealedWorktree(node))
       if (matchingNodes.length > 0) {
         void fitView({ nodes: matchingNodes, padding: 0.28, duration: 350 })
       }
@@ -2024,7 +2024,7 @@ function Canvas(): JSX.Element {
    * back the room first if it was focused. Either way nothing is removed: the node and its chats
    * stay mounted, so the ticket session runs on exactly as before (see `concealedWorktreeNode`).
    */
-  const toggleWorktreeShown = useCallback(
+  const toggleWorktreeConcealed = useCallback(
     (nodeId: string): void => {
       const node = nodesRef.current.find((candidate) => candidate.id === nodeId)
       if (!node || !isWorktreeCanvasNode(node)) return
@@ -2363,22 +2363,8 @@ function Canvas(): JSX.Element {
         project,
         worktreeCallbacks
       )
-      const register = (current: CanvasNode[]): CanvasNode[] => {
-        const registered = registerWorktreeNode(
-          background ? current : current.map((node) => ({ ...node, selected: false })),
-          worktreeNode
-        )
-        if (!concealed) return registered
-        // A record discovery placed first is kept under its own id, and concealed all the same.
-        const placed = registered
-          .filter(isWorktreeCanvasNode)
-          .find(
-            (node) =>
-              node.data.projectId === project.id &&
-              worktreePathKey(node.data.path) === worktreePathKey(worktreeNode.data.path)
-          )
-        return placed ? concealWorktree(registered, placed.data.worktreeId) : registered
-      }
+      const register = (current: CanvasNode[]): CanvasNode[] =>
+        registerWorktreeNode(background ? current : current.map((node) => ({ ...node, selected: false })), worktreeNode)
       // `addSessionNode` runs next, in this same tick, and resolves the worktree from
       // `nodesRef`, which would otherwise lag until the next render: a record discovery had
       // already placed - kept under its own id, and possibly still marked unavailable - has to
@@ -2670,7 +2656,7 @@ function Canvas(): JSX.Element {
       removeProject,
       locateProject,
       focusNode,
-      toggleWorktreeShown,
+      toggleWorktreeConcealed,
       openProjectSettings,
       openMenu: openProjectMenu,
       toggleGroup: toggleProjectGroup,
@@ -2698,7 +2684,7 @@ function Canvas(): JSX.Element {
       toggleProjectGroup,
       toggleSidebarCollapsed,
       toggleTicketBoardPanel,
-      toggleWorktreeShown
+      toggleWorktreeConcealed
     ]
   )
 
@@ -2886,7 +2872,9 @@ function Canvas(): JSX.Element {
                       className="canvas-zoom-button"
                       title="Fit view"
                       aria-label="Fit view"
-                      onClick={() => void fitView({ nodes: nodesRef.current.filter(shownOnCanvas) })}
+                      onClick={() =>
+                        void fitView({ nodes: nodesRef.current.filter((node) => !isConcealedWorktree(node)) })
+                      }
                     >
                       <Maximize aria-hidden="true" />
                     </button>

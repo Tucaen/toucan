@@ -105,6 +105,13 @@ async function render(agentOverrides: Partial<AgentApi> = {}, provider: AgentPro
 const createRequests = (agent: ReturnType<typeof createMockAgentApi>): AgentCreateRequest[] =>
   vi.mocked(agent.api.create).mock.calls.map(([created]) => created)
 
+/** The one worktree frame on the main canvas: the ticket's, in these tests. */
+function frame(): HTMLElement {
+  const element = document.querySelector<HTMLElement>('.react-flow__node-worktreeNode')
+  if (!element) throw new Error('the ticket worktree is not rendered')
+  return element
+}
+
 describe('a ticket session requested by an orchestrator', () => {
   test('cleanup suspends its settled chat before removing the worktree canvas', async () => {
     const { start, results, cleanup, cleanupResults, agent } = await render()
@@ -177,13 +184,12 @@ describe('a ticket session requested by an orchestrator', () => {
     await waitFor(() =>
       expect(JSON.stringify(vi.mocked(agent.api.prompt).mock.calls)).toContain('/implement #34 Spawn')
     )
-    const frame = (): HTMLElement =>
-      document.querySelector<HTMLElement>('.react-flow__node-worktreeNode') ??
-      (() => {
-        throw new Error('the ticket worktree is not rendered')
-      })()
     // Concealed, not removed: the frame and its chat stay mounted, so the session is never killed.
     await waitFor(() => expect(frame()).toHaveClass('worktree-concealed'))
+    // Inert: React Flow sets pointer-events inline on every node, so this is what keeps the pointer,
+    // the caret and the accessibility tree out of the hidden frame and the chats on it.
+    expect(frame()).toHaveAttribute('inert')
+    expect(frame()).toHaveAttribute('aria-hidden', 'true')
     expect(frame().querySelector(`.react-flow__node[data-id="${nodeId}"]`)).not.toBeNull()
     await waitFor(() => {
       const saved = harness.saved.at(-1)?.worktrees.find((entry) => entry.branch === 'ticket/34')
@@ -193,6 +199,7 @@ describe('a ticket session requested by an orchestrator', () => {
     // The eye shows it, pressed while shown...
     fireEvent.click(screen.getByRole('button', { name: 'Show ticket/34 on the canvas' }))
     await waitFor(() => expect(frame()).not.toHaveClass('worktree-concealed'))
+    expect(frame()).not.toHaveAttribute('inert')
     expect(screen.getByRole('button', { name: 'Hide ticket/34 from the canvas' })).toHaveAttribute(
       'aria-pressed',
       'true'
@@ -217,7 +224,6 @@ describe('a ticket session requested by an orchestrator', () => {
     const { results, start } = await render()
     start('ticket-1')
     await waitFor(() => expect(results).toHaveLength(1))
-    const frame = (): HTMLElement => document.querySelector<HTMLElement>('.react-flow__node-worktreeNode')!
     await waitFor(() => expect(frame()).toHaveClass('worktree-concealed'))
 
     const row = screen

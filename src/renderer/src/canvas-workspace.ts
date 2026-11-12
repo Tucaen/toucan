@@ -303,13 +303,21 @@ export const WORKTREE_CHROME_HEIGHT = 76
 /** What a collapsed worktree is: its chrome and nothing else. */
 export const COLLAPSED_WORKTREE_HEIGHT = WORKTREE_CHROME_HEIGHT
 /** The React Flow node class the stylesheet hides a concealed worktree by. */
-export const CONCEALED_WORKTREE_CLASS = 'worktree-concealed'
+const CONCEALED_WORKTREE_CLASS = 'worktree-concealed'
+/**
+ * What makes a concealed worktree unreachable. React Flow writes `visibility` and `pointer-events`
+ * inline on every node wrapper - the chats' wrappers on its canvas included - so neither can be
+ * taken back by a class. `inert` can: nothing in the subtree takes a pointer, the caret or the
+ * accessibility tree. (`inert` is not in React 18's DOM types, hence the cast.)
+ */
+const CONCEALED_DOM_ATTRIBUTES = { inert: '', 'aria-hidden': true } as NonNullable<WorktreeCanvasNode['domAttributes']>
 
 /**
  * A worktree shown or kept off the canvas. Concealed is not React Flow's `hidden`: that unmounts
  * the node, and with it every chat on its canvas - and a chat that unmounts kills its session. So
- * the node stays rendered, made invisible by its class and unreachable by pointer, keyboard and
- * selection; its chats are deselected with it in `concealWorktree`. Shown again, it is the node it
+ * the node stays rendered, made invisible by its class (`opacity`, the one property React Flow
+ * leaves to the stylesheet), unreachable through `inert`, and out of selection, drag and keyboard
+ * focus; its chats are deselected with it in `concealWorktree`. Shown again, it is the node it
  * was, minus nothing it had before.
  */
 export function concealedWorktreeNode(node: WorktreeCanvasNode, concealed: boolean): WorktreeCanvasNode {
@@ -321,6 +329,7 @@ export function concealedWorktreeNode(node: WorktreeCanvasNode, concealed: boole
       selectable: false,
       draggable: false,
       focusable: false,
+      domAttributes: CONCEALED_DOM_ATTRIBUTES,
       data: { ...node.data, concealed: true }
     }
   }
@@ -329,6 +338,7 @@ export function concealedWorktreeNode(node: WorktreeCanvasNode, concealed: boole
     selectable: _selectable,
     draggable: _draggable,
     focusable: _focusable,
+    domAttributes: _domAttributes,
     ...shown
   } = node
   const { concealed: _concealed, ...data } = node.data

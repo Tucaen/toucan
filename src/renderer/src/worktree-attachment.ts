@@ -1,7 +1,7 @@
 import type { WorkspaceProject } from '../../shared/workspace'
 import { worktreePathKey } from '../../shared/worktree'
 import type { CanvasNode, TerminalNodeStatus, WorktreeCanvasNode } from './canvas-workspace'
-import { isTerminalCanvasNode, isWorktreeCanvasNode, withoutWorktree } from './canvas-workspace'
+import { concealedWorktreeNode, isTerminalCanvasNode, isWorktreeCanvasNode, withoutWorktree } from './canvas-workspace'
 
 /**
  * What it takes for a node to be *in* a worktree: attachment (`worktreeId`) is what makes a node
@@ -29,20 +29,19 @@ export function registerWorktreeNode(nodes: CanvasNode[], incoming: WorktreeCanv
         worktreePathKey(node.data.path) === worktreePathKey(incoming.data.path)
     )
   if (!existing) return [...nodes, incoming]
-  return nodes.map((node) =>
-    node === existing
-      ? {
-          ...existing,
-          selected: incoming.selected,
-          data: {
-            ...existing.data,
-            branch: incoming.data.branch,
-            baseRef: incoming.data.baseRef,
-            unavailable: undefined
-          }
-        }
-      : node
-  )
+  const merged: WorktreeCanvasNode = {
+    ...existing,
+    selected: incoming.selected,
+    data: {
+      ...existing.data,
+      branch: incoming.data.branch,
+      baseRef: incoming.data.baseRef,
+      unavailable: undefined
+    }
+  }
+  // An orchestrator's ticket worktree is concealed even when discovery placed its record first.
+  const registered = incoming.data.concealed ? concealedWorktreeNode(merged, true) : merged
+  return nodes.map((node) => (node === existing ? registered : node))
 }
 
 /** Never change a running session's cwd or stop it as a side effect of background discovery. */

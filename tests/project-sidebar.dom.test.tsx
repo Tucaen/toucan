@@ -36,7 +36,7 @@ function intentsSpy(): ProjectSidebarIntents {
     moveGroup: vi.fn(),
     dragStarted: vi.fn(),
     toggleTicketBoard: vi.fn(),
-    toggleWorktreeShown: vi.fn()
+    toggleWorktreeConcealed: vi.fn()
   }
 }
 
@@ -291,6 +291,20 @@ describe('orchestrator-owned worktrees', () => {
     [alpha.id, { sessions: [orchestrator], worktrees: [], nodeCount: 3, sessionNodeIds: ['orch', 'ticket-chat'] }]
   ])
 
+  /** The orchestrator owning one ticket worktree, varied per test. */
+  const withTicketWorktree = (row: typeof ticketWorktree): Map<string, SidebarProjectSummary> =>
+    new Map([
+      [
+        alpha.id,
+        {
+          sessions: [{ ...orchestrator, ticketWorktrees: [row] }],
+          worktrees: [],
+          nodeCount: 3,
+          sessionNodeIds: ['orch', 'ticket-chat']
+        }
+      ]
+    ])
+
   test('a ticket worktree is listed as a child of its orchestrator, not under the project worktrees', () => {
     const intents = renderSidebar({ summaries })
 
@@ -338,25 +352,13 @@ describe('orchestrator-owned worktrees', () => {
     expect(eye.querySelector('.lucide-eye-off')).not.toBeNull()
 
     fireEvent.click(eye)
-    expect(intents.toggleWorktreeShown).toHaveBeenCalledWith('worktree:1')
+    expect(intents.toggleWorktreeConcealed).toHaveBeenCalledWith('worktree:1')
     // The eye is its own control: it neither focuses the worktree nor the orchestrator.
     expect(intents.focusNode).not.toHaveBeenCalled()
   })
 
   test('a shown ticket worktree has its eye pressed, and the eye offers to hide it', () => {
-    renderSidebar({
-      summaries: new Map([
-        [
-          alpha.id,
-          {
-            sessions: [{ ...orchestrator, ticketWorktrees: [{ ...ticketWorktree, concealed: false }] }],
-            worktrees: [],
-            nodeCount: 3,
-            sessionNodeIds: ['orch', 'ticket-chat']
-          }
-        ]
-      ])
-    })
+    renderSidebar({ summaries: withTicketWorktree({ ...ticketWorktree, concealed: false }) })
     const eye = screen.getByRole('button', { name: 'Hide ticket/1 from the canvas' })
     expect(eye).toHaveAttribute('aria-pressed', 'true')
     expect(eye.querySelector('.lucide-eye')).not.toBeNull()
@@ -367,22 +369,25 @@ describe('orchestrator-owned worktrees', () => {
       ...ticketWorktree,
       sessions: [{ ...ticketWorktree.sessions[0], status: 'attention' as const }]
     }
-    renderSidebar({
-      summaries: new Map([
-        [
-          alpha.id,
-          {
-            sessions: [{ ...orchestrator, ticketWorktrees: [needsYou] }],
-            worktrees: [],
-            nodeCount: 3,
-            sessionNodeIds: ['orch', 'ticket-chat']
-          }
-        ]
-      ])
-    })
+    renderSidebar({ summaries: withTicketWorktree(needsYou) })
     const eye = screen.getByRole('button', { name: 'Show ticket/1 on the canvas' })
     expect(eye).toHaveAttribute('data-attention', 'true')
     expect(eye.title).toMatch(/needs you/)
+  })
+
+  test('folded away, the orchestrator chevron carries the attention of its ticket sessions', () => {
+    const needsYou = {
+      ...ticketWorktree,
+      sessions: [{ ...ticketWorktree.sessions[0], status: 'attention' as const }]
+    }
+    renderSidebar({ summaries: withTicketWorktree(needsYou) })
+    const open = screen.getByRole('button', { name: /Hide Orchestrator worktrees/ })
+    // Unfolded, the eye says it; the chevron stays quiet.
+    expect(open).not.toHaveAttribute('data-attention')
+    fireEvent.click(open)
+    const folded = screen.getByRole('button', { name: /Show Orchestrator worktrees/ })
+    expect(folded).toHaveAttribute('data-attention', 'true')
+    expect(folded.title).toMatch(/needs you/)
   })
 
   test('a worktree no orchestrator owns keeps its count and has no eye', () => {

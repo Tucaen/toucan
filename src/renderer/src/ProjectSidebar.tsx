@@ -65,7 +65,7 @@ export interface ProjectSidebarIntents {
   locateProject: (projectId: string) => void
   focusNode: (nodeId: string) => void
   /** The eye on a ticket worktree: shows it on the canvas (and goes to it), or takes it off again. */
-  toggleWorktreeShown: (nodeId: string) => void
+  toggleWorktreeConcealed: (nodeId: string) => void
   openProjectSettings: (projectId: string) => void
   /** The row menu at a pointer or anchor position; `page` jumps straight to a submenu. */
   openMenu: (anchor: { x: number; y: number }, target: ProjectMenuTarget, page?: ProjectMenuPage) => void
@@ -265,6 +265,9 @@ export function ProjectSidebar({
     )
     if (session.ticketWorktrees.length === 0) return button
     const folded = foldedOrchestrators.has(session.id)
+    // Folded, the ticket worktrees' eyes are out of sight, so the chevron says one of them needs you.
+    const ticketNeedsYou =
+      folded && session.ticketWorktrees.some((row) => row.sessions.some((ticket) => ticket.status === 'attention'))
     return (
       <Fragment key={session.id}>
         <div className="project-orchestrator-row">
@@ -272,7 +275,13 @@ export function ProjectSidebar({
             type="button"
             className="project-orchestrator-toggle"
             aria-expanded={!folded}
-            title={folded ? `Show ${session.label} worktrees` : `Hide ${session.label} worktrees`}
+            data-attention={ticketNeedsYou ? 'true' : undefined}
+            title={[
+              folded ? `Show ${session.label} worktrees` : `Hide ${session.label} worktrees`,
+              ticketNeedsYou ? 'A ticket session needs you' : null
+            ]
+              .filter(Boolean)
+              .join(' · ')}
             onClick={(event) => {
               event.stopPropagation()
               toggleOrchestrator(session.id)
@@ -355,7 +364,7 @@ export function ProjectSidebar({
                 .join(' · ')}
               onClick={(event) => {
                 event.stopPropagation()
-                intents.toggleWorktreeShown(worktree.id)
+                intents.toggleWorktreeConcealed(worktree.id)
               }}
             >
               {worktree.concealed ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}

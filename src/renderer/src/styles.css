@@ -4612,10 +4612,11 @@ button.global-status-chip:hover {
 }
 
 /* Concealed (an orchestrator's ticket worktree the sidebar has not shown), the node stays rendered,
-   so every chat on its canvas keeps its session - only invisible and out of the pointer's way. */
+   so every chat on its canvas keeps its session - only invisible. Opacity, because React Flow sets
+   visibility and pointer-events inline on every node wrapper, its chats' included; the node's
+   `inert` attribute is what keeps the pointer and the caret out (see `concealedWorktreeNode`). */
 .react-flow__node.worktree-concealed {
-  visibility: hidden;
-  pointer-events: none;
+  opacity: 0;
 }
 
 /* Collapsed, the canvas is taken out of the column and hidden - not removed, and not shrunk:
@@ -4912,6 +4913,14 @@ button.worktree-agent-unread:focus-visible {
 
 .project-orchestrator-toggle:hover {
   background: #1a2028;
+}
+
+.project-orchestrator-toggle[data-attention='true'] {
+  color: #efb36e;
+}
+
+.project-orchestrator-toggle[data-attention='true'] svg {
+  animation: attention-pulse 1.4s ease-in-out infinite;
 }
 
 .project-orchestrator-toggle svg {
