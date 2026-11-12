@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert'
 import { test } from 'vitest'
 import type { GitResult } from '../src/main/git-worktree'
 import { createTicketSpawner, type SessionSettings, type TicketSpawnerOptions } from '../src/main/ticket-spawner'
-import type { OrchestrationTicket } from '../src/shared/orchestration'
+import { orchestrationBranchScope, type OrchestrationTicket } from '../src/shared/orchestration'
 import type { TicketSessionCanvasRequest, TicketSessionCanvasResult } from '../src/shared/ticket-session-spawn'
 import type { WorktreeCreateRequest } from '../src/shared/worktree'
 
@@ -26,6 +26,9 @@ const request = {
   model: 'claude-opus-5-5',
   effort: 'high'
 }
+
+// Ticket branches are scoped to the orchestration that spawns them, so no other one's ticket 34 collides.
+const branch34 = `ticket/${orchestrationBranchScope({ provider: 'claude', conversationId: 'conversation-1' })}/34`
 
 const ok = (stdout = ''): GitResult => ({ code: 0, stdout, stderr: '' })
 
@@ -82,26 +85,26 @@ test('a spawn creates the worktree, guards it, runs setup and then starts the ch
     session: {
       nodeId: 'ticket-node-1',
       conversationId: 'ticket-conversation-1',
-      worktreePath: 'D:\\project-ticket/34',
-      branch: 'ticket/34'
+      worktreePath: `D:\\project-${branch34}`,
+      branch: branch34
     },
     model: 'claude-opus-5-5',
     effort: 'high',
     warnings: []
   })
   // A fresh local branch from the target branch, through the worktree manager.
-  assert.deepEqual(created, [{ projectPath: 'D:\\project', branch: 'ticket/34', baseRef: 'main' }])
+  assert.deepEqual(created, [{ projectPath: 'D:\\project', branch: branch34, baseRef: 'main' }])
   // The chat starts only once the worktree is guarded and set up.
   assert.deepEqual(log, [
-    'create ticket/34',
-    'registered D:\\project-ticket/34',
-    'guard D:\\project-ticket/34',
-    'setup npm ci in D:\\project-ticket/34',
+    `create ${branch34}`,
+    `registered D:\\project-${branch34}`,
+    `guard D:\\project-${branch34}`,
+    `setup npm ci in D:\\project-${branch34}`,
     'canvas'
   ])
   const [started] = canvas
   assert.equal(started.projectId, 'project-1')
-  assert.deepEqual(started.worktree, { path: 'D:\\project-ticket/34', branch: 'ticket/34', baseRef: 'main' })
+  assert.deepEqual(started.worktree, { path: `D:\\project-${branch34}`, branch: branch34, baseRef: 'main' })
   assert.equal(started.label, '#34 Spawn')
   assert.equal(started.modelId, 'claude-opus-5-5')
   assert.equal(started.effortId, 'high')
@@ -113,7 +116,7 @@ test('a spawn creates the worktree, guards it, runs setup and then starts the ch
     provider: 'claude'
   })
   assert.ok(started.prompt.startsWith('/implement #34 Spawn\n\nStart one ticket session.'))
-  assert.ok(started.prompt.includes('D:\\project-ticket/34'))
+  assert.ok(started.prompt.includes(`D:\\project-${branch34}`))
 })
 
 test('a Bypass orchestrator spawns a ticket session that requests no mode, so it starts in Auto', async () => {
@@ -142,7 +145,7 @@ test("the ticket prompt names the main checkout's scratch folder, not the worktr
   const [started] = canvas
   assert.ok(started.prompt.includes('D:\\project\\.toucan-scratch'))
   assert.ok(started.prompt.includes('file:///D:/project/.toucan-scratch/before.png'))
-  assert.ok(!started.prompt.includes('D:\\project-ticket/34\\.toucan-scratch'))
+  assert.ok(!started.prompt.includes(`D:\\project-${branch34}\\.toucan-scratch`))
 })
 
 test('a scratch folder that cannot be prepared is a warning, and the session starts without the sentence', async () => {
@@ -160,22 +163,22 @@ test('a retry gets the next free branch name', async () => {
     worktrees: {
       async create(worktree) {
         created.push(worktree)
-        if (worktree.branch === 'ticket/34') return { ok: false, conflict: true, message: 'Branch exists' }
+        if (worktree.branch === branch34) return { ok: false, conflict: true, message: 'Branch exists' }
         return { ok: true, worktree: { path: 'D:\\project-2', branch: worktree.branch, baseRef: 'main' } }
       }
     }
   })
   const result = await spawner.spawn(request)
-  assert.equal(result.ok && result.session.branch, 'ticket/34-2')
+  assert.equal(result.ok && result.session.branch, `${branch34}-2`)
   assert.deepEqual(
     created.map((entry) => entry.branch),
-    ['ticket/34', 'ticket/34-2']
+    [branch34, `${branch34}-2`]
   )
 })
 
 test('a retry past the old twenty-first name still finds a free branch', async () => {
   const taken = (branch: string): boolean => {
-    const attempt = branch === 'ticket/34' ? 1 : Number(branch.slice('ticket/34-'.length))
+    const attempt = branch === branch34 ? 1 : Number(branch.slice(`${branch34}-`.length))
     return attempt <= 30
   }
   const { spawner, created } = harness({
@@ -188,7 +191,7 @@ test('a retry past the old twenty-first name still finds a free branch', async (
     }
   })
   const result = await spawner.spawn(request)
-  assert.equal(result.ok && result.session.branch, 'ticket/34-31')
+  assert.equal(result.ok && result.session.branch, `${branch34}-31`)
   assert.equal(created.length, 31)
 })
 
@@ -260,8 +263,8 @@ test('a failing setup command or guard removes the fresh worktree and its branch
     assert.match(!result.ok ? result.error : '', failure === 'setup' ? /npm ERR! missing script/ : /push guard/)
     assert.equal(canvas.length, 0, failure)
     assert.deepEqual(git, [
-      ['worktree', 'remove', '--force', 'D:\\project-ticket/34'],
-      ['branch', '-D', 'ticket/34']
+      ['worktree', 'remove', '--force', `D:\\project-${branch34}`],
+      ['branch', '-D', branch34]
     ])
   }
 })
@@ -276,7 +279,7 @@ test('a project without a setup command starts the chat without running one and 
     assert.ok(!log.some((entry) => entry.startsWith('setup')))
     assert.equal(result.warnings.length, 1)
     assert.match(result.warnings[0], /no setup command/)
-    assert.match(result.warnings[0], /D:\\project-ticket\/34/)
+    assert.ok(result.warnings[0].includes(`D:\\project-${branch34}`))
   }
 })
 
@@ -303,7 +306,7 @@ test('a canvas that cannot start the chat fails the spawn but keeps the worktree
     canvas: { startTicketSession: async () => ({ ok: false, message: 'Toucan is not open on the desktop.' }) }
   })
   const result = await spawner.spawn(request)
-  assert.match(!result.ok ? result.error : '', /not open on the desktop.*D:\\project-ticket\/34/s)
+  assert.match(!result.ok ? result.error : '', /not open on the desktop.*D:\\project-ticket\/[a-z0-9]{6}\/34/s)
   assert.deepEqual(git, [])
 })
 
@@ -326,7 +329,7 @@ test('a clean-up git refuses is reported with what it left behind', async () => 
     runGit: async () => ({ code: 128, stdout: '', stderr: 'fatal: locked' })
   })
   const result = await spawner.spawn(request)
-  assert.match(!result.ok ? result.error : '', /could not be removed and stays at D:\\project-ticket\/34/)
+  assert.match(!result.ok ? result.error : '', /could not be removed and stays at D:\\project-ticket\/[a-z0-9]{6}\/34/)
 })
 
 // Issue #1: the spawner reports the node to its caller the moment the canvas holds it, a wait that
@@ -387,8 +390,8 @@ test('a canvas wait that ran out is pending with the session, and its verdict is
     session: {
       nodeId: 'ticket-node-1',
       conversationId: 'ticket-conversation-1',
-      worktreePath: 'D:\\project-ticket/34',
-      branch: 'ticket/34'
+      worktreePath: `D:\\project-${branch34}`,
+      branch: branch34
     },
     error: 'still starting'
   })
@@ -403,8 +406,8 @@ test('a canvas wait that ran out is pending with the session, and its verdict is
       session: {
         nodeId: 'ticket-node-1',
         conversationId: 'ticket-conversation-1',
-        worktreePath: 'D:\\project-ticket/34',
-        branch: 'ticket/34'
+        worktreePath: `D:\\project-${branch34}`,
+        branch: branch34
       },
       model: 'claude-opus-5-5',
       effort: 'high',

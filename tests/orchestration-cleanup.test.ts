@@ -16,7 +16,13 @@ import { afterEach, test } from 'vitest'
 import { createWorktreeManager, runGitWithExecFile, type GitRunner } from '../src/main/git-worktree'
 import { createOrchestrationCleanup } from '../src/main/orchestration-cleanup'
 import { createWorkspaceContainment } from '../src/main/workspace-containment'
-import { applyPlan, discardTicketRun, recordTicketSession } from '../src/shared/orchestration'
+import {
+  applyPlan,
+  discardTicketRun,
+  orchestrationBranchScope,
+  recordTicketSession,
+  ticketBranchCandidates
+} from '../src/shared/orchestration'
 
 // Real Git on Windows costs a process spawn per call, and the full suite runs these on a machine
 // every worker is saturating: measured at 6 s alone and 30 s+ in the full run for the same 80-odd
@@ -210,6 +216,71 @@ test(
     assert.ok(await git(['branch', '--list', 'ticket/9']))
     assert.ok(await git(['branch', '--list', 'ticket/2-2']))
     assert.deepEqual(canvas, [])
+  },
+  GIT_FIXTURE_TIMEOUT
+)
+
+test(
+  "an orchestration reports and discards only its own ticket attempts, never another orchestration's",
+  async () => {
+    const { root, project, git, record: legacy, cleanup } = await fixture()
+    // Two orchestrations started since branches were scoped, each with a ticket 1 of its own.
+    const orchestration = (conversationId: string) =>
+      applyPlan(
+        undefined,
+        { task: 'scoped', targetBranch: 'main', tickets: [{ id: '1', title: 'one', blockedBy: [] }] },
+        { provider: 'claude', conversationId, projectPath: project },
+        'now'
+      ).record!
+    let first = orchestration('first')
+    const second = orchestration('second')
+    const [firstBranch, secondBranch] = [first, second].map(
+      (record) => ticketBranchCandidates(orchestrationBranchScope(record), '1').next().value
+    )
+    const created = await Promise.all(
+      [firstBranch, secondBranch].map(async (branch) => {
+        const result = await createWorktreeManager().create({ projectPath: project, branch, baseRef: 'main' })
+        assert.ok(result.ok && result.worktree, result.message)
+        return result.worktree
+      })
+    )
+    assert.notEqual(created[0].path, created[1].path)
+    // The first orchestration recorded its attempt; the second lost track of its own.
+    first = recordTicketSession(
+      first,
+      '1',
+      { nodeId: 'first-1', conversationId: 'c-first-1', worktreePath: created[0].path, branch: firstBranch },
+      'now'
+    )
+    await git(['branch', `${secondBranch}-2`, 'main'])
+
+    assert.deepEqual(await cleanup.unrecorded(first), [], "neither legacy nor the second orchestration's attempts")
+    assert.deepEqual(await cleanup.unrecorded(second), [
+      { ticket: '1', path: gitPath(created[1].path), branch: secondBranch, ahead: 0, liveSession: false },
+      { ticket: '1', branch: `${secondBranch}-2`, ahead: 0, liveSession: false }
+    ])
+    // A record from before scoping still sees unscoped legacy branches, and none of the scoped ones.
+    assert.deepEqual(
+      (await cleanup.unrecorded(legacy)).map((attempt) => attempt.branch),
+      []
+    )
+    assert.deepEqual(
+      (await cleanup.run(first)).retained.filter((entry) => entry.reason === 'unrecorded attempt'),
+      []
+    )
+
+    assert.deepEqual(await cleanup.discard(first, { ticket: '1', branch: `${secondBranch}-2` }), {
+      ok: false,
+      error: `${secondBranch}-2 is not a ticket branch of this orchestration`
+    })
+    assert.deepEqual(await cleanup.discard(second, { ticket: '1', branch: 'ticket/2' }), {
+      ok: false,
+      error: 'ticket/2 is not a ticket branch of this orchestration'
+    })
+    assert.ok(await git(['branch', '--list', `${secondBranch}-2`]))
+    assert.ok(await git(['branch', '--list', 'ticket/2']))
+    assert.ok(existsSync(created[1].path))
+    assert.ok(existsSync(join(root, 'ticket-2')))
   },
   GIT_FIXTURE_TIMEOUT
 )

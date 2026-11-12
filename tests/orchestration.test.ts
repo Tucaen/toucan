@@ -30,13 +30,17 @@ import {
   spawnBudgetReached,
   startableTickets,
   stopOrchestration,
+  ticketBranchBelongsTo,
   ticketBranchCandidates,
+  ticketIdOfBranch,
+  orchestrationBranchScope,
   ticketSessionPrompt,
   ticketSessionTitle,
   ticketRunProvider,
   unresolvedAttempt,
   type OrchestrationRecord
 } from '../src/shared/orchestration'
+import { deriveWorktreeDirectory } from '../src/shared/worktree'
 
 // The orchestration record (#33, docs/plans/orchestrator-mode.md): Toucan's tracker-independent
 // state for one orchestrator conversation. These are the pure rules the CLI's `plan set` and
@@ -656,22 +660,65 @@ test("a run names its orchestrator's provider; one recorded before the field rea
   assert.equal(ticketRunProvider({}), 'claude')
 })
 
-test('a ticket branch is a fresh name derived from the ticket id', () => {
-  const candidates = ticketBranchCandidates('#34 Spawn!')
-  assert.equal(candidates.next().value, 'ticket/34-spawn')
-  assert.equal(candidates.next().value, 'ticket/34-spawn-2')
-  assert.equal(ticketBranchCandidates('???').next().value, 'ticket/ticket')
+test('a ticket branch is a fresh name derived from the ticket id, inside its orchestration', () => {
+  const candidates = ticketBranchCandidates('k3x9a0', '#34 Spawn!')
+  assert.equal(candidates.next().value, 'ticket/k3x9a0/34-spawn')
+  assert.equal(candidates.next().value, 'ticket/k3x9a0/34-spawn-2')
+  assert.equal(ticketBranchCandidates('k3x9a0', '???').next().value, 'ticket/k3x9a0/ticket')
 })
 
 test('ticket branch names never run out, however many retries a continued budget allows', () => {
   const names: string[] = []
-  const candidates = ticketBranchCandidates('34')
+  const candidates = ticketBranchCandidates('k3x9a0', '34')
   for (let index = 0; index < 3 * SPAWNS_PER_CHECKPOINT + 5; index += 1) names.push(candidates.next().value)
   assert.equal(names.length, 65)
   assert.equal(new Set(names).size, names.length)
-  assert.equal(names[0], 'ticket/34')
-  assert.equal(names[21], 'ticket/34-22')
-  assert.equal(names[64], 'ticket/34-65')
+  assert.equal(names[0], 'ticket/k3x9a0/34')
+  assert.equal(names[21], 'ticket/k3x9a0/34-22')
+  assert.equal(names[64], 'ticket/k3x9a0/34-65')
+})
+
+test('two orchestrations of one project give the same ticket distinct branches and worktree folders', () => {
+  const first = orchestrationBranchScope({ provider: 'claude', conversationId: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b' })
+  const second = orchestrationBranchScope({ provider: 'claude', conversationId: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c' })
+  const codex = orchestrationBranchScope({ provider: 'codex', conversationId: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b' })
+  assert.match(first, /^[a-z0-9]{6}$/)
+  assert.equal(
+    first,
+    orchestrationBranchScope({ provider: 'claude', conversationId: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b' }),
+    'the scope is stable across calls, so a resumed orchestration keeps its names'
+  )
+  assert.equal(new Set([first, second, codex]).size, 3)
+  const branches = [first, second].map((scope) => ticketBranchCandidates(scope, '1').next().value)
+  assert.notEqual(branches[0], branches[1])
+  const folders = branches.map((branch) => deriveWorktreeDirectory('D:\\Development\\toucan', branch))
+  assert.notEqual(folders[0], folders[1])
+  assert.equal(folders[0], `D:\\Development\\toucan-worktrees\\ticket-${first}-1`)
+})
+
+test('a branch belongs to its own orchestration; an unscoped legacy one only to a record that predates scopes', () => {
+  const record = recordFrom(twoTickets)
+  const own = orchestrationBranchScope(record)
+  const other = own === 'aaaaaa' ? 'bbbbbb' : 'aaaaaa'
+  assert.equal(ticketBranchBelongsTo(record, `ticket/${own}/34`), true)
+  assert.equal(ticketBranchBelongsTo(record, `ticket/${own}/34-2`), true)
+  assert.equal(ticketBranchBelongsTo(record, `ticket/${other}/34`), false)
+  assert.equal(ticketBranchBelongsTo(record, 'ticket/34'), false, 'a new orchestration never claims a legacy branch')
+  assert.equal(ticketBranchBelongsTo(record, 'main'), false)
+  const legacy = recordTicketSession(record, '34', { nodeId: 'n-1', conversationId: 'c-1', branch: 'ticket/34' }, LATER)
+  assert.equal(ticketBranchBelongsTo(legacy, 'ticket/34-2'), true, 'a legacy orchestration still sees legacy branches')
+  assert.equal(ticketBranchBelongsTo(legacy, 'ticket/7'), true)
+  assert.equal(ticketBranchBelongsTo(legacy, `ticket/${other}/34`), false)
+  assert.equal(ticketBranchBelongsTo(legacy, `ticket/${own}/34-2`), true)
+})
+
+test('the ticket a branch belongs to reads through the orchestration scope and a retry suffix', () => {
+  const record = recordFrom(twoTickets)
+  assert.equal(ticketIdOfBranch(record, 'ticket/34'), '34')
+  assert.equal(ticketIdOfBranch(record, 'ticket/34-3'), '34')
+  assert.equal(ticketIdOfBranch(record, 'ticket/k3x9a0/34'), '34')
+  assert.equal(ticketIdOfBranch(record, 'ticket/k3x9a0/34-2'), '34')
+  assert.equal(ticketIdOfBranch(record, 'ticket/k3x9a0/99'), undefined)
 })
 
 test('a ticket session is titled by its ticket and prompted with the skill, the ticket and the contract', () => {

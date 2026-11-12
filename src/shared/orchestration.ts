@@ -1436,7 +1436,7 @@ export function discardTicketRun(
   return { ...record, tickets, updatedAt: now }
 }
 
-/** The part of `ticket/<slug>` a ticket id becomes. */
+/** The part of `ticket/<scope>/<slug>` a ticket id becomes. */
 export function ticketBranchSlug(ticketId: string): string {
   return (
     ticketId
@@ -1449,11 +1449,62 @@ export function ticketBranchSlug(ticketId: string): string {
 }
 
 /**
- * The record ticket a `ticket/*` branch name belongs to - `ticket/3` and a retry's `ticket/3-2`
- * both read as ticket 3 - or undefined when no ticket's slug matches.
+ * The short id that keeps one orchestration's ticket branches - and so its worktree folders,
+ * `ticket-<scope>-<slug>` - apart from another's in the same project: every orchestration has a
+ * ticket 1. Six base-36 characters of an FNV-1a hash of the record's key, so it is stable for the
+ * orchestration's whole life and needs no stored state; a hash rather than a prefix of the
+ * conversation id, because a time-ordered id (UUIDv7) shares its leading characters with every
+ * orchestration started in the same minute.
+ */
+export function orchestrationBranchScope(key: Pick<OrchestrationRecord, 'provider' | 'conversationId'>): string {
+  let hash = 0x811c9dc5
+  for (const char of `${key.provider}:${key.conversationId}`) {
+    hash ^= char.codePointAt(0) ?? 0
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return ((hash >>> 0) % 36 ** 6).toString(36).padStart(6, '0')
+}
+
+/** `ticket/<slug>`: the name every ticket branch had before branches were scoped per orchestration. */
+function isLegacyTicketBranch(branch: string): boolean {
+  return /^ticket\/[^/]+$/.test(branch)
+}
+
+/** Whether the record names a ticket branch from before scoping, so its own attempts can be legacy ones. */
+function predatesBranchScopes(record: Pick<OrchestrationRecord, 'tickets'>): boolean {
+  return record.tickets.some((ticket) =>
+    [ticket.session?.branch, ...(ticket.runs ?? []).map((run) => run.branch)].some(
+      (branch) => branch !== undefined && isLegacyTicketBranch(branch)
+    )
+  )
+}
+
+/**
+ * Whether a `ticket/*` branch is this orchestration's to report, adopt or discard: one under its
+ * own `ticket/<scope>/`, never another orchestration's. An unscoped legacy `ticket/<slug>` cannot
+ * say whose it is, so it belongs only to a record that itself ran attempts under legacy names -
+ * which sees them as before - and never to an orchestration started since.
+ */
+export function ticketBranchBelongsTo(
+  record: Pick<OrchestrationRecord, 'provider' | 'conversationId' | 'tickets'>,
+  branch: string
+): boolean {
+  if (branch.startsWith(`ticket/${orchestrationBranchScope(record)}/`)) return true
+  return isLegacyTicketBranch(branch) && predatesBranchScopes(record)
+}
+
+/** The ticket part of a ticket branch, past `ticket/` and any orchestration scope: `3` or a retry's `3-2`. */
+export function ticketBranchTail(branch: string): string {
+  return branch.slice(branch.lastIndexOf('/') + 1)
+}
+
+/**
+ * The record ticket a `ticket/*` branch name belongs to - `ticket/<scope>/3`, a retry's
+ * `ticket/<scope>/3-2` and a legacy `ticket/3` all read as ticket 3 - or undefined when no
+ * ticket's slug matches.
  */
 export function ticketIdOfBranch(record: Pick<OrchestrationRecord, 'tickets'>, branch: string): string | undefined {
-  const slug = branch.replace(/^ticket\//, '')
+  const slug = ticketBranchTail(branch)
   const bare = slug.replace(/-\d+$/, '')
   const bySlug = (candidate: string) => record.tickets.find((ticket) => ticketBranchSlug(ticket.id) === candidate)
   return (bySlug(slug) ?? bySlug(bare))?.id
@@ -1461,14 +1512,16 @@ export function ticketIdOfBranch(record: Pick<OrchestrationRecord, 'tickets'>, b
 
 /**
  * Local branch names for a ticket's worktree, in the order they are tried: a retry gets a fresh
- * branch rather than reusing the one a failed attempt left behind. Endless, because the spawn
+ * branch rather than reusing the one a failed attempt left behind. Every name is under the
+ * orchestration's `scope` (`orchestrationBranchScope`), so another orchestration's ticket of the
+ * same id neither takes a name from this one nor reads as its retry. Endless, because the spawn
  * budget is a checkpoint the human can continue past (and a failed attempt's branch can outlive
  * any count); the caller stops at the first name git accepts or a failure that is not a conflict.
  */
-export function* ticketBranchCandidates(ticketId: string): Generator<string, never> {
+export function* ticketBranchCandidates(scope: string, ticketId: string): Generator<string, never> {
   const slug = ticketBranchSlug(ticketId)
-  yield `ticket/${slug}`
-  for (let attempt = 2; ; attempt += 1) yield `ticket/${slug}-${attempt}`
+  yield `ticket/${scope}/${slug}`
+  for (let attempt = 2; ; attempt += 1) yield `ticket/${scope}/${slug}-${attempt}`
 }
 
 /** The canvas title of a ticket session: a manual title, so no generated one replaces it. */

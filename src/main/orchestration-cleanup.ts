@@ -1,6 +1,8 @@
 import { existsSync } from 'node:fs'
 import {
   isTicketSettled,
+  ticketBranchBelongsTo,
+  ticketBranchTail,
   ticketIdOfBranch,
   type OrchestrationRecord,
   type OrchestrationTicket
@@ -147,7 +149,7 @@ export function createOrchestrationCleanup(options: {
       const sessionsHere = path ? liveIn(path) : []
       const unnamed = sessionsHere.find((session) => !recordedNodes.has(session.nodeId)) ?? sessionsHere[0]
       return {
-        ticket: ticketIdOfBranch(record, branch) ?? branch.replace(/^ticket\//, ''),
+        ticket: ticketIdOfBranch(record, branch) ?? ticketBranchTail(branch),
         ...(path ? { path } : {}),
         branch,
         ahead: await ahead(branch),
@@ -157,11 +159,13 @@ export function createOrchestrationCleanup(options: {
       }
     }
 
+    // Another orchestration's ticket branches are its own business, never this one's to report.
+    const ownBranch = (branch: string) => branch !== record.targetBranch && ticketBranchBelongsTo(record, branch)
     const found: UnrecordedAttempt[] = []
     const seen = new Set<string>()
     const registered = parseWorktreeList(await git(['worktree', 'list', '--porcelain']))
     for (const item of registered) {
-      if (item.isMain || !item.branch.startsWith('ticket/') || item.branch === record.targetBranch) continue
+      if (item.isMain || !ownBranch(item.branch)) continue
       seen.add(item.branch)
       const unnamedSession = liveIn(item.path).some((session) => !recordedNodes.has(session.nodeId))
       const recorded = recordedPaths.has(pathIdentity(item.path)) || recordedBranches.has(item.branch)
@@ -169,7 +173,7 @@ export function createOrchestrationCleanup(options: {
     }
     const heads = await git(['for-each-ref', '--format=%(refname:short)', 'refs/heads/ticket/'])
     for (const branch of heads.split(/\r?\n/).filter(Boolean)) {
-      if (seen.has(branch) || branch === record.targetBranch || recordedBranches.has(branch)) continue
+      if (seen.has(branch) || !ownBranch(branch) || recordedBranches.has(branch)) continue
       found.push(await attempt(branch))
     }
     return found
@@ -361,6 +365,9 @@ export function createOrchestrationCleanup(options: {
       try {
         if (!branch.startsWith('ticket/') || branch === record.targetBranch) {
           return { ok: false, error: `${branch} is not a ticket branch` }
+        }
+        if (!ticketBranchBelongsTo(record, branch)) {
+          return { ok: false, error: `${branch} is not a ticket branch of this orchestration` }
         }
         if (!(await options.containment.contains(record.projectPath))) {
           return { ok: false, error: 'the project is no longer inside the registered workspace' }

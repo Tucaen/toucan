@@ -14,10 +14,14 @@ import { ORCHESTRATOR_CHANNELS } from '../src/shared/ipc-channels'
 import {
   ORCHESTRATOR_TOKEN_ENV,
   ORCHESTRATOR_URL_ENV,
+  orchestrationBranchScope,
   type OrchestrationRecord,
   type OrchestrationTicket
 } from '../src/shared/orchestration'
 import type { TicketSessionCanvasRequest } from '../src/shared/ticket-session-spawn'
+
+/** Ticket 1's first branch, under this test orchestration's scope. */
+const BRANCH = `ticket/${orchestrationBranchScope({ provider: 'claude', conversationId: 'conversation-1' })}/1`
 
 /**
  * Issue #1, end to end through the real parts: an orchestrator's `spawn` whose ticket session is
@@ -210,8 +214,8 @@ test('a wait that runs out keeps the session linked, shows it starting, and wake
     assert.deepEqual(early.session, {
       nodeId: NODE,
       conversationId: CONVERSATION,
-      worktreePath: 'D:\\project-ticket/1',
-      branch: 'ticket/1'
+      worktreePath: `D:\\project-${BRANCH}`,
+      branch: BRANCH
     })
     assert.equal(early.runs?.at(-1)?.state, 'starting')
 
@@ -341,13 +345,12 @@ test('a second plain spawn while the first attempt is still starting is refused 
     assert.deepEqual(reply.body.attempt, {
       attempt: 1,
       nodeId: NODE,
-      branch: 'ticket/1',
-      worktreePath: 'D:\\project-ticket/1',
+      branch: BRANCH,
+      worktreePath: `D:\\project-${BRANCH}`,
       state: 'starting'
     })
-    assert.match(
-      String(reply.body.error),
-      /attempt 1, branch ticket\/1, worktree D:\\project-ticket\/1, state starting/
+    assert.ok(
+      String(reply.body.error).includes(`attempt 1, branch ${BRANCH}, worktree D:\\project-${BRANCH}, state starting`)
     )
     assert.match(String(reply.body.error), /--replace/)
 

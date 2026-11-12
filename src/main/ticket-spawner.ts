@@ -1,4 +1,5 @@
 import {
+  orchestrationBranchScope,
   ticketBranchCandidates,
   ticketSessionPrompt,
   ticketSessionTitle,
@@ -136,7 +137,12 @@ export function createTicketSpawner(options: TicketSpawnerOptions): TicketSpawne
     request: TicketSpawnRequest
   ): Promise<{ path: string; branch: string; baseRef: string } | { error: string }> => {
     // The names never run out, so this ends at the first free one or a failure that is no conflict.
-    for (const branch of ticketBranchCandidates(request.ticket.id)) {
+    // They are scoped to the orchestration, so another one's ticket of the same id is no conflict.
+    const scope = orchestrationBranchScope({
+      provider: orchestratorProvider(request.orchestrator),
+      conversationId: request.orchestrator.conversationId
+    })
+    for (const branch of ticketBranchCandidates(scope, request.ticket.id)) {
       const created = await options.worktrees.create({
         projectPath: request.projectPath,
         branch,
