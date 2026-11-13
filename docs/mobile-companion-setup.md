@@ -152,6 +152,15 @@ Navigating away or losing the phone connection does not start or cancel another 
 the chat reads the current state. One sign-in per provider may run on a PC at a time. The desktop
 can still initiate sign-in through its own panel.
 
+Desktop helpers keep the existing HTTP(S) link-opening policy, including custom authorization
+hosts. Those custom links and unsupported desktop methods are not offered through the phone's
+sign-in endpoint. The pinned Claude login helper prints its authorization URL with a newline,
+then prints the code prompt without one; the phone consumes that complete URL line. Known
+invalid-code feedback permits a retry without forwarding the helper's raw output. Other helper
+diagnostics are deliberately not relayed because they may echo credentials. A helper that requires
+an interactive terminal or arbitrary prompt answers must be run in a desktop terminal; the existing
+pipe-based sign-in panel does not supply a terminal emulator.
+
 Provider passwords stay on the provider's page. Toucan sends a pasted Claude code only in a paired
 request body and then to that live helper's stdin; it is never a prompt, retained draft or URL.
 Sign-in URLs and device codes are temporary, uncached state available only through the paired

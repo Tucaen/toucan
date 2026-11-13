@@ -45,6 +45,7 @@ export interface ProviderAuthentication {
 export function createProviderAuthentication(options: AuthenticationOptions): ProviderAuthentication {
   let attempt: ProviderAuthenticationState['attempt']
   let remote = false
+  let phoneCompatible = false
   let disposed = false
   let busy = false
   let child: ChildProcessWithoutNullStreams | undefined
@@ -104,10 +105,10 @@ export function createProviderAuthentication(options: AuthenticationOptions): Pr
     state() {
       const required = options.required()
       // A later expired-auth event starts a new cycle; an old success is no longer current.
-      const current = required && !busy && attempt?.status === 'succeeded' ? undefined : attempt
+      const current = !phoneCompatible || (required && !busy && attempt?.status === 'succeeded') ? undefined : attempt
       return {
         required,
-        methods: mobileAuthenticationMethods(options.provider, options.methods()),
+        methods: busy && !phoneCompatible ? [] : mobileAuthenticationMethods(options.provider, options.methods()),
         ...(current ? { attempt: { ...current } } : {})
       }
     },
@@ -118,6 +119,9 @@ export function createProviderAuthentication(options: AuthenticationOptions): Pr
       const method = options.methods().find((candidate) => candidate.id === methodId)!
       busy = true
       remote = fromPhone
+      phoneCompatible = mobileAuthenticationMethods(options.provider, options.methods()).some(
+        (candidate) => candidate.id === methodId
+      )
       cancellation = undefined
       stoppingHelper = undefined
       attempt = { id: crypto.randomUUID(), methodId, status: 'starting' }
@@ -155,10 +159,8 @@ export function createProviderAuthentication(options: AuthenticationOptions): Pr
                 // Desktop's interactive-only CLI can redraw a prompt without a newline.
                 if (!remote && tail) lines.push(tail)
                 for (const line of lines) {
-                  const raw = extractLoginUrl(normalizeTerminalOutput(line))
-                  const url = raw && providerAuthorizationUrl(options.provider, raw)
+                  const text = normalizeTerminalOutput(line).trim()
                   if (
-                    !url ||
                     cancellation ||
                     disposed ||
                     !busy ||
@@ -166,11 +168,28 @@ export function createProviderAuthentication(options: AuthenticationOptions): Pr
                     !['starting', 'waiting'].includes(attempt.status)
                   )
                     continue
-                  attempt.url = url
+                  // The pinned CLI retries malformed paste-back codes without exiting. Forward only
+                  // this known-safe meaning, never raw diagnostics that could echo a credential.
+                  if (
+                    text === 'Invalid code. Please make sure the full code was copied.' ||
+                    text === 'That code is not from this sign-in. Paste the code shown after opening the address above.'
+                  ) {
+                    attempt.codeSubmitted = false
+                    attempt.message = 'Copy the full code from this sign-in and try again.'
+                    options.publish({ type: 'status', status: 'starting', message: attempt.message })
+                  }
+                  const raw = extractLoginUrl(text)
+                  if (!raw) continue
+                  const phoneUrl = providerAuthorizationUrl(options.provider, raw)
+                  if (remote && !phoneUrl) continue
+                  // Desktop keeps its existing HTTP(S) opener, including custom helpers. The
+                  // phone's sign-in state never advertises custom URLs or unsupported attempts.
+                  if (phoneUrl) attempt.url = phoneUrl
+                  else phoneCompatible = false
                   attempt.status = 'waiting'
                   if (!remote) {
-                    options.openLink(url)
-                    options.publish({ type: 'auth_link', url })
+                    options.openLink(raw)
+                    options.publish({ type: 'auth_link', url: raw })
                   }
                 }
               }
@@ -242,10 +261,13 @@ export function createProviderAuthentication(options: AuthenticationOptions): Pr
         return { ok: false, message: 'No sign-in process is waiting for a code.' }
       if (attemptId !== undefined && attemptId !== attempt.id)
         return { ok: false, message: 'That sign-in attempt is no longer current.' }
+      if (attemptId !== undefined && !phoneCompatible)
+        return { ok: false, message: 'This sign-in method requires the desktop.' }
       if (inputBusy || attempt.codeSubmitted)
         return { ok: false, message: 'A code was already submitted. Wait for sign-in to finish.' }
       inputBusy = true
       attempt.codeSubmitted = true
+      delete attempt.message
       const submittedAttempt = attempt
       try {
         const result = await options.writeCode(child.stdin, code)

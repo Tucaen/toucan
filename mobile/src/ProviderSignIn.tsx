@@ -6,20 +6,21 @@ import type {
 import type { SavedHost } from './hosts'
 import { providerAuthentication } from './remote-client'
 
-/** A sign-in belongs to the host's live session; navigating or reconnecting only reads it again. */
-export default function ProviderSignIn({
-  host,
-  chatId,
-  needed,
-  online,
-  onUnauthorized
-}: {
+interface ProviderSignInProps {
   host: SavedHost
   chatId: string
   needed: boolean
   online: boolean
   onUnauthorized(): void
-}): JSX.Element | null {
+}
+
+/** Own the scope here as well as at ChatScreen: no caller can carry secrets between chats. */
+export default function ProviderSignIn(props: ProviderSignInProps): JSX.Element {
+  return <SignInSession key={JSON.stringify([props.host.id, props.host.origin, props.chatId])} {...props} />
+}
+
+/** A sign-in belongs to the host's live session; navigating or reconnecting only reads it again. */
+function SignInSession({ host, chatId, needed, online, onUnauthorized }: ProviderSignInProps): JSX.Element | null {
   const [state, setState] = useState<ProviderAuthenticationState | null>(null)
   const [problem, setProblem] = useState<string>()
   const [pending, setPending] = useState(false)
@@ -32,7 +33,17 @@ export default function ProviderSignIn({
   unauthorized.current = onUnauthorized
   const active = state?.attempt && ['starting', 'waiting', 'verifying', 'cancelling'].includes(state.attempt.status)
 
-  useEffect(() => () => mutation.current?.abort(), [host, chatId])
+  useEffect(
+    () => () => {
+      mutation.current?.abort()
+      mutation.current = undefined
+      version.current += 1
+      setPending(false)
+      setCode('')
+      setState(null)
+    },
+    [host.id, host.origin, host.token, chatId]
+  )
 
   useEffect(() => {
     if (!online || (!needed && !active)) return
@@ -95,7 +106,7 @@ export default function ProviderSignIn({
             ? (attempt.message ?? 'Cancelling sign-in…')
             : attempt?.status === 'verifying'
               ? 'Verifying sign-in…'
-              : 'Finish signing in to this PC with your browser.'
+              : (attempt?.message ?? 'Finish signing in to this PC with your browser.')
           : ((attempt?.status === 'succeeded' && !succeeded ? undefined : attempt?.message) ??
             'This session needs sign-in before you can send messages.')}
       </p>

@@ -153,6 +153,30 @@ test('unsupported hosts/methods and failed attempts give an honest desktop fallb
   expect(screen.getByRole('button', { name: 'Sign in: Claude Subscription' })).toBeEnabled()
 })
 
+test('safe provider rejection feedback reopens the code form for a corrected paste', async () => {
+  vi.useFakeTimers()
+  state = { ...WAITING, attempt: { ...WAITING.attempt!, codeSubmitted: true } }
+  const view = open()
+  await act(async () => {})
+  expect(screen.queryByLabelText('Code shown by the provider')).not.toBeInTheDocument()
+  state = {
+    ...WAITING,
+    attempt: {
+      ...WAITING.attempt!,
+      codeSubmitted: false,
+      message: 'Copy the full code from this sign-in and try again.'
+    }
+  }
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1500)
+  })
+  expect(screen.getByText('Copy the full code from this sign-in and try again.')).toBeInTheDocument()
+  expect(screen.getByLabelText('Code shown by the provider')).toHaveValue('')
+  fireEvent.change(screen.getByLabelText('Code shown by the provider'), { target: { value: 'corrected-code#state' } })
+  expect(screen.getByRole('button', { name: 'Submit code' })).toBeEnabled()
+  view.unmount()
+})
+
 test('disconnected controls are inert and revoked pairing returns to pairing', async () => {
   const view = open()
   await screen.findByRole('button', { name: 'Sign in: Claude Subscription' })
@@ -162,4 +186,112 @@ test('disconnected controls are inert and revoked pairing returns to pairing', a
   vi.mocked(fetch).mockResolvedValue(new Response('', { status: 401 }))
   view.rerender(<ProviderSignIn host={HOST} chatId="chat-1" needed online onUnauthorized={unauthorized} />)
   await waitFor(() => expect(unauthorized).toHaveBeenCalledTimes(1))
+})
+
+test.each(['host', 'chat'] as const)(
+  'changing %s discards old attempt/code and cannot apply a late mutation',
+  async (change) => {
+    let finish: ((response: Response) => void) | undefined
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init: RequestInit) => {
+        if (init.method === 'POST')
+          return new Promise<Response>((resolve) => {
+            finish = resolve
+          })
+        return new Response(JSON.stringify(url.includes('work-pc.test/api/chats/chat-1/') ? WAITING : INITIAL))
+      })
+    )
+    const view = open()
+    await screen.findByRole('link', { name: 'Open sign-in on this phone' })
+    fireEvent.change(screen.getByLabelText('Code shown by the provider'), { target: { value: 'private-old-code' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel sign-in' }))
+    await waitFor(() => expect(finish).toBeDefined())
+    const host = change === 'host' ? { ...HOST, id: 'home', origin: 'https://home-pc.test', token: 'home-token' } : HOST
+    const chatId = change === 'chat' ? 'chat-2' : 'chat-1'
+    view.rerender(<ProviderSignIn host={host} chatId={chatId} needed online onUnauthorized={unauthorized} />)
+    expect(screen.queryByRole('link')).not.toBeInTheDocument()
+    expect(screen.queryByDisplayValue('private-old-code')).not.toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Sign in: Claude Subscription' })).toBeEnabled()
+    // Simulate a transport that ignores AbortSignal and returns an old rejection much later.
+    await act(async () => {
+      finish!(new Response('', { status: 401 }))
+    })
+    expect(unauthorized).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Sign in: Claude Subscription' })).toBeEnabled()
+  }
+)
+
+test('replacing the host object without changing its endpoint does not abort or wedge an active mutation', async () => {
+  let finish: ((response: Response) => void) | undefined
+  let signal: AbortSignal | null | undefined
+  let reading = WAITING
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: string, init: RequestInit) => {
+      if (init.method === 'POST') {
+        signal = init.signal
+        return new Promise<Response>((resolve) => {
+          finish = resolve
+        })
+      }
+      return new Response(JSON.stringify(reading))
+    })
+  )
+  const view = open()
+  fireEvent.click(await screen.findByRole('button', { name: 'Cancel sign-in' }))
+  view.rerender(
+    <ProviderSignIn
+      host={{ ...HOST, name: 'Renamed PC' }}
+      chatId="chat-1"
+      needed
+      online
+      onUnauthorized={unauthorized}
+    />
+  )
+  expect(signal?.aborted).toBe(false)
+  reading = {
+    ...INITIAL,
+    attempt: { id: 'a-1', methodId: 'claude-ai-login', status: 'cancelled', message: 'Sign-in cancelled.' }
+  }
+  await act(async () => {
+    finish!(new Response(JSON.stringify(reading)))
+  })
+  expect(screen.getByRole('button', { name: 'Sign in: Claude Subscription' })).toBeEnabled()
+})
+
+test('a replaced pairing token aborts the old mutation, clears its lock and ignores a late result', async () => {
+  let finish: ((response: Response) => void) | undefined
+  let signal: AbortSignal | null | undefined
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: string, init: RequestInit) => {
+      const paired = new Headers(init.headers).get('authorization') === 'Bearer replacement-token'
+      if (init.method === 'POST') {
+        signal = init.signal
+        return new Promise<Response>((resolve) => {
+          finish = resolve
+        })
+      }
+      return new Response(JSON.stringify(paired ? INITIAL : WAITING))
+    })
+  )
+  const view = open()
+  fireEvent.click(await screen.findByRole('button', { name: 'Cancel sign-in' }))
+  view.rerender(
+    <ProviderSignIn
+      host={{ ...HOST, token: 'replacement-token' }}
+      chatId="chat-1"
+      needed
+      online
+      onUnauthorized={unauthorized}
+    />
+  )
+  expect(signal?.aborted).toBe(true)
+  expect(await screen.findByRole('button', { name: 'Sign in: Claude Subscription' })).toBeEnabled()
+  await act(async () => {
+    finish!(new Response(JSON.stringify(WAITING)))
+  })
+  expect(screen.queryByRole('link')).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Sign in: Claude Subscription' })).toBeEnabled()
 })

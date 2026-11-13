@@ -22,7 +22,7 @@ const CLAUDE: AgentAuthMethod = {
 const CODEX: AgentAuthMethod = { id: 'chat-gpt-device-code', name: 'ChatGPT (device code)', type: 'agent' }
 const URL = 'https://claude.ai/oauth/authorize?client_id=test&state=test-state&code_challenge=test-challenge'
 
-function harness(provider: AgentProvider = 'claude', timeoutMs?: number) {
+function harness(provider: AgentProvider = 'claude', timeoutMs?: number, methods?: AgentAuthMethod[]) {
   const child = stubAdapterChild()
   child.kill = vi.fn(() => {
     queueMicrotask(() => child.emit('exit', null, 'SIGTERM'))
@@ -43,7 +43,7 @@ function harness(provider: AgentProvider = 'claude', timeoutMs?: number) {
   })
   const flow = createProviderAuthentication({
     provider,
-    methods: () => (provider === 'claude' ? [CLAUDE] : [CODEX]),
+    methods: () => methods ?? (provider === 'claude' ? [CLAUDE] : [CODEX]),
     required: () => required,
     canStart: () => true,
     launchTerminal: () => child,
@@ -216,6 +216,66 @@ test('desktop continues opening Claude authorization links and uses the same cod
   assert.ok(h.events.some((event) => event.type === 'auth_link' && event.url === URL))
   h.child.emit('exit', 0)
   assert.equal((await result).status, 'ready')
+  h.flow.dispose()
+})
+
+test('pinned Claude auth-login URL line followed by a no-newline code prompt is usable on the phone', async () => {
+  const h = harness()
+  h.flow.start(CLAUDE.id)
+  // SDK native CLI 0.3.321 auth login writes the URL with a newline, then this prompt without one.
+  h.child.stdout.write('Opening browser to sign in...\nIf the browser did not open, visit: ')
+  h.child.stdout.write(`\u001b]8;;${URL}\u001b\\${URL}\u001b]8;;\u001b\\\nPaste code here if prompted > `)
+  assert.equal(h.flow.state().attempt?.url, URL)
+  assert.equal(h.flow.state().attempt?.status, 'waiting')
+  assert.equal((await h.flow.submit('test-code#test-state', h.flow.state().attempt!.id)).ok, true)
+  h.child.emit('exit', 0)
+  await vi.waitFor(() => assert.equal(h.flow.state().attempt?.status, 'succeeded'))
+  h.flow.dispose()
+})
+
+test('desktop custom helper URLs keep the existing HTTP(S) policy while mobile state stays restricted', async () => {
+  const h = harness()
+  const result = h.flow.run(CLAUDE.id)
+  const custom = 'https://login.company.test:8443/sso/authorize?state=private-test-state'
+  h.child.stdout.write(`Continue at ${custom}`)
+  assert.deepEqual(h.openLink.mock.calls, [[custom]])
+  assert.ok(h.events.some((event) => event.type === 'auth_link' && event.url === custom))
+  assert.equal(h.flow.state().attempt?.url, undefined)
+  assert.equal((await h.flow.submit('test-code')).ok, true)
+  h.child.emit('exit', 0)
+  await result
+  h.flow.dispose()
+})
+
+test('desktop-only interactive methods retain their code/link flow without becoming phone capabilities', async () => {
+  const method = { ...CLAUDE, id: 'claude-login', args: ['--cli'] }
+  const h = harness('claude', undefined, [method])
+  assert.match(h.flow.start(method.id).message ?? '', /requires the desktop/)
+  const result = h.flow.run(method.id)
+  h.child.stdout.write(`Continue at ${URL}`)
+  assert.deepEqual(h.openLink.mock.calls, [[URL]])
+  assert.deepEqual(h.flow.state().methods, [])
+  assert.equal(h.flow.state().attempt, undefined)
+  assert.equal((await h.flow.submit('test-code#test-state')).ok, true)
+  h.child.emit('exit', 0)
+  assert.equal((await result).status, 'ready')
+  h.flow.dispose()
+})
+
+test('pinned Claude invalid-code feedback allows another code without echoing helper diagnostics', async () => {
+  const h = harness()
+  h.flow.start(CLAUDE.id)
+  h.child.stdout.write(`If the browser did not open, visit: ${URL}\nPaste code here if prompted > `)
+  const id = h.flow.state().attempt!.id
+  assert.equal((await h.flow.submit('incomplete-test-code', id)).ok, true)
+  h.child.stderr.write('Invalid code. Please make sure the full ')
+  h.child.stderr.write('code was copied.\nprivate-test-code must not be echoed\n')
+  assert.equal(h.flow.state().attempt?.codeSubmitted, false)
+  assert.match(h.flow.state().attempt?.message ?? '', /full code/)
+  assert.equal((await h.flow.submit('full-test-code#test-state', id)).ok, true)
+  assert.doesNotMatch(JSON.stringify(h.events), /private-test-code|incomplete-test-code/)
+  h.child.emit('exit', 0)
+  await vi.waitFor(() => assert.equal(h.flow.state().attempt?.status, 'succeeded'))
   h.flow.dispose()
 })
 
