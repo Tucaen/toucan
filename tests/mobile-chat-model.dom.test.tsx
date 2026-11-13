@@ -113,6 +113,23 @@ beforeEach(() => {
 })
 
 describe('seeing and choosing the model from the phone', () => {
+  test('an auth-required snapshot exposes provider sign-in on the phone', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          required: true,
+          methods: [{ id: 'claude-ai-login', name: 'Claude Subscription', mode: 'code' }]
+        }),
+        { status: 200 }
+      )
+    )
+    open([
+      { type: 'auth', methods: [{ id: 'claude-ai-login', name: 'Claude Subscription', type: 'terminal' }] },
+      { type: 'status', status: 'auth_required' }
+    ])
+    expect(screen.getByText('Needs sign-in')).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Sign in: Claude Subscription' })).toBeInTheDocument()
+  })
   test('the current model is on screen from the snapshot alone, with the rest offered', () => {
     open([IDLE, MODELS])
 

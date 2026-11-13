@@ -17,8 +17,10 @@ import {
   type RemoteChatRead,
   type RemoteChatSessionOperations,
   type RemoteChatSpawn,
-  type RemoteOrchestration
+  type RemoteOrchestration,
+  type RemoteProviderAuthentication
 } from '../src/main/remote/remote-server'
+import { PROVIDER_AUTH_BODY_LIMIT, type ProviderAuthenticationState } from '../src/shared/provider-authentication'
 import type { RemoteAccessAddress, RemoteWorkspaceProjection } from '../src/shared/remote-access'
 import { REMOTE_SPAWN_BODY_LIMIT, type RemoteChatSpawnRequest } from '../src/shared/remote-spawn'
 import {
@@ -101,6 +103,7 @@ function harness(
     spawn?: RemoteChatSpawn
     orchestration?: RemoteOrchestration
     appUpdate?: RemoteAppUpdate
+    authentication?: RemoteProviderAuthentication
     models?: () => AgentModelCatalogue
     usage?: () => ProviderUsageReport | Promise<ProviderUsageReport>
     transcriber?: { transcribe: (audio: Float32Array) => Promise<RemoteTranscriptionResult> }
@@ -130,6 +133,7 @@ function harness(
     ...(options.spawn ? { spawn: options.spawn } : {}),
     ...(options.orchestration ? { orchestration: options.orchestration } : {}),
     ...(options.appUpdate ? { appUpdate: options.appUpdate } : {}),
+    ...(options.authentication ? { authentication: options.authentication } : {}),
     ...(options.models ? { models: options.models } : {}),
     ...(options.usage ? { usage: options.usage } : {}),
     ...(options.transcriber ? { transcriber: options.transcriber } : {}),
@@ -2634,5 +2638,124 @@ describe('closing a chat over HTTP', () => {
 
     const bare = await closeHarness()
     assert.equal((await bare.post('/api/chats/chat-1/close', '', bare.store.read().token)).status, 503)
+  })
+})
+
+describe('provider sign-in through the paired API', () => {
+  async function authHarness() {
+    const state: ProviderAuthenticationState = {
+      required: true,
+      methods: [{ id: 'claude-ai-login', name: 'Claude Subscription', mode: 'code' }]
+    }
+    const calls: string[] = []
+    const created = harness({
+      authentication: {
+        state: () => state,
+        start: (_id, methodId) => {
+          calls.push(`start:${methodId}`)
+          state.attempt = {
+            id: 'attempt-1',
+            methodId,
+            status: 'waiting',
+            url: 'https://claude.ai/oauth/authorize?state=private-test-state'
+          }
+          return { ok: true }
+        },
+        cancel: (_id, attemptId) => {
+          calls.push(`cancel:${attemptId}`)
+          state.attempt = { id: attemptId, methodId: 'claude-ai-login', status: 'cancelled' }
+          return { ok: true }
+        },
+        submit: async (_id, attemptId, code) => {
+          assert.equal(code, 'private-test-code')
+          calls.push(`submit:${attemptId}`)
+          state.required = false
+          state.attempt = { id: attemptId, methodId: 'claude-ai-login', status: 'succeeded' }
+          return { ok: true }
+        }
+      }
+    })
+    await created.server.applySettings({ enabled: true, port: await freePort() })
+    created.server.publishWorkspace(CHAT_PROJECTION)
+    return { ...created, calls }
+  }
+
+  test('gates reads and commands before revealing state, and keeps transient secrets out of workspace summaries', async () => {
+    const h = await authHarness()
+    const token = h.store.read().token
+    const path = '/api/chats/chat-1/authentication'
+    const start = JSON.stringify({ action: 'start', methodId: 'claude-ai-login' })
+    assert.equal((await h.get(path)).status, 401)
+    assert.equal((await h.post(path, start, 'wrong')).status, 401)
+    assert.deepEqual(h.calls, [])
+    assert.equal((await h.post('/api/chats/unlisted/authentication', start, token)).status, 404)
+    assert.deepEqual(h.calls, [])
+    const begun = await h.post(path, start, token)
+    assert.equal(begun.status, 202)
+    assert.equal(begun.headers.get('cache-control'), 'no-store')
+    assert.equal(begun.headers.get('referrer-policy'), 'no-referrer')
+    assert.equal(begun.headers.get('access-control-allow-origin'), '*')
+    assert.match((await h.get(path, token)).body, /private-test-state/)
+    assert.doesNotMatch((await h.get('/api/workspace', token)).body, /private-test-state|oauth\/authorize/)
+    const submitted = await h.post(
+      path,
+      JSON.stringify({ action: 'code', attemptId: 'attempt-1', code: 'private-test-code' }),
+      token
+    )
+    assert.equal(submitted.status, 200)
+    assert.doesNotMatch(submitted.body, /private-test-code|private-test-state/)
+    assert.equal(JSON.parse(submitted.body).attempt.status, 'succeeded')
+    assert.deepEqual(h.calls, ['start:claude-ai-login', 'submit:attempt-1'])
+    await h.server.regenerateToken()
+    assert.equal((await h.get(path, token)).status, 401)
+    assert.equal((await h.post(path, start, token)).status, 401)
+  })
+
+  test('rejects oversized or invalid actions without reflecting secrets or invoking a session', async () => {
+    const h = await authHarness()
+    const token = h.store.read().token
+    const path = '/api/chats/chat-1/authentication'
+    for (const body of [
+      'private-test-secret',
+      '{"action":"callback","url":"http://localhost:1455"}',
+      '{"action":"start","methodId":"claude-ai-login","args":["evil"]}',
+      '{"action":"code","attemptId":"a","code":"code\\ncommand"}'
+    ]) {
+      const response = await h.post(path, body, token)
+      assert.equal(response.status, 400)
+      assert.doesNotMatch(response.body, /private-test-secret|localhost|evil|command/)
+    }
+    assert.equal((await h.post(path, 'x'.repeat(PROVIDER_AUTH_BODY_LIMIT + 1), token)).status, 413)
+    assert.deepEqual(h.calls, [])
+    assert.equal((await h.get('/api/chats/missing/authentication', token)).status, 404)
+  })
+
+  test('cancellation is scoped to the attempt and provider exceptions are never returned', async () => {
+    const h = await authHarness()
+    const token = h.store.read().token
+    const path = '/api/chats/chat-1/authentication'
+    await h.post(path, '{"action":"start","methodId":"claude-ai-login"}', token)
+    const cancelled = await h.post(path, '{"action":"cancel","attemptId":"attempt-1"}', token)
+    assert.equal(cancelled.status, 200)
+    assert.equal(JSON.parse(cancelled.body).attempt.status, 'cancelled')
+    const failing = harness({
+      authentication: {
+        state: () => {
+          throw new Error('private-test-provider-secret')
+        },
+        start: () => ({ ok: false, message: 'Unsupported method.' }),
+        cancel: () => ({ ok: false }),
+        submit: async () => ({ ok: false })
+      }
+    })
+    await failing.server.applySettings({ enabled: true, port: await freePort() })
+    failing.server.publishWorkspace(CHAT_PROJECTION)
+    const failed = await failing.get(path, failing.store.read().token)
+    assert.equal(failed.status, 503)
+    assert.doesNotMatch(failed.body, /private-test-provider-secret/)
+    assert.equal(
+      (await failing.post(path, '{"action":"start","methodId":"api-key"}', failing.store.read().token)).status,
+      409
+    )
   })
 })

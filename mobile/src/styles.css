@@ -23,6 +23,48 @@
   color-scheme: dark;
 }
 
+.provider-sign-in {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--attention);
+  border-radius: 12px;
+  background: var(--raised);
+  overflow-wrap: anywhere;
+}
+
+.provider-sign-in h2,
+.provider-sign-in p {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.provider-sign-in form {
+  display: grid;
+  gap: 12px;
+}
+
+.provider-sign-in button,
+.provider-sign-in a,
+.provider-sign-in input {
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--ground);
+  color: var(--ink);
+  font: inherit;
+}
+
+.provider-sign-in a {
+  color: var(--accent);
+}
+
+.provider-sign-in button:disabled {
+  opacity: 0.6;
+}
+
 * {
   box-sizing: border-box;
 }

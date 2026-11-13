@@ -34,6 +34,11 @@ import {
 } from '../../shared/remote-spawn'
 import type { RemoteChatCloseResult } from '../../shared/remote-close'
 import {
+  parseProviderAuthenticationAction,
+  PROVIDER_AUTH_BODY_LIMIT,
+  type ProviderAuthenticationState
+} from '../../shared/provider-authentication'
+import {
   decodePcm16,
   isRemoteVoiceContentType,
   REMOTE_VOICE_BODY_LIMIT,
@@ -143,6 +148,8 @@ export interface RemoteAccessServerOptions {
   orchestration?: RemoteOrchestration
   /** The desktop's own updater and its restart, for the phone's update card. Absent, the phone has neither. */
   appUpdate?: RemoteAppUpdate
+  /** Runtime sign-in state and commands. Never folded into the workspace projection. */
+  authentication?: RemoteProviderAuthentication
   /**
    * How "a phone read this chat" reaches the attention records behind its unread badge. Separate
    * from `sessions` for the same reason `spawn` is: the record set is the canvas's, not the session
@@ -245,6 +252,13 @@ export type RemoteChatRead = (chatId: string) => void
 
 /** Closes a chat through the canvas's own remove path and answers once it has. Never rejects. */
 export type RemoteChatClose = (chatId: string) => Promise<RemoteChatCloseResult>
+
+export interface RemoteProviderAuthentication {
+  state(chatId: string): ProviderAuthenticationState | undefined
+  start(chatId: string, methodId: string): AgentPromptResult
+  cancel(chatId: string, attemptId: string): AgentPromptResult
+  submit(chatId: string, attemptId: string, code: string): Promise<AgentPromptResult>
+}
 
 export interface RemoteChatSessionOperations {
   /**
@@ -637,6 +651,74 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
     send(request, response, 200, read.data, { 'content-type': read.contentType })
   }
 
+  const authentication = async (
+    request: IncomingMessage,
+    response: ServerResponse,
+    chatId: string,
+    write: boolean
+  ): Promise<void> => {
+    const reply = (status: number, body: unknown): void =>
+      send(request, response, status, JSON.stringify(body), {
+        'content-type': 'application/json; charset=utf-8',
+        'referrer-policy': 'no-referrer'
+      })
+    const auth = options.authentication
+    if (!auth) {
+      reply(503, { error: 'This host does not support mobile sign-in.' })
+      return
+    }
+    const listed = (): boolean => snapshot.chats.some((chat) => chat.id === chatId)
+    if (!listed()) {
+      reply(404, { error: 'That chat is not open on the desktop.' })
+      return
+    }
+    try {
+      if (!write) {
+        const state = auth.state(chatId)
+        if (state) reply(200, state)
+        else reply(409, { error: 'This session is not running. Open it on the desktop first.' })
+        return
+      }
+      const body = await readBoundedBody(request, PROVIDER_AUTH_BODY_LIMIT)
+      if (!authorized(request.headers)) {
+        reply(401, { error: 'unauthorized' })
+        return
+      }
+      if (!listed()) {
+        reply(404, { error: 'That chat is not open on the desktop.' })
+        return
+      }
+      if (body === null) {
+        reply(413, { error: 'Sign-in request is too large.' })
+        return
+      }
+      const action = parseProviderAuthenticationAction(body)
+      if (!action) {
+        reply(400, { error: 'Invalid sign-in request.' })
+        return
+      }
+      const result =
+        action.action === 'start'
+          ? auth.start(chatId, action.methodId)
+          : action.action === 'cancel'
+            ? auth.cancel(chatId, action.attemptId)
+            : await auth.submit(chatId, action.attemptId, action.code)
+      if (!authorized(request.headers)) {
+        reply(401, { error: 'unauthorized' })
+        return
+      }
+      if (!listed()) {
+        reply(404, { error: 'That chat is not open on the desktop.' })
+        return
+      }
+      if (!result.ok) reply(409, { error: result.message ?? 'Sign-in request was refused.' })
+      else reply(action.action === 'start' ? 202 : 200, auth.state(chatId) ?? { required: false, methods: [] })
+    } catch {
+      // Provider exceptions may include credentials or callback URLs. Never echo or log them.
+      reply(503, { error: 'The host could not complete the sign-in request.' })
+    }
+  }
+
   const handle = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     const route = resolveRemoteRoute(request.method, request.url)
     if (routeRequiresPairing(route) && !authorized(request.headers)) {
@@ -681,6 +763,9 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
         return
       case 'close-chat':
         await closeChat(request, response, route.chatId)
+        return
+      case 'authentication':
+        await authentication(request, response, route.chatId, route.write)
         return
       case 'continue-spawns':
         await continueSpawns(request, response, route.chatId)

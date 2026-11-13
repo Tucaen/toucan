@@ -714,7 +714,7 @@ export function sendBlockedReason(state: ChatConnectionState): string | null {
   const status = state.transcript?.status
   if (status === undefined) return 'Not connected.'
   if (status === 'working' || status === 'starting') return 'Working — you can send when the turn finishes.'
-  if (status === 'auth_required') return 'This session needs signing in on the desktop.'
+  if (status === 'auth_required') return 'This session needs sign-in. Use the provider sign-in panel above.'
   if (status === 'exited') return 'This session has exited.'
   if (pendingRequest(state)) {
     // The composer is *hidden* while a request is pending, not merely disabled: free text here

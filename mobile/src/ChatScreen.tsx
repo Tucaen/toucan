@@ -56,6 +56,7 @@ import ChatKindBadge from './ChatKindBadge'
 import ChatMarkdown from './ChatMarkdown'
 import type { SavedHost } from './hosts'
 import MobileVoiceInput from './MobileVoiceInput'
+import ProviderSignIn from './ProviderSignIn'
 import { orchestratorTicketWorktrees, questionTabLabel, selectedQuestion, visibleQuestions } from './open-questions'
 import {
   WORKSPACE_POLL_MS,
@@ -340,6 +341,15 @@ export default function ChatScreen({
         />
       )}
       <ModelBar connection={connection} />
+      <ProviderSignIn
+        host={host}
+        chatId={chatId}
+        needed={
+          connection.transcript?.status === 'auth_required' || (connection.transcript?.authMethods.length ?? 0) > 0
+        }
+        online={connection.phase === 'live'}
+        onUnauthorized={onUnauthorized}
+      />
       <SessionUsageRow readout={usageReadout} limitFreshness={providerUsage} />
 
       {/* A transcript that is not live must say so; a silently stale one is the failure mode.

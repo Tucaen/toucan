@@ -84,6 +84,8 @@ import {
 } from '../shared/routine-delegation'
 import { createAgentEventBroker, type AgentEventBroker } from './agent-event-broker'
 import { buildAgentProcessLaunch, spawnAgentProcess, type AgentProcessLaunch } from './agent-process'
+import { createProviderAuthentication, type ProviderAuthentication } from './provider-authentication'
+import type { ProviderAuthenticationState } from '../shared/provider-authentication'
 import { readCachedCodexModels } from './codex-model-cache'
 import {
   codexCommandGuardEnvironment,
@@ -658,10 +660,7 @@ interface RunningAgent {
   context: ClientContext
   adapterPath: string
   authProcess?: (args: string[]) => AgentProcessLaunch
-  /** Live terminal-auth child, kept separate from the long-running ACP adapter process. */
-  authChild?: ChildProcessWithoutNullStreams
-  /** Writable prompt input for a terminal-auth flow that may require a browser paste-back code. */
-  authInput?: Writable
+  authentication?: ProviderAuthentication
   authMethods: AgentAuthMethod[]
   environment: NodeJS.ProcessEnv
   /**
@@ -991,17 +990,6 @@ const SESSION_NOT_READY: AgentPromptResult = {
   undelivered: true
 }
 
-const LOGIN_URL_PATTERN = /https?:\/\/[^\s<>"')]+/
-
-/** Pulls the OAuth sign-in URL out of a terminal-auth subprocess's stdout/stderr line (or an
- *  elicitation message), if it printed one, so Toucan can both auto-open it and offer a persistent,
- *  actionable link instead of relying solely on the CLI's own (not always reachable) browser
- *  launch. */
-/** @internal exported for tests */
-export function extractLoginUrl(text: string): string | undefined {
-  return text.match(LOGIN_URL_PATTERN)?.[0]
-}
-
 /**
  * Sends one browser paste-back code to the terminal authentication helper without ever putting
  * the credential into an event, log, or command line. The trailing newline is the Enter key the
@@ -1200,7 +1188,7 @@ export interface AcpSessionManagerOptions {
    * applies to sessions started afterwards and never to a running one.
    */
   commandGuard?: { launch(): Promise<CommandGuardFiles | null> }
-  /** Seam for tests to observe the launch the primary adapter is actually spawned with. */
+  /** Seam for tests to observe adapter and terminal-auth helper launches. */
   spawnAgent?: (launch: AgentProcessLaunch) => ChildProcessWithoutNullStreams
   /**
    * The fan-out every session publishes its `AgentEvent`s to. The creating renderer is only
@@ -1432,6 +1420,10 @@ export interface AcpSessionManager {
   setModel(id: string, modelId: string): Promise<AgentPromptResult>
   setEffort(id: string, effortId: string): Promise<AgentPromptResult>
   authenticate(id: string, methodId: string): Promise<AgentCreateResult>
+  authenticationState(id: string): ProviderAuthenticationState | undefined
+  startAuthentication(id: string, methodId: string): AgentPromptResult
+  cancelAuthentication(id: string, attemptId: string): AgentPromptResult
+  submitAuthenticationCode(id: string, attemptId: string, code: string): Promise<AgentPromptResult>
   submitAuthCode(id: string, code: string): Promise<AgentPromptResult>
   openAuthLink(url: string): Promise<void>
   /**
@@ -1869,7 +1861,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       // into the very load path a resume takes (same replay capture, same configure), and owns a
       // distinct conversation id by construction. A reopen of an already-forked launch (the
       // reauth path) loads the child it already has rather than forking a second copy.
-      let loadSessionId = running.request.sessionId
+      let loadSessionId = running.request.sessionId ?? running.sessionId
       if (running.request.forkFromSessionId) {
         loadSessionId =
           running.forkedSessionId ??
@@ -2015,7 +2007,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           ...(running.routineDelegation ? { routineDelegation: running.routineDelegation } : {})
         }
       }
-      const message = errorMessage(error)
+      const message = running.authentication?.active() ? 'Sign-in did not restore this session.' : errorMessage(error)
       send(running, { type: 'error', message })
       return { ok: false, status: 'error', message }
     }
@@ -2038,7 +2030,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
     running.pendingApprovals.clear()
     for (const pending of running.pendingElicitations.values()) pending.resolve({ action: 'cancel' })
     running.pendingElicitations.clear()
-    running.authChild?.kill()
+    running.authentication?.dispose()
     running.orchestratorGrant?.revoke()
     running.messagingGrant?.revoke()
     running.connection.close()
@@ -2463,6 +2455,8 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         .onRequest(methods.client.elicitation.create, async ({ params }) => {
           const elicitation = params
           if (elicitation.mode === 'url' && 'url' in elicitation && typeof elicitation.url === 'string') {
+            const authentication = running.authentication?.elicit(elicitation.url, elicitation.message)
+            if (authentication) return authentication
             if (!(await openWebUrl(elicitation.url, (url) => shell.openExternal(url))))
               return { action: 'decline' as const }
             send(running, { type: 'status', status: 'starting', message: elicitation.message })
@@ -2532,6 +2526,9 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       let stderrTail = ''
       child.stderr.setEncoding('utf8')
       child.stderr.on('data', (data: string) => {
+        // Login diagnostics can contain a device code, URL or a provider's echoed callback.
+        // They belong only to the ephemeral sign-in state, never exit logs or progress events.
+        if (running.authentication?.active()) return
         stderrTail = (stderrTail + data).slice(-ADAPTER_STDERR_TAIL_CHARS)
         // Only the opening phase reports stderr as progress; see `RunningAgent.opening`.
         if (!running.opening) return
@@ -2543,6 +2540,38 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       // unlistened emit is a crash dialog over the whole app rather than one node reporting that
       // its adapter could not start - and `'exit'` does not necessarily follow, so this reports
       // and tears down itself.
+      running.authentication = createProviderAuthentication({
+        provider: request.provider,
+        methods: () => running.authMethods,
+        required: () => running.authRequired,
+        canStart: () =>
+          !running.busy &&
+          !running.opening &&
+          !running.stopping &&
+          ![...agents.values()].some(
+            (other) =>
+              other !== running && other.request.provider === request.provider && other.authentication?.active()
+          ),
+        launchTerminal: (method) =>
+          (options.spawnAgent ?? spawnAgentProcess)(
+            running.authProcess?.(method.args ?? []) ??
+              buildAgentProcessLaunch(
+                process.execPath,
+                running.adapterPath,
+                running.request.cwd,
+                running.environment,
+                method.args
+              )
+          ),
+        authenticateAgent: (methodId) => running.context.request(methods.agent.authenticate, { methodId }),
+        reopen: () => openSession(running),
+        publish: (event) => send(running, event),
+        openLink: (url) => {
+          // A missing desktop browser handler costs only auto-open; the actionable link remains.
+          void openWebUrl(url, (target) => shell.openExternal(target)).catch(() => false)
+        },
+        writeCode: writeAuthCode
+      })
       child.on('error', (error) => {
         // No `stopping` guard of its own: `send` already drops a publish onto a retired channel
         // and `stop` is idempotent, so a `kill()` the OS refused during teardown costs one
@@ -2551,6 +2580,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         stop(request.id)
       })
       child.on('exit', (code, signal) => {
+        running.authentication?.dispose()
         if (agents.get(request.id) === running) agents.delete(request.id)
         // The adapter took its shells and subagents with it. The `exited` below resets every
         // subscriber's count (the reducer zeroes it on any status past ready/working).
@@ -2780,67 +2810,33 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
     },
 
     async authenticate(id, methodId): Promise<AgentCreateResult> {
-      const running = agents.get(id)
-      if (!running) return { ok: false, status: 'error', message: 'The agent session is not running.' }
-      const method = running.authMethods.find((candidate) => candidate.id === methodId)
-      if (!method) return { ok: false, status: 'error', message: 'That authentication method is unavailable.' }
-      if (running.authChild) {
-        return { ok: false, status: 'error', message: 'A sign-in attempt is already in progress.' }
-      }
-      send(running, { type: 'status', status: 'starting', message: `Signing in with ${method.name}...` })
-      try {
-        if (method.type === 'terminal') {
-          await new Promise<void>((resolve, reject) => {
-            const launch =
-              running.authProcess?.(method.args ?? []) ??
-              buildAgentProcessLaunch(
-                process.execPath,
-                running.adapterPath,
-                running.request.cwd,
-                running.environment,
-                method.args
-              )
-            const auth = spawnAgentProcess(launch)
-            running.authChild = auth
-            running.authInput = auth.stdin
-            auth.stdout.setEncoding('utf8')
-            auth.stderr.setEncoding('utf8')
-            const report = (data: string): void => {
-              const message = data.trim()
-              if (!message) return
-              send(running, { type: 'status', status: 'starting', message })
-              // The CLI's own browser launch isn't reliable in every environment (e.g. a
-              // headless/WSL desktop with no configured URL handler); open the link ourselves
-              // via Electron's cross-platform `shell.openExternal` too, and surface it as a
-              // persistent, actionable `auth_link` so the sign-in affordance survives even if
-              // this status line gets overwritten by the next chunk of CLI output.
-              const url = extractLoginUrl(message)
-              if (url) {
-                void openWebUrl(url, (target) => shell.openExternal(target))
-                send(running, { type: 'auth_link', url })
-              }
-            }
-            auth.stdout.on('data', report)
-            auth.stderr.on('data', report)
-            auth.once('error', reject)
-            auth.once('exit', (code) => (code === 0 ? resolve() : reject(new Error(`Login exited with code ${code}.`))))
-          })
-        } else {
-          await running.context.request(methods.agent.authenticate, { methodId })
+      return (
+        agents.get(id)?.authentication?.run(methodId) ?? {
+          ok: false,
+          status: 'error',
+          message: 'The agent session is not running.'
         }
-        return await openSession(running)
-      } catch (error) {
-        const message = errorMessage(error)
-        send(running, { type: 'error', message })
-        return { ok: false, status: 'error', message }
-      } finally {
-        running.authChild = undefined
-        running.authInput = undefined
-      }
+      )
+    },
+
+    authenticationState(id) {
+      return agents.get(id)?.authentication?.state()
+    },
+
+    startAuthentication(id, methodId) {
+      return agents.get(id)?.authentication?.start(methodId) ?? SESSION_NOT_RUNNING
+    },
+
+    cancelAuthentication(id, attemptId) {
+      return agents.get(id)?.authentication?.cancel(attemptId) ?? SESSION_NOT_RUNNING
+    },
+
+    submitAuthenticationCode(id, attemptId, code) {
+      return agents.get(id)?.authentication?.submit(code, attemptId) ?? Promise.resolve(SESSION_NOT_RUNNING)
     },
 
     submitAuthCode(id, code): Promise<AgentPromptResult> {
-      return writeAuthCode(agents.get(id)?.authInput, code)
+      return agents.get(id)?.authentication?.submit(code) ?? Promise.resolve(SESSION_NOT_RUNNING)
     },
 
     async openAuthLink(url): Promise<void> {

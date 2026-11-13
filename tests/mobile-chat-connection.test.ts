@@ -231,7 +231,10 @@ test('a session that is not live, exited, or waiting on an answer is never a sen
   assert.match(sendBlockedReason(typed(connectionLost(live(READY)))) ?? '', /Not connected/)
   assert.match(sendBlockedReason(typed(chatGone(live(READY)))) ?? '', /no longer open/)
   assert.match(sendBlockedReason(typed(live([{ type: 'status', status: 'exited' }]))) ?? '', /exited/)
-  assert.match(sendBlockedReason(typed(live([{ type: 'status', status: 'auth_required' }]))) ?? '', /signing in/)
+  assert.match(
+    sendBlockedReason(typed(live([{ type: 'status', status: 'auth_required' }]))) ?? '',
+    /provider sign-in panel/
+  )
   const parked = typed(live([...READY, APPROVAL]))
   assert.match(sendBlockedReason(parked) ?? '', /Answer the request/)
   // Not merely blocked: while a request stands there is no composer to type into at all.

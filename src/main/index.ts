@@ -1058,6 +1058,12 @@ void app.whenReady().then(async () => {
       // selection and both learn about it from the session's `models` event.
       setModel: (id, modelId) => agentManager.setModel(id, modelId)
     },
+    authentication: {
+      state: (id) => agentManager.authenticationState(id),
+      start: (id, methodId) => agentManager.startAuthentication(id, methodId),
+      cancel: (id, attemptId) => agentManager.cancelAuthentication(id, attemptId),
+      submit: (id, attemptId, code) => agentManager.submitAuthenticationCode(id, attemptId, code)
+    },
     spawn: (request) => canvasRequests.spawn(request),
     // The desktop's own orchestration controller, reached by node id like its IPC handlers are, so
     // Continue (+20) from a phone is the very operation the canvas button runs.

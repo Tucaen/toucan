@@ -2,6 +2,7 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
+import type { AgentAuthMethod } from '../../src/shared/agent'
 
 export type AdapterPackage = 'claude-agent-acp' | 'codex-acp'
 
@@ -42,6 +43,7 @@ export interface ScriptedAdapter {
   agentCapabilities?: Record<string, unknown>
   /** The `initialize` answer's top-level `_meta`, where the steering extension is advertised. */
   meta?: Record<string, unknown>
+  authMethods?: AgentAuthMethod[]
 }
 
 /**
@@ -66,7 +68,7 @@ lines.on('line', (line) => {
     send({ jsonrpc: '2.0', id: request.id, result: {
       protocolVersion: 1,
       agentCapabilities: Object.assign({ loadSession: true }, ${JSON.stringify(script.agentCapabilities ?? {})}),
-      authMethods: [],
+      authMethods: ${JSON.stringify(script.authMethods ?? [])},
       _meta: ${JSON.stringify(script.meta ?? {})}
     } })
   } else {

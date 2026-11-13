@@ -20,6 +20,44 @@ import {
   type HostEndpoint
 } from './hosts'
 import { newLocalId } from './local-id'
+import {
+  parseProviderAuthenticationState,
+  type ProviderAuthenticationState,
+  type ProviderAuthenticationAction
+} from '../../src/shared/provider-authentication'
+
+/** Auth codes travel once in a paired POST body, never a URL, prompt, draft or browser storage. */
+export async function providerAuthentication(
+  host: HostEndpoint,
+  chatId: string,
+  action?: ProviderAuthenticationAction,
+  signal?: AbortSignal
+): Promise<RemoteResult<ProviderAuthenticationState>> {
+  const result = await send(`/api/chats/${encodeURIComponent(chatId)}/authentication`, host, {
+    ...(action
+      ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(action) }
+      : {}),
+    ...(signal ? { signal } : {})
+  })
+  if (!result.ok) return result
+  try {
+    const body: unknown = await result.value.json()
+    const state = result.value.ok ? parseProviderAuthenticationState(body) : null
+    if (state) return { ok: true, value: state }
+    const error = body && typeof body === 'object' ? (body as { error?: unknown }).error : undefined
+    return {
+      ok: false,
+      kind: 'unreachable',
+      message: typeof error === 'string' ? error : 'This host does not support mobile sign-in.'
+    }
+  } catch {
+    return {
+      ok: false,
+      kind: 'unreachable',
+      message: 'Mobile sign-in is unavailable on this host. Use the desktop or update Toucan.'
+    }
+  }
+}
 
 /**
  * The phone's side of talking to a host. Every request is addressed to one saved host and carries

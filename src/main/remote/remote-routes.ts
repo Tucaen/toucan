@@ -18,6 +18,7 @@ export type RemoteRoute =
   | { kind: 'create-chat' }
   /** Closes the chat named in the path, through the desktop canvas's own remove path. */
   | { kind: 'close-chat'; chatId: string }
+  | { kind: 'authentication'; chatId: string; write: boolean }
   /** The orchestrator's Continue (+20) at its spawn budget, for the chat named in the path. */
   | { kind: 'continue-spawns'; chatId: string }
   /** The human resolving a pinned question (#2) of the orchestrator named in the path. */
@@ -93,6 +94,12 @@ export function resolveRemoteRoute(method: string | undefined, target: string | 
     return method === 'POST' ? { kind: 'create-chat' } : { kind: 'method-not-allowed', allow: 'POST' }
   }
   const closeChat = /^\/api\/chats\/([^/]+)\/close$/.exec(pathname)
+  const authentication = /^\/api\/chats\/([^/]+)\/authentication$/.exec(pathname)
+  if (authentication) {
+    return method === 'GET' || method === 'POST'
+      ? { kind: 'authentication', chatId: authentication[1], write: method === 'POST' }
+      : { kind: 'method-not-allowed', allow: 'GET, POST' }
+  }
   if (closeChat) {
     return method === 'POST'
       ? { kind: 'close-chat', chatId: closeChat[1] }
@@ -135,6 +142,7 @@ export function routeRequiresPairing(route: RemoteRoute): boolean {
     route.kind === 'pairing' ||
     route.kind === 'create-chat' ||
     route.kind === 'close-chat' ||
+    route.kind === 'authentication' ||
     route.kind === 'continue-spawns' ||
     route.kind === 'resolve-question' ||
     route.kind === 'app-update' ||

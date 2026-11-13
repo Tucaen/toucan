@@ -1,9 +1,10 @@
+import { extractLoginUrl } from '../src/shared/provider-authentication'
 import { strict as assert } from 'node:assert'
 import { Writable } from 'node:stream'
 import { test } from 'vitest'
 import type { AgentPromptResult } from '../src/shared/agent'
 import { createPromptWakeGate } from '../src/main/prompt-wake-gate'
-import { extractLoginUrl, promptFailure, promptGuard, writeAuthCode } from '../src/main/acp-session-manager'
+import { promptFailure, promptGuard, writeAuthCode } from '../src/main/acp-session-manager'
 
 test('turns prompt-level ACP authentication failures into an actionable sign-in state', () => {
   const methods = [{ id: 'claude-ai-login', name: 'Claude Subscription', type: 'terminal' as const }]

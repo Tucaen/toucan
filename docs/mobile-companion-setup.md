@@ -125,6 +125,39 @@ fix is to run `tailscale serve` on the other host too. (Opening that host's own 
 directly also works, but it is a separate origin with its own saved host list, so you would be
 leaving the installed app.)
 
+## Sign in to a provider from the phone
+
+Open a chat marked **Needs sign-in**. Its provider sign-in panel offers only methods the running
+adapter supports on a phone. Starting sign-in does not resend the failed message.
+
+- **Claude subscription and Anthropic Console:** start sign-in, then tap **Open sign-in on this
+  phone**. If the provider asks you to paste a code back, enter it in **Code shown by the provider**
+  and submit. This uses the PC's existing Claude login helper. See
+  [Claude's authentication documentation](https://code.claude.com/docs/en/authentication).
+- **Codex / ChatGPT:** choose the device-code method, open the provider page and enter the displayed
+  one-time code there. Device login must be enabled for your account or workspace. This avoids a
+  localhost callback pointing at the phone. See
+  [OpenAI's authentication documentation](https://learn.chatgpt.com/docs/auth?surface=cli).
+- API keys, environment variables, custom gateways and interactive-only terminal login methods
+  require desktop configuration. An older adapter that advertises no supported phone method says so.
+
+The panel reports success only after the provider finishes and the existing conversation reopens.
+Then send your message again. Failures allow a retry; **Cancel sign-in** waits for the provider or
+helper to stop. Cancellation is not a logout and cannot undo credentials already accepted by the
+provider. Verification already in progress cannot be cancelled. An attempt times out after ten
+minutes; an unresponsive provider may keep cancellation pending until it acknowledges or the
+session is restarted on the desktop.
+
+Navigating away or losing the phone connection does not start or cancel another attempt: reopening
+the chat reads the current state. One sign-in per provider may run on a PC at a time. The desktop
+can still initiate sign-in through its own panel.
+
+Provider passwords stay on the provider's page. Toucan sends a pasted Claude code only in a paired
+request body and then to that live helper's stdin; it is never a prompt, retained draft or URL.
+Sign-in URLs and device codes are temporary, uncached state available only through the paired
+sign-in endpoint, not workspace summaries or outcome records. Provider credentials stay in the
+provider's own storage on the PC. Use the HTTPS setup above for this exchange.
+
 ## The security model
 
 Two independent layers, and it is worth being precise about which one does what:
