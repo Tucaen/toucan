@@ -382,11 +382,26 @@ body {
   color: var(--usage-critical);
 }
 
+.chat-close-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: calc(env(safe-area-inset-top) + 16px) 16px calc(env(safe-area-inset-bottom) + 16px);
+  background: color-mix(in srgb, var(--ground) 60%, transparent);
+  backdrop-filter: blur(2px);
+}
+
 .chat-close-confirm {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 12px;
+  width: min(100%, 420px);
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 16px;
+  box-shadow: 0 12px 40px rgb(0 0 0 / 35%);
   border: 1px solid var(--usage-critical);
   border-radius: 12px;
   background: var(--raised);

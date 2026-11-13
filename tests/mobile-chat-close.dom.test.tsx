@@ -97,6 +97,20 @@ describe('closing a session from the phone', () => {
     expect(onClosed).not.toHaveBeenCalled()
   })
 
+  test('floats over the transcript as a modal, and tapping beside it cancels', async () => {
+    respond(new Response('{}', { status: 200 }), [CHAT])
+    const onClosed = open(CHAT)
+    fireEvent.click(screen.getByRole('button', { name: 'Close session' }))
+    const confirm = await screen.findByRole('alertdialog')
+    expect(confirm).toHaveAttribute('aria-modal', 'true')
+    fireEvent.click(confirm)
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+    fireEvent.click(confirm.parentElement!)
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(posted()).toEqual([])
+    expect(onClosed).not.toHaveBeenCalled()
+  })
+
   test('confirming closes the chat on the host and leaves the screen', async () => {
     respond(new Response('{"ok":true}', { status: 200 }), [CHAT])
     const onClosed = open(CHAT)

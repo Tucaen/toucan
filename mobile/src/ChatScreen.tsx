@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Power } from 'lucide-react'
+import { X } from 'lucide-react'
 import type {
   AgentDecisionQuestion,
   AgentDecisionRequest,
@@ -318,7 +318,7 @@ export default function ChatScreen({
           aria-expanded={closing !== null}
           onClick={() => void askToClose()}
         >
-          <Power aria-hidden="true" />
+          <X aria-hidden="true" />
         </button>
       </header>
 
@@ -462,36 +462,45 @@ function CloseConfirmation({
   onCancel(): void
 }): JSX.Element {
   const { stage, worktrees, problem } = closing
+  // A floating modal over the transcript, not a block in the page: the page always sits at its
+  // newest message, so anything placed above the transcript is out of view when it appears.
   return (
-    <section className="chat-close-confirm" role="alertdialog" aria-label="Close session">
-      <p>
-        {orchestrator ? 'Close this orchestrator?' : 'Close this session?'} It stops on the desktop and moves to
-        recently closed there.
-      </p>
-      {worktrees.length > 0 && (
-        <>
-          <p>
-            {worktrees.length === 1
-              ? 'This worktree still holds a ticket session of the orchestrator. It stays behind with no orchestrator to merge or clean it up:'
-              : `These ${worktrees.length} worktrees still hold ticket sessions of the orchestrator. They stay behind with no orchestrator to merge or clean them up:`}
-          </p>
-          <ul>
-            {worktrees.map((branch) => (
-              <li key={branch}>{branch}</li>
-            ))}
-          </ul>
-        </>
-      )}
-      {problem && <p role="alert">{problem}</p>}
-      <div className="chat-close-actions">
-        <button type="button" onClick={onCancel} disabled={stage === 'closing'}>
-          Cancel
-        </button>
-        <button type="button" className="danger" onClick={onConfirm} disabled={stage !== 'confirming'}>
-          {stage === 'loading' ? 'Checking…' : stage === 'closing' ? 'Closing…' : 'Close session'}
-        </button>
-      </div>
-    </section>
+    <div
+      className="chat-close-backdrop"
+      onClick={(event) => {
+        if (event.target === event.currentTarget && stage !== 'closing') onCancel()
+      }}
+    >
+      <section className="chat-close-confirm" role="alertdialog" aria-modal="true" aria-label="Close session">
+        <p>
+          {orchestrator ? 'Close this orchestrator?' : 'Close this session?'} It stops on the desktop and moves to
+          recently closed there.
+        </p>
+        {worktrees.length > 0 && (
+          <>
+            <p>
+              {worktrees.length === 1
+                ? 'This worktree still holds a ticket session of the orchestrator. It stays behind with no orchestrator to merge or clean it up:'
+                : `These ${worktrees.length} worktrees still hold ticket sessions of the orchestrator. They stay behind with no orchestrator to merge or clean them up:`}
+            </p>
+            <ul>
+              {worktrees.map((branch) => (
+                <li key={branch}>{branch}</li>
+              ))}
+            </ul>
+          </>
+        )}
+        {problem && <p role="alert">{problem}</p>}
+        <div className="chat-close-actions">
+          <button type="button" onClick={onCancel} disabled={stage === 'closing'}>
+            Cancel
+          </button>
+          <button type="button" className="danger" onClick={onConfirm} disabled={stage !== 'confirming'}>
+            {stage === 'loading' ? 'Checking…' : stage === 'closing' ? 'Closing…' : 'Close session'}
+          </button>
+        </div>
+      </section>
+    </div>
   )
 }
 
