@@ -1893,6 +1893,38 @@ body {
   gap: 12px;
 }
 
+.open-question .pending-request {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.open-question .pending-request[data-collapsed] {
+  max-height: none;
+  padding-top: 6px;
+  padding-bottom: calc(env(safe-area-inset-bottom) + 6px);
+}
+
+.pending-request-body {
+  display: grid;
+  gap: 10px;
+}
+
+.pending-request-body[hidden] {
+  display: none;
+}
+
+.pending-request-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 36px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--attention);
+  font-size: 14px;
+}
+
 .open-question-actions {
   display: flex;
   gap: 8px;

@@ -227,6 +227,20 @@ describe('the questions view', () => {
     expect(init.headers['content-type']).toBe('application/json')
   })
 
+  test('the answer panel collapses to a bar and expands again with its options intact', () => {
+    open(WITH_CHOICE, 'questions')
+    const toggle = screen.getByRole('button', { name: /Antworten ausblenden/ })
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    fireEvent.click(screen.getByRole('button', { name: /Right/ }))
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByLabelText('Other answer')).not.toBeVisible()
+    expect(screen.getByText('Antworten anzeigen')).toBeInTheDocument()
+    fireEvent.click(toggle)
+    expect(screen.getByLabelText('Other answer')).toBeVisible()
+    expect(screen.getByRole('button', { name: /Right/ })).toHaveAttribute('aria-pressed', 'true')
+  })
+
   test('a plain question shows no decision card', () => {
     open(WITH_QUESTIONS, 'questions')
     expect(document.querySelectorAll('.pending-request[data-kind="decision"]')).toHaveLength(0)

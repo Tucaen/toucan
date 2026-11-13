@@ -531,6 +531,8 @@ function QuestionsView({
   const [resolved, setResolved] = useState<ReadonlySet<string>>(new Set())
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
+  // The answer panel is tall with 4+ options; collapsing it hands the room back to the question text.
+  const [collapsed, setCollapsed] = useState(false)
   const shown = visibleQuestions(questions, resolved)
   const question = selectedQuestion(shown, picked)
   const resolve = async (id: string, note?: string): Promise<void> => {
@@ -585,12 +587,30 @@ function QuestionsView({
           >
             <ChatMarkdown host={host} text={question.markdown} />
             {decision && (
-              <section className="pending-request" data-kind="decision" aria-label={`Answer ${question.id}`}>
-                <DecisionCard
-                  request={decision}
-                  busy={pendingId === question.id}
-                  onAnswer={(content) => void resolve(question.id, pinnedQuestionNote(content))}
-                />
+              <section
+                className="pending-request"
+                data-kind="decision"
+                data-collapsed={collapsed || undefined}
+                aria-label={`Answer ${question.id}`}
+              >
+                <button
+                  type="button"
+                  className="pending-request-toggle"
+                  aria-expanded={!collapsed}
+                  aria-controls="question-answer-body"
+                  onClick={() => setCollapsed((current) => !current)}
+                >
+                  <span>{collapsed ? 'Antworten anzeigen' : 'Antworten ausblenden'}</span>
+                  <span aria-hidden="true">{collapsed ? '▲' : '▼'}</span>
+                </button>
+                {/* Hidden, not unmounted: a half-made choice survives a collapse. */}
+                <div id="question-answer-body" className="pending-request-body" hidden={collapsed}>
+                  <DecisionCard
+                    request={decision}
+                    busy={pendingId === question.id}
+                    onAnswer={(content) => void resolve(question.id, pinnedQuestionNote(content))}
+                  />
+                </div>
               </section>
             )}
             <div className="open-question-actions">
