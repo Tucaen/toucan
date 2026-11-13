@@ -1,23 +1,36 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft } from 'lucide-react'
 import type { RemoteHistoryEntry, RemoteHistoryPage } from '../../src/shared/remote-history'
 import type { RemoteWorkspaceSnapshot } from '../../src/shared/remote-access'
-import type { SavedHost } from './hosts'
+import type { HostEndpoint, SavedHost } from './hosts'
+import { newLocalId } from './local-id'
 import ChatKindBadge from './ChatKindBadge'
 import { fetchHistory, fetchWorkspace, openHistory } from './remote-client'
 
-/** Provider history stays on the host; only a selected entry is restored into a live chat. */
-export default function HistoryScreen({
-  host,
-  onBack,
-  onUnauthorized,
-  onOpened
-}: {
+interface HistoryScreenProps {
   host: SavedHost
   onBack(): void
   onUnauthorized(): void
   onOpened(chatId: string): void
-}): JSX.Element {
+}
+
+/** History handles, pending replies and mutation locks belong to one connection identity. */
+export default function HistoryScreen(props: HistoryScreenProps): JSX.Element {
+  const { id, origin, token } = props.host
+  const scope = useMemo(() => ({ key: `${id}:${newLocalId()}`, endpoint: { origin, token } }), [id, origin, token])
+  // Replacing credentials or destination tears down every request and drops all issued handles.
+  // The key is opaque, so credentials never become a React key. Renames keep the same endpoint.
+  return <HistoryScope key={scope.key} {...props} host={scope.endpoint} hostName={props.host.name} />
+}
+
+/** Provider history stays on the host; only a selected entry is restored into a live chat. */
+function HistoryScope({
+  host,
+  hostName,
+  onBack,
+  onUnauthorized,
+  onOpened
+}: Omit<HistoryScreenProps, 'host'> & { host: HostEndpoint; hostName: string }): JSX.Element {
   const [workspace, setWorkspace] = useState<RemoteWorkspaceSnapshot | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   const [revision, setRevision] = useState(0)
@@ -59,7 +72,7 @@ export default function HistoryScreen({
         </button>
         <div className="chat-head-copy">
           <h1>History</h1>
-          <p>{host.name} · Past provider conversations</p>
+          <p>{hostName} · Past provider conversations</p>
         </div>
       </header>
       <p className="hint">Open a conversation to read and continue it in its original checkout.</p>
@@ -108,7 +121,7 @@ function HistoryEntries({
   onUnauthorized,
   onOpened
 }: {
-  host: SavedHost
+  host: HostEndpoint
   projectId: string
   onUnauthorized(): void
   onOpened(chatId: string): void

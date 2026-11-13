@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, expect, test, vi } from 'vitest'
 import HistoryScreen from '../mobile/src/HistoryScreen'
-import type { SavedHost } from '../mobile/src/hosts'
+import { addHost, renameHost, selectedHost, type SavedHost } from '../mobile/src/hosts'
 import type { RemoteHistoryEntry } from '../src/shared/remote-history'
 import { routeFromPathname } from '../mobile/src/routes'
 
@@ -162,4 +162,110 @@ test('leaving during restore discards the late navigation; /history is reloadabl
   h.unmount()
   await act(async () => finish(reply({ chatId: 'late-node' })))
   expect(opened).not.toHaveBeenCalled()
+})
+
+test.each([
+  ['token', 200],
+  ['token', 401],
+  ['origin', 200],
+  ['origin', 401]
+] as const)('replacing the same host %s isolates late POST %s, handles and mutation locks', async (field, status) => {
+  const replacement =
+    field === 'token'
+      ? selectedHost(addHost({ hosts: [host], selectedId: host.id }, { ...host, token: 'new-pairing' }, 'unused-id'))!
+      : { ...host, origin: 'http://replacement:7391' }
+  const oldOpened = vi.fn()
+  const oldUnauthorized = vi.fn()
+  let finishOld!: (response: Response) => void
+  let finishNew!: (response: Response) => void
+  let finishWorkspace!: (response: Response) => void
+  let oldSignal!: AbortSignal
+  const posts: { url: string; token: string; body: unknown }[] = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((url: string, init: RequestInit) => {
+      const token = new Headers(init.headers).get('authorization')!
+      const original = url.startsWith(host.origin) && token === `Bearer ${host.token}`
+      if (url.endsWith('/api/history/open')) {
+        posts.push({ url, token, body: JSON.parse(init.body as string) })
+        if (original) {
+          oldSignal = init.signal!
+          // Deliberately ignore abort: a completed network reply can already be queued.
+          return new Promise<Response>((resolve) => {
+            finishOld = resolve
+          })
+        }
+        return new Promise<Response>((resolve) => {
+          finishNew = resolve
+        })
+      }
+      if (url.endsWith('/api/workspace')) {
+        if (!original)
+          return new Promise<Response>((resolve) => {
+            finishWorkspace = resolve
+          })
+        return Promise.resolve(reply(workspace))
+      }
+      return Promise.resolve(
+        reply(original ? page : { ...page, entries: [{ ...entry, key: 'new-key', title: 'Fresh scope conversation' }] })
+      )
+    })
+  )
+  const h = render(<HistoryScreen host={host} onBack={vi.fn()} onOpened={oldOpened} onUnauthorized={oldUnauthorized} />)
+  fireEvent.click(await screen.findByRole('button', { name: /Fix parser/ }))
+  h.rerender(<HistoryScreen host={replacement} onBack={vi.fn()} onOpened={opened} onUnauthorized={unauthorized} />)
+  expect(oldSignal.aborted).toBe(true)
+  expect(screen.queryByText('Fix parser')).not.toBeInTheDocument()
+  expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+  await act(async () => finishWorkspace(reply(workspace)))
+  const fresh = await screen.findByRole('button', { name: /Fresh scope conversation/ })
+  expect(fresh).toBeEnabled()
+  fireEvent.click(fresh)
+  await act(async () => finishOld(reply(status === 200 ? { chatId: 'old-scope-chat' } : {}, status)))
+  expect(oldOpened).not.toHaveBeenCalled()
+  expect(oldUnauthorized).not.toHaveBeenCalled()
+  expect(opened).not.toHaveBeenCalled()
+  expect(unauthorized).not.toHaveBeenCalled()
+  expect(fresh).toBeDisabled()
+  fireEvent.click(fresh)
+  expect(posts).toHaveLength(2)
+  await act(async () => finishNew(reply({ chatId: 'new-scope-chat' })))
+  await waitFor(() => expect(opened).toHaveBeenCalledWith('new-scope-chat'))
+  expect(posts).toEqual([
+    {
+      url: `${host.origin}/api/history/open`,
+      token: `Bearer ${host.token}`,
+      body: { projectId: 'p1', key: entry.key }
+    },
+    {
+      url: `${replacement.origin}/api/history/open`,
+      token: `Bearer ${replacement.token}`,
+      body: { projectId: 'p1', key: 'new-key' }
+    }
+  ])
+})
+
+test('a display-name-only replacement preserves the pending restore and its handle', async () => {
+  let finish!: (response: Response) => void
+  let signal!: AbortSignal
+  const fetcher = vi.fn((url: string, init: RequestInit) => {
+    if (url.endsWith('/api/history/open')) {
+      signal = init.signal!
+      return new Promise<Response>((resolve) => {
+        finish = resolve
+      })
+    }
+    return Promise.resolve(reply(url.endsWith('/api/workspace') ? workspace : page))
+  })
+  const h = mount(fetcher)
+  fireEvent.click(await screen.findByRole('button', { name: /Fix parser/ }))
+  const calls = fetcher.mock.calls.length
+  const renamed = selectedHost(renameHost({ hosts: [host], selectedId: host.id }, host.id, 'Renamed PC'))!
+  h.rerender(<HistoryScreen host={renamed} onBack={vi.fn()} onOpened={opened} onUnauthorized={unauthorized} />)
+  expect(signal.aborted).toBe(false)
+  expect(screen.getByRole('button', { name: /Fix parser/ })).toBeDisabled()
+  expect(fetcher).toHaveBeenCalledTimes(calls)
+  await act(async () => finish(reply({ chatId: 'same-scope-chat' })))
+  expect(opened).toHaveBeenCalledWith('same-scope-chat')
+  expect(unauthorized).not.toHaveBeenCalled()
 })
