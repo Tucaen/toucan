@@ -12,6 +12,7 @@ import {
   type RemoteChatSpawnResult
 } from '../../shared/remote-spawn'
 import type { RemoteChatCloseResult } from '../../shared/remote-close'
+import type { HistoryRestoreRequest } from '../../shared/remote-history'
 import type { TerminalNodeStatus } from '../../shared/terminal'
 
 /**
@@ -52,7 +53,8 @@ export function useRemoteAccess(
   statuses: Readonly<Record<string, TerminalNodeStatus>>,
   startSpawn?: RemoteChatSpawnStarter,
   markChatRead?: (chatId: string) => void,
-  closeChat?: (chatId: string) => RemoteChatCloseResult
+  closeChat?: (chatId: string) => RemoteChatCloseResult,
+  openHistory?: (request: HistoryRestoreRequest) => RemoteChatSpawnResult
 ): RemoteAccessController {
   const [state, setState] = useState<RemoteAccessState | null>(null)
   const [busy, setBusy] = useState(false)
@@ -89,6 +91,32 @@ export function useRemoteAccess(
   const awaitingStart = useRef(new Map<string, string>())
   const starter = useRef(startSpawn)
   starter.current = startSpawn
+  const historyStarter = useRef(openHistory)
+  historyStarter.current = openHistory
+  const historyRequests = useRef(new Set<string>())
+  const currentStatuses = useRef(statuses)
+  currentStatuses.current = statuses
+
+  useEffect(
+    () =>
+      window.remoteApi.onOpenHistory((requestId, request) => {
+        const result = historyStarter.current?.(request) ?? {
+          ok: false as const,
+          message: 'This desktop cannot restore history.'
+        }
+        if (
+          !result.ok ||
+          (listed.current.has(result.chatId) &&
+            spawnSettlement(currentStatuses.current[result.chatId] ?? 'starting') === 'started')
+        ) {
+          window.remoteApi.completeOpenHistory(requestId, result)
+          return
+        }
+        historyRequests.current.add(requestId)
+        awaitingStart.current.set(requestId, result.chatId)
+      }),
+    []
+  )
 
   useEffect(() => {
     return window.remoteApi.onSpawnChat((requestId, request) => {
@@ -115,7 +143,8 @@ export function useRemoteAccess(
       awaitingStart.current.delete(requestId)
       const result: RemoteChatSpawnResult =
         settlement === 'started' ? { ok: true, chatId } : { ok: false, message: SPAWN_FAILED_MESSAGE }
-      window.remoteApi.completeSpawn(requestId, result)
+      if (historyRequests.current.delete(requestId)) window.remoteApi.completeOpenHistory(requestId, result)
+      else window.remoteApi.completeSpawn(requestId, result)
     }
     // `projection` is a dependency for its ordering, not its value: it is what the publish effect
     // above reacts to, and effects run in declaration order, so by the time this one sees a new

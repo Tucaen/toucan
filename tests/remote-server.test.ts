@@ -7,6 +7,7 @@ import { afterEach, describe, test } from 'vitest'
 import { WebSocket } from 'ws'
 import { createAgentEventBroker, type AgentEventBroker } from '../src/main/agent-event-broker'
 import { createRemoteAccessStore, type RemoteAccessStore } from '../src/main/remote/remote-access-store'
+import type { RemoteHistory } from '../src/main/remote/remote-history'
 import type { RemoteFileRead } from '../src/main/remote/remote-file-reader'
 import { remoteFileRequestPath } from '../src/shared/remote-file'
 import {
@@ -109,6 +110,7 @@ function harness(
     transcriber?: { transcribe: (audio: Float32Array) => Promise<RemoteTranscriptionResult> }
     files?: (path: string) => Promise<RemoteFileRead>
     heartbeatMs?: number
+    history?: RemoteHistory
     addresses?: RemoteAccessAddress[]
   } = {}
 ): Harness {
@@ -125,6 +127,7 @@ function harness(
   const server = createRemoteAccessServer({
     store,
     clientRoot,
+    history: options.history,
     addresses: () => options.addresses ?? [{ kind: 'tailscale', host: '100.1.2.3' }],
     ...(options.chats ? { chats: options.chats } : {}),
     ...(options.sessions ? { sessions: options.sessions } : {}),
@@ -152,6 +155,7 @@ function harness(
     server,
     store,
     clientRoot,
+    history: options.history,
     port,
     async get(path, token): Promise<{ status: number; body: string; headers: Headers }> {
       const response = await fetch(`http://127.0.0.1:${port()}${path}`, {
@@ -2758,4 +2762,140 @@ describe('provider sign-in through the paired API', () => {
       409
     )
   })
+})
+
+describe('mobile provider history', () => {
+  const projection: RemoteWorkspaceProjection = {
+    projects: [{ id: 'p1', name: 'Project', color: '#71a9ff' }],
+    chats: []
+  }
+  test('gates history and restore on pairing, project visibility and strict bounded identifiers', async () => {
+    let lists = 0
+    let opens = 0
+    const history: RemoteHistory = {
+      list: async () => {
+        lists++
+        return { entries: [], total: 0, hasMore: false, nextOffset: 25 }
+      },
+      open: async () => {
+        opens++
+        return { ok: true, chatId: 'restored' }
+      }
+    }
+    const { server, store, get, post } = harness({ history })
+    await server.applySettings({ enabled: true, port: await freePort() })
+    server.publishWorkspace(projection)
+    const token = store.read().token
+    assert.equal((await get('/api/history?projectId=p1')).status, 401)
+    assert.equal((await post('/api/history/open', '{"projectId":"p1","key":"k"}')).status, 401)
+    assert.equal((await get('/api/history?projectId=hidden', token)).status, 404)
+    assert.equal((await get('/api/history?projectId=p1&offset=-1', token)).status, 400)
+    assert.equal((await get('/api/history?projectId=p1&offset=Infinity', token)).status, 400)
+    assert.equal((await post('/api/history/open', '{"projectId":"p1","key":"k","cwd":"D:/secret"}', token)).status, 400)
+    assert.equal((await post('/api/history/open', 'x'.repeat(1025), token)).status, 413)
+    assert.equal(lists, 0)
+    assert.equal(opens, 0)
+    assert.equal((await get('/api/history?projectId=p1', token)).status, 200)
+    const opened = await post('/api/history/open', '{"projectId":"p1","key":"k"}', token)
+    assert.equal(opened.status, 200)
+    assert.deepEqual(JSON.parse(opened.body), { chatId: 'restored' })
+    assert.equal(opens, 1)
+    await server.regenerateToken()
+    assert.equal((await get('/api/history?projectId=p1', token)).status, 401)
+  })
+
+  test('missing history support and discovery failures are honest errors, not empty history', async () => {
+    const { server, store, get } = harness()
+    await server.applySettings({ enabled: true, port: await freePort() })
+    server.publishWorkspace(projection)
+    assert.equal((await get('/api/history?projectId=p1')).status, 401)
+    assert.equal((await get('/api/history?projectId=p1', store.read().token)).status, 503)
+    const failed = harness({
+      history: {
+        list: async () => {
+          throw new Error('SECRET PATH')
+        },
+        open: async () => ({ ok: false, message: 'The original worktree is unavailable.' })
+      }
+    })
+    await failed.server.applySettings({ enabled: true, port: await freePort() })
+    failed.server.publishWorkspace(projection)
+    const response = await failed.get('/api/history?projectId=p1', failed.store.read().token)
+    assert.equal(response.status, 503)
+    assert.ok(!response.body.includes('SECRET PATH'))
+    const refused = await failed.post('/api/history/open', '{"projectId":"p1","key":"k"}', failed.store.read().token)
+    assert.equal(refused.status, 409)
+    assert.match(refused.body, /worktree is unavailable/)
+  })
+
+  test('revoked pairing and a project removed during a read receive no historical metadata', async () => {
+    let finish!: () => void
+    let started!: () => void
+    let began = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    const h = harness({
+      history: {
+        list: async () => {
+          started()
+          await new Promise<void>((resolve) => {
+            finish = resolve
+          })
+          return { entries: [], total: 123, hasMore: false, nextOffset: 25 }
+        },
+        open: async () => ({ ok: true, chatId: 'restored' })
+      }
+    })
+    await h.server.applySettings({ enabled: true, port: await freePort() })
+    h.server.publishWorkspace(projection)
+    const read = h.get('/api/history?projectId=p1', h.store.read().token)
+    await began
+    await h.server.regenerateToken()
+    finish()
+    assert.equal((await read).status, 401)
+    began = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    const second = h.get('/api/history?projectId=p1', h.store.read().token)
+    await began
+    h.server.publishWorkspace({ projects: [], chats: [] })
+    finish()
+    assert.equal((await second).status, 404)
+  })
+})
+
+test('a reopened history conversation joins the normal paged transcript and can continue over the paired socket', async () => {
+  const chats = createAgentEventBroker()
+  const sessions = recordingSessions(() => ({ ok: true }))
+  const h = harness({
+    chats,
+    sessions: sessions.operations,
+    history: {
+      list: async () => ({ entries: [], total: 0, hasMore: false, nextOffset: 25 }),
+      open: async () => {
+        chats.publish('chat-1', { type: 'session', sessionId: 'original-provider-conversation' })
+        chats.publish('chat-1', { type: 'message', role: 'user', messageId: 'old-user', text: 'Historical question' })
+        chats.publish('chat-1', assistantChunk('old-answer', 'Historical answer'))
+        chats.publish('chat-1', { type: 'status', status: 'ready' })
+        h.server.publishWorkspace(CHAT_PROJECTION)
+        return { ok: true, chatId: 'chat-1' }
+      }
+    }
+  })
+  await h.server.applySettings({ enabled: true, port: await freePort() })
+  h.server.publishWorkspace({ projects: CHAT_PROJECTION.projects, chats: [] })
+  const result = await h.post('/api/history/open', '{"projectId":"toucan","key":"issued-key"}', h.store.read().token)
+  assert.equal(result.status, 200)
+  const socket = connectChat(h.port(), JSON.parse(result.body).chatId as string, {
+    protocolToken: h.store.read().token
+  })
+  const replay = await socket.next()
+  assert.equal(replay.type, 'snapshot')
+  assert.match(JSON.stringify(replay), /Historical question/)
+  assert.match(JSON.stringify(replay), /Historical answer/)
+  assert.match(JSON.stringify(replay), /original-provider-conversation/)
+  await socket.send(JSON.stringify({ type: 'prompt', requestId: 'continue', text: 'Continue this conversation' }))
+  assert.equal((await verdict(socket)).ok, true)
+  assert.deepEqual(sessions.prompts, [{ chatId: 'chat-1', text: 'Continue this conversation' }])
+  socket.close()
 })

@@ -3,6 +3,7 @@ import { describe, test } from 'vitest'
 import { createRemoteCanvasRequests, type DesktopWindow } from '../src/main/remote/canvas-requests'
 import { REMOTE_CHANNELS } from '../src/shared/ipc-channels'
 import type { RemoteChatSpawnRequest } from '../src/shared/remote-spawn'
+import type { HistoryRestoreRequest } from '../src/shared/remote-history'
 
 /**
  * The round-trip that makes a remotely spawned node indistinguishable from a canvas-created one:
@@ -17,6 +18,45 @@ import type { RemoteChatSpawnRequest } from '../src/shared/remote-spawn'
  */
 
 const request: RemoteChatSpawnRequest = { projectId: 'toucan', kind: 'claude', input: 'go' }
+
+const historyRequest: HistoryRestoreRequest = {
+  projectId: 'toucan',
+  entry: {
+    id: 'old',
+    provider: 'codex',
+    title: 'Old',
+    path: 'C:/transcript.jsonl',
+    cwd: 'D:/project',
+    updatedAt: '',
+    messageCount: 2
+  }
+}
+
+test('history restore uses its own window channel and preserves the renderer verdict', async () => {
+  const requests = createRemoteCanvasRequests({ requestId: () => 'history-request' })
+  const window = fakeWindow()
+  requests.attach(window)
+  const pending = requests.openHistory(historyRequest)
+  assert.deepEqual(window.sent, [{ channel: REMOTE_CHANNELS.openHistory, args: ['history-request', historyRequest] }])
+  requests.completeOpenHistory('history-request', { ok: true, chatId: 'original-holder' })
+  assert.deepEqual(await pending, { ok: true, chatId: 'original-holder' })
+})
+
+test('history has bounded, honest no-window, lost-window and timeout failures', async () => {
+  const clock = manualClock()
+  const requests = createRemoteCanvasRequests({ schedule: clock.schedule })
+  assert.equal((await requests.openHistory(historyRequest)).ok, false)
+  const detach = requests.attach(fakeWindow())
+  const lost = requests.openHistory(historyRequest)
+  detach()
+  assert.equal((await lost).ok, false)
+  requests.attach(fakeWindow())
+  const slow = requests.openHistory(historyRequest)
+  clock.fire()
+  const result = await slow
+  assert.equal(result.ok, false)
+  if (!result.ok) assert.match(result.message, /same chat/)
+})
 
 /** A window that records what it was asked, and can be told it has been destroyed. */
 function fakeWindow(): DesktopWindow & { sent: { channel: string; args: unknown[] }[]; destroy(): void } {

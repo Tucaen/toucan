@@ -8,6 +8,8 @@ import {
   type RemoteRestartReply
 } from '../../src/shared/remote-app-update'
 import type { RemoteChatSpawnRequest } from '../../src/shared/remote-spawn'
+import type { RemoteHistoryOpenRequest, RemoteHistoryPage } from '../../src/shared/remote-history'
+import { isAgentProvider } from '../../src/shared/agent-provider'
 import { remoteFileRequestPath } from '../../src/shared/remote-file'
 import { parseProviderUsageReport } from '../../src/shared/remote-usage'
 import { parseRemoteTranscriptionReply, REMOTE_VOICE_CONTENT_TYPE } from '../../src/shared/remote-voice'
@@ -229,6 +231,72 @@ export async function fetchWorkspace(
   } catch (error) {
     return { ok: false, kind: 'unreachable', message: error instanceof Error ? error.message : 'Unreadable reply' }
   }
+}
+
+export async function fetchHistory(
+  host: HostEndpoint,
+  projectId: string,
+  offset: number,
+  signal?: AbortSignal
+): Promise<RemoteResult<RemoteHistoryPage>> {
+  const sent = await send(`/api/history?projectId=${encodeURIComponent(projectId)}&offset=${offset}`, host, { signal })
+  if (!sent.ok) return sent
+  const payload = await readJsonBody(sent.value)
+  if (!sent.value.ok)
+    return {
+      ok: false,
+      kind: 'unreachable',
+      message:
+        sent.value.status === 404
+          ? 'History or this project is unavailable on this host. Refresh or update Toucan on the desktop.'
+          : hostRefusal(payload, sent.value.status)
+    }
+  const page = payload as unknown as RemoteHistoryPage | null
+  if (
+    !page ||
+    !Array.isArray(page.entries) ||
+    !Number.isSafeInteger(page.total) ||
+    page.total < 0 ||
+    typeof page.hasMore !== 'boolean' ||
+    !Number.isSafeInteger(page.nextOffset) ||
+    page.nextOffset <= offset ||
+    page.entries.some(
+      (entry) =>
+        !entry ||
+        typeof entry.key !== 'string' ||
+        !isAgentProvider(entry.provider) ||
+        typeof entry.title !== 'string' ||
+        typeof entry.updatedAt !== 'string' ||
+        typeof entry.directoryLabel !== 'string' ||
+        !Number.isSafeInteger(entry.messageCount) ||
+        entry.messageCount < 0
+    )
+  )
+    return { ok: false, kind: 'unreachable', message: 'This host returned unreadable History. Update Toucan or retry.' }
+  return { ok: true, value: page }
+}
+
+export async function openHistory(
+  host: HostEndpoint,
+  request: RemoteHistoryOpenRequest,
+  signal?: AbortSignal
+): Promise<RemoteResult<string>> {
+  const sent = await send('/api/history/open', host, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(request),
+    signal
+  })
+  if (!sent.ok) return sent
+  const payload = await readJsonBody(sent.value)
+  if (!sent.value.ok) return { ok: false, kind: 'unreachable', message: hostRefusal(payload, sent.value.status) }
+  return typeof payload?.chatId === 'string' && payload.chatId.length > 0
+    ? { ok: true, value: payload.chatId }
+    : {
+        ok: false,
+        kind: 'unreachable',
+        message: 'The host did not identify the restored chat. Refresh History and retry the same entry.'
+      }
 }
 
 /**

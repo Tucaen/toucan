@@ -416,6 +416,15 @@ describe('pairing', () => {
 })
 
 describe('routing', () => {
+  test('provider History is paired, paged and read-only except for its explicit restore POST', () => {
+    const list = resolveRemoteRoute('GET', '/api/history?projectId=p1&offset=25')
+    assert.deepEqual(list, { kind: 'history', projectId: 'p1', offset: '25' })
+    assert.equal(routeRequiresPairing(list), true)
+    assert.equal(routeRequiresPairing(resolveRemoteRoute('HEAD', '/api/history?projectId=p1')), true)
+    assert.equal(routeRequiresPairing(resolveRemoteRoute('POST', '/api/history/open')), true)
+    assert.deepEqual(resolveRemoteRoute('GET', '/api/history/open'), { kind: 'method-not-allowed', allow: 'POST' })
+    assert.deepEqual(resolveRemoteRoute('POST', '/api/history'), { kind: 'method-not-allowed', allow: 'GET, HEAD' })
+  })
   test('api routes require pairing and the client bundle does not', () => {
     assert.deepEqual(resolveRemoteRoute('GET', '/api/workspace'), { kind: 'workspace' })
     assert.equal(routeRequiresPairing(resolveRemoteRoute('GET', '/api/workspace')), true)

@@ -93,6 +93,7 @@ import { branchBlockedReason, lineageEdges, lineageKey, offersBranchAction, plan
 import { orchestratedEdges, orchestratedKey } from './orchestration-edges'
 import { launchModeAfterConversation, relaunchInPlace } from './session-launch-mode'
 import { nodeHoldingConversation, planHistoryOpen } from './history-open'
+import type { HistoryRestoreRequest } from '../../shared/remote-history'
 import { useTicketsFolderRevision } from './use-tickets-folder-revision'
 import { useWorkspaceSnapshot } from './use-workspace-snapshot'
 import { COMPOSER_SEND_KEY_DEFAULT } from './composer-keys'
@@ -1210,6 +1211,8 @@ function Canvas(): JSX.Element {
           onBranch: dispatchBranch
         }
       )
+      // Publish identity synchronously too: a second History open in this event batch must see its holder.
+      nodesRef.current = [...nodesRef.current, node]
       setNodes((current) => {
         const placed = [
           ...(options.background ? current : current.map((candidate) => ({ ...candidate, selected: false }))),
@@ -1809,12 +1812,80 @@ function Canvas(): JSX.Element {
     [handleNodesChange]
   )
 
+  /** Shared desktop History restore; the remote caller additionally resumes an inactive holder. */
+  const restoreHistoryConversation = useCallback(
+    (
+      entry: ConversationSummary,
+      position: { x: number; y: number },
+      remoteProjectId?: string
+    ): RemoteChatSpawnResult => {
+      const plan = planHistoryOpen(nodesRef.current, entry)
+      if (plan.action === 'focus') {
+        const holder = nodesRef.current.find((node) => node.id === plan.nodeId)
+        if (remoteProjectId && holder && isChatCanvasNode(holder)) {
+          if (
+            holder.data.projectId !== remoteProjectId ||
+            holder.data.detachedFromWorktree ||
+            pathIdentity(holder.data.workingDirectory ?? '') !== pathIdentity(entry.cwd)
+          )
+            return {
+              ok: false,
+              message: 'The open conversation no longer has its original checkout. It cannot be resumed elsewhere.'
+            }
+          const status = sessionNodeStatus(holder, nodeStatusesRef.current)
+          if (status === 'dormant' || status === 'exited') {
+            const worktree = holder.data.worktreeId
+              ? nodesRef.current
+                  .filter(isWorktreeCanvasNode)
+                  .find((node) => node.data.worktreeId === holder.data.worktreeId)
+              : undefined
+            if (holder.data.worktreeId && (!worktree || worktree.data.unavailable))
+              return { ok: false, message: 'The original worktree is unavailable.' }
+            resumeNode(plan.nodeId)
+            nodeStatusesRef.current = { ...nodeStatusesRef.current, [plan.nodeId]: 'starting' }
+          }
+        }
+        focusNodeRef.current?.(plan.nodeId)
+        return { ok: true, chatId: plan.nodeId }
+      }
+      const worktreeNode = nodesRef.current
+        .filter(isWorktreeCanvasNode)
+        .find((node) => pathIdentity(node.data.path) === pathIdentity(entry.cwd))
+      const project = worktreeNode
+        ? projectsRef.current.find((candidate) => candidate.id === worktreeNode.data.projectId)
+        : projectsRef.current.find((candidate) => pathIdentity(entry.cwd) === pathIdentity(candidate.path))
+      if (!project || (remoteProjectId && project.id !== remoteProjectId) || worktreeNode?.data.unavailable)
+        return {
+          ok: false,
+          message: 'The original project or worktree is unavailable. It cannot be resumed elsewhere.'
+        }
+      const chatId = addSessionNode({
+        kind: entry.provider,
+        project,
+        worktree: worktreeNode?.data,
+        position,
+        label: entry.title,
+        titleSource: entry.titleSource,
+        resumeConversationId: entry.id,
+        branchedFrom: plan.branchedFrom
+      })
+      return chatId ? { ok: true, chatId } : { ok: false, message: 'The original checkout could not be opened.' }
+    },
+    [addSessionNode, resumeNode]
+  )
+  const openRemoteHistory = useCallback(
+    ({ projectId, entry }: HistoryRestoreRequest) =>
+      restoreHistoryConversation(entry, centredDropPosition(NEW_SESSION_NODE_SIZE), projectId),
+    [centredDropPosition, restoreHistoryConversation]
+  )
+
   const remoteAccess = useRemoteAccess(
     workspaceSnapshot,
     nodeStatuses,
     startRemoteSpawn,
     markRemoteChatRead,
-    closeRemoteChat
+    closeRemoteChat,
+    openRemoteHistory
   )
   const appUpdate = useAppUpdate()
 
@@ -2320,42 +2391,11 @@ function Canvas(): JSX.Element {
   const openHistoryConversation = useCallback(
     (entry: ConversationSummary): void => {
       if (!historyDrop) return
-      const plan = planHistoryOpen(nodesRef.current, entry)
-      if (plan.action === 'focus') {
-        focusNode(plan.nodeId)
-        setHistoryDrop(null)
-        return
-      }
-      // Where the entry ran decides where it reopens - a project checkout, or a worktree on the
-      // canvas and so its project - rather than whichever project is active by the time it is picked.
-      const worktreeNode = nodesRef.current
-        .filter(isWorktreeCanvasNode)
-        .find((node) => pathWithinRoot(node.data.path, entry.cwd) === '')
-      const project = worktreeNode
-        ? projectsRef.current.find((candidate) => candidate.id === worktreeNode.data.projectId)
-        : projectsRef.current.find((candidate) => pathWithinRoot(entry.cwd, candidate.path) === '')
-      // Neither: the entry ran in a worktree that has left the canvas since the list was read.
-      // Resuming it in a project checkout instead is the silent fallback a missing worktree must
-      // never get.
-      if (!project) {
-        setNotice(worktreeGoneNotice('the conversation could not be reopened in it.'))
-        setHistoryDrop(null)
-        return
-      }
-      const opened = addSessionNode({
-        kind: entry.provider,
-        project,
-        worktree: worktreeNode?.data,
-        position: historyDrop,
-        label: entry.title,
-        titleSource: entry.titleSource,
-        resumeConversationId: entry.id,
-        branchedFrom: plan.branchedFrom
-      })
-      if (!opened) setNotice(worktreeGoneNotice('the conversation could not be reopened in it.'))
+      const result = restoreHistoryConversation(entry, historyDrop)
+      if (!result.ok) setNotice(worktreeGoneNotice('the conversation could not be reopened in it.'))
       setHistoryDrop(null)
     },
-    [addSessionNode, focusNode, historyDrop]
+    [historyDrop, restoreHistoryConversation]
   )
 
   /**

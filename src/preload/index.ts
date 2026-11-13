@@ -9,6 +9,7 @@ import type { WorkspaceFilesApi } from '../shared/workspace-files'
 import type { RemoteAccessState } from '../shared/remote-access'
 import type { RemoteApi } from '../shared/remote-api'
 import type { RemoteChatSpawnRequest } from '../shared/remote-spawn'
+import type { HistoryRestoreRequest } from '../shared/remote-history'
 import type { TicketFilesApi, TicketGithubApi } from '../shared/ticket-source'
 import type { TicketSkillApi } from '../shared/ticket-skill'
 import type { FileViewApi } from '../shared/file-view'
@@ -195,6 +196,11 @@ const remoteApi: RemoteApi = {
       callback(requestId, request)
     ),
   completeSpawn: (requestId, result) => ipcRenderer.send(REMOTE_CHANNELS.spawnChatResult, requestId, result),
+  onOpenHistory: (callback) =>
+    subscribe(REMOTE_CHANNELS.openHistory, (requestId: string, request: HistoryRestoreRequest) =>
+      callback(requestId, request)
+    ),
+  completeOpenHistory: (requestId, result) => ipcRenderer.send(REMOTE_CHANNELS.openHistoryResult, requestId, result),
   onMarkChatRead: (callback) => subscribe(REMOTE_CHANNELS.markChatRead, (chatId: string) => callback(chatId)),
   onCloseChat: (callback) =>
     subscribe(REMOTE_CHANNELS.closeChat, (requestId: string, chatId: string) => callback(requestId, chatId)),

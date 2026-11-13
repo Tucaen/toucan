@@ -11,6 +11,8 @@ import { REMOTE_FILE_ROUTE } from '../../shared/remote-file'
  * serving it unauthenticated exposes nothing; the API behind it stays shut.
  */
 export type RemoteRoute =
+  | { kind: 'history'; projectId: string; offset: string }
+  | { kind: 'open-history' }
   | { kind: 'workspace' }
   /** Lets a phone check a token the moment it is entered instead of at the first real request. */
   | { kind: 'pairing' }
@@ -80,6 +82,16 @@ export function resolveRemoteRoute(method: string | undefined, target: string | 
   // Before every other method rule, and before the pairing gate: a preflight is a question about a
   // request, not the request, so it is answered for any path this host serves at all.
   if (method === 'OPTIONS') return { kind: 'preflight' }
+  if (pathname === '/api/history')
+    return method === 'GET' || method === 'HEAD'
+      ? {
+          kind: 'history',
+          projectId: requestSearchParam(target, 'projectId'),
+          offset: requestSearchParam(target, 'offset') || '0'
+        }
+      : { kind: 'method-not-allowed', allow: 'GET, HEAD' }
+  if (pathname === '/api/history/open')
+    return method === 'POST' ? { kind: 'open-history' } : { kind: 'method-not-allowed', allow: 'POST' }
 
   // A `Map` rather than an object literal: a plain lookup would answer `/api/constructor` with
   // something truthy off `Object.prototype` and hand it back as a route.
@@ -138,6 +150,8 @@ export function resolveRemoteRoute(method: string | undefined, target: string | 
 /** Route authorization is a property of the route, not of the handler that happens to run it. */
 export function routeRequiresPairing(route: RemoteRoute): boolean {
   return (
+    route.kind === 'history' ||
+    route.kind === 'open-history' ||
     route.kind === 'workspace' ||
     route.kind === 'pairing' ||
     route.kind === 'create-chat' ||

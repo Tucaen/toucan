@@ -27,6 +27,8 @@ export function createMockRemoteApi(): RemoteApi {
     onStateChange: () => () => undefined,
     onSpawnChat: () => () => undefined,
     completeSpawn: vi.fn(),
+    onOpenHistory: () => () => undefined,
+    completeOpenHistory: vi.fn(),
     onMarkChatRead: () => () => undefined,
     onCloseChat: () => () => undefined,
     completeClose: vi.fn()

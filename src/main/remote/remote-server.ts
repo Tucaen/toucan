@@ -33,6 +33,8 @@ import {
   type RemoteChatSpawnResult
 } from '../../shared/remote-spawn'
 import type { RemoteChatCloseResult } from '../../shared/remote-close'
+import { isRemoteHistoryIdentifier, parseRemoteHistoryOpen } from '../../shared/remote-history'
+import type { RemoteHistory } from './remote-history'
 import {
   parseProviderAuthenticationAction,
   PROVIDER_AUTH_BODY_LIMIT,
@@ -144,6 +146,7 @@ export interface RemoteAccessServerOptions {
    * round-trips through the desktop renderer. Absent, the host cannot start chats and says so.
    */
   spawn?: RemoteChatSpawn
+  history?: RemoteHistory
   /** Orchestration state and controls for orchestrator chats. Absent, the phone sees and does neither. */
   orchestration?: RemoteOrchestration
   /** The desktop's own updater and its restart, for the phone's update card. Absent, the phone has neither. */
@@ -518,6 +521,63 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
   const sendJson = (request: IncomingMessage, response: ServerResponse, status: number, body: unknown): void =>
     send(request, response, status, JSON.stringify(body), { 'content-type': 'application/json; charset=utf-8' })
 
+  const history = async (
+    request: IncomingMessage,
+    response: ServerResponse,
+    route: Extract<ReturnType<typeof resolveRemoteRoute>, { kind: 'history' | 'open-history' }>
+  ): Promise<void> => {
+    if (!options.history) {
+      sendJson(request, response, 503, {
+        error: 'This host does not support mobile History. Update Toucan on the desktop.'
+      })
+      return
+    }
+    const body = route.kind === 'open-history' ? await readBoundedBody(request, 1024) : ''
+    if (body === null) {
+      sendJson(request, response, 413, { error: 'That request was too large to read.' })
+      return
+    }
+    // A token can be revoked while a POST body is arriving. Check again before restoring anything.
+    if (!authorized(request.headers)) {
+      sendJson(request, response, 401, { error: 'unauthorized' })
+      return
+    }
+    const open = route.kind === 'open-history' ? parseRemoteHistoryOpen(body) : null
+    const projectId = route.kind === 'history' ? route.projectId : open?.projectId
+    if (
+      !isRemoteHistoryIdentifier(projectId) ||
+      (route.kind === 'open-history' && !open) ||
+      (route.kind === 'history' && (!/^\d{1,8}$/.test(route.offset) || Number(route.offset) > 1_000_000))
+    ) {
+      sendJson(request, response, 400, { error: 'Select a valid project and history entry.' })
+      return
+    }
+    const visible = (): boolean => snapshot.projects.some((project) => project.id === projectId)
+    if (!visible()) {
+      sendJson(request, response, 404, { error: 'That project is not open on the desktop.' })
+      return
+    }
+    try {
+      const result =
+        route.kind === 'history'
+          ? await options.history.list(projectId, Number(route.offset))
+          : await options.history.open(open!, () => authorized(request.headers) && visible())
+      // Neither stale scope nor a revoked pairing may receive a listing or a restored id.
+      if (!authorized(request.headers)) sendJson(request, response, 401, { error: 'unauthorized' })
+      else if (!visible()) sendJson(request, response, 404, { error: 'That project is no longer open on the desktop.' })
+      else if ('ok' in result)
+        sendJson(
+          request,
+          response,
+          result.ok ? 200 : 409,
+          result.ok ? { chatId: result.chatId } : { error: result.message }
+        )
+      else sendJson(request, response, 200, result)
+    } catch {
+      sendJson(request, response, 503, { error: 'History could not be read. Reconnect or refresh and try again.' })
+    }
+  }
+
   /** `GET /api/app-update` and `POST /api/app-update/check`: the host's own snapshot, never a copy. */
   const appUpdateState = async (request: IncomingMessage, response: ServerResponse, check: boolean): Promise<void> => {
     const appUpdate = options.appUpdate
@@ -732,6 +792,10 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
     }
 
     switch (route.kind) {
+      case 'history':
+      case 'open-history':
+        await history(request, response, route)
+        return
       case 'pairing':
         send(request, response, 204, null)
         return

@@ -1,6 +1,7 @@
 import type { RemoteAccessSettings, RemoteAccessState, RemoteWorkspaceProjection } from './remote-access'
 import type { RemoteChatCloseResult } from './remote-close'
 import type { RemoteChatSpawnRequest, RemoteChatSpawnResult } from './remote-spawn'
+import type { HistoryRestoreRequest } from './remote-history'
 
 /**
  * Remote access, seen from the desktop renderer. Its own module rather than a member of
@@ -23,6 +24,8 @@ export interface RemoteApi {
    */
   onSpawnChat(callback: (requestId: string, request: RemoteChatSpawnRequest) => void): () => void
   completeSpawn(requestId: string, result: RemoteChatSpawnResult): void
+  onOpenHistory(callback: (requestId: string, request: HistoryRestoreRequest) => void): () => void
+  completeOpenHistory(requestId: string, result: RemoteChatSpawnResult): void
   /**
    * A paired reader reached this chat's content on their phone. Attention records are the canvas's
    * and "mark read" is a canvas gesture, so the phone cannot clear a badge itself - it says it

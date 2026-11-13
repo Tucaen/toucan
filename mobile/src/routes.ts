@@ -16,13 +16,16 @@ export type MobileRoute =
    */
   | { screen: 'chat'; chatId: string; view?: 'questions' }
   | { screen: 'new' }
+  | { screen: 'history' }
   /** Managing and switching the saved hosts. */
   | { screen: 'hosts' }
 
 export const NEW_CHAT_PATHNAME = '/new'
 export const HOSTS_PATHNAME = '/hosts'
+export const HISTORY_PATHNAME = '/history'
 
 export function routeFromPathname(pathname: string): MobileRoute {
+  if (pathname === HISTORY_PATHNAME) return { screen: 'history' }
   if (pathname === NEW_CHAT_PATHNAME) return { screen: 'new' }
   if (pathname === HOSTS_PATHNAME) return { screen: 'hosts' }
   const match = /^\/chats\/([^/]+)(\/questions)?$/.exec(pathname)

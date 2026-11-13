@@ -97,6 +97,8 @@ export const REMOTE_CHANNELS = {
   /** Main asks the renderer to spawn on this; the renderer answers on `spawnChatResult`. */
   spawnChat: 'remote:spawn-chat',
   spawnChatResult: 'remote:spawn-chat-result',
+  openHistory: 'remote:open-history',
+  openHistoryResult: 'remote:open-history-result',
   /**
    * A phone reached a chat's content. One way only: the canvas applies its own read and republishes
    * the projection, which is the answer the phone is already polling for.

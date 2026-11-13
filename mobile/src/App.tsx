@@ -30,12 +30,14 @@ import {
 import { effectiveHostStatus, hostStatusLabel, type HostProbe, type HostStatuses } from './host-status'
 import HostsScreen from './HostsScreen'
 import NewChatScreen from './NewChatScreen'
+import HistoryScreen from './HistoryScreen'
 import { WORKSPACE_POLL_MS, fetchWorkspace, verifyHost } from './remote-client'
 import {
   chatPathname,
   chatQuestionsPathname,
   routeFromPathname,
   HOSTS_PATHNAME,
+  HISTORY_PATHNAME,
   NEW_CHAT_PATHNAME,
   type MobileRoute
 } from './routes'
@@ -93,6 +95,17 @@ export default function App(): JSX.Element {
   const openNewChat = useCallback(() => {
     window.history.pushState({ pushed: true }, '', NEW_CHAT_PATHNAME)
     setRoute({ screen: 'new' })
+  }, [])
+
+  const openHistory = useCallback(() => {
+    window.history.pushState({ pushed: true }, '', HISTORY_PATHNAME)
+    setRoute({ screen: 'history' })
+  }, [])
+
+  const enterHistoricalChat = useCallback((chatId: string) => {
+    setOpenedChat(null)
+    window.history.pushState({ pushed: true }, '', chatPathname(chatId))
+    setRoute({ screen: 'chat', chatId })
   }, [])
 
   const openHosts = useCallback(() => {
@@ -230,6 +243,17 @@ export default function App(): JSX.Element {
       />
     )
   }
+  if (route.screen === 'history') {
+    return (
+      <HistoryScreen
+        key={host.id}
+        host={host}
+        onBack={backToList}
+        onUnauthorized={revokeSelected}
+        onOpened={enterHistoricalChat}
+      />
+    )
+  }
   if (route.screen === 'new') {
     return (
       <NewChatScreen
@@ -252,6 +276,7 @@ export default function App(): JSX.Element {
       onOpenHosts={openHosts}
       onOpenChat={openChat}
       onNewChat={openNewChat}
+      onHistory={openHistory}
       onProbe={hosts.reportProbe}
     />
   )
@@ -468,6 +493,7 @@ function ChatListScreen({
   onOpenHosts,
   onOpenChat,
   onNewChat,
+  onHistory,
   onProbe
 }: {
   host: SavedHost
@@ -479,6 +505,7 @@ function ChatListScreen({
   onOpenHosts(): void
   onOpenChat(chat: RemoteChatSummary): void
   onNewChat(): void
+  onHistory(): void
   onProbe(id: string, probe: HostProbe): void
 }): JSX.Element {
   const [snapshot, setSnapshot] = useState<RemoteWorkspaceSnapshot>(EMPTY_REMOTE_WORKSPACE_SNAPSHOT)
@@ -583,6 +610,9 @@ function ChatListScreen({
           open is exactly when starting something is the useful thing to do. */}
       <button type="button" className="new-chat" onClick={onNewChat} disabled={offline}>
         New chat
+      </button>
+      <button type="button" className="new-chat" onClick={onHistory}>
+        History
       </button>
 
       {/* "Nothing is open" and "the desktop has not reported yet" must not read the same. */}

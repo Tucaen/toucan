@@ -38,6 +38,9 @@ export function registerRemoteIpc(
   ipc.on(REMOTE_CHANNELS.spawnChatResult, (_event, requestId: unknown, result: unknown) => {
     if (typeof requestId === 'string' && isSpawnResult(result)) canvasRequests.complete(requestId, result)
   })
+  ipc.on(REMOTE_CHANNELS.openHistoryResult, (_event, requestId: unknown, result: unknown) => {
+    if (typeof requestId === 'string' && isSpawnResult(result)) canvasRequests.completeOpenHistory(requestId, result)
+  })
   ipc.on(REMOTE_CHANNELS.closeChatResult, (_event, requestId: unknown, result: unknown) => {
     if (typeof requestId === 'string' && isRemoteChatCloseResult(result))
       canvasRequests.completeClose(requestId, result)

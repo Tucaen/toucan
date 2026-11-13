@@ -105,6 +105,7 @@ import { forwardRemoteStateChanges, registerRemoteIpc } from './remote/remote-ip
 import { createRemoteCanvasRequests, type RemoteCanvasRequests } from './remote/canvas-requests'
 import { createRemoteAccessServer, type RemoteAccessServer } from './remote/remote-server'
 import { createRemoteFileReader } from './remote/remote-file-reader'
+import { createRemoteHistory } from './remote/remote-history'
 import { createVoiceTranscriber } from './voice-transcription'
 import { loadWhisperEngine, VOICE_MODEL_MISSING_MESSAGE } from './whisper-engine'
 import { createSessionOutcomeIndexer } from './session-outcome-indexer'
@@ -1028,7 +1029,18 @@ void app.whenReady().then(async () => {
       return result.response === 0
     }
   })
+  const conversationHistory = createConversationHistory({
+    homeDirectory: app.getPath('home'),
+    environment: process.env,
+    titles: conversationTitles,
+    lineage: conversationLineage
+  })
   const remote = createRemoteAccessServer({
+    history: createRemoteHistory({
+      history: conversationHistory,
+      workspace: async () => (await workspace.load()).state,
+      restore: (request) => canvasRequests.openHistory(request)
+    }),
     store: createRemoteAccessStore({
       path: join(app.getPath('userData'), 'remote-access.json'),
       // The one place Electron's keyring is named; everything below this takes a vault. A host
@@ -1137,18 +1149,7 @@ void app.whenReady().then(async () => {
   registerTerminalIpc(ipcMain, manager, scrollback, liveness, containment)
   registerAgentIpc(ipcMain, agentManager, containment)
   registerTerminalContextIpc(ipcMain, terminalContextEdges)
-  registerConversationIpc(
-    ipcMain,
-    createConversationHistory({
-      homeDirectory: app.getPath('home'),
-      environment: process.env,
-      titles: conversationTitles,
-      lineage: conversationLineage
-    }),
-    conversationTitles,
-    conversationLineage,
-    containment
-  )
+  registerConversationIpc(ipcMain, conversationHistory, conversationTitles, conversationLineage, containment)
   registerTicketIpc(ipcMain, {
     containment,
     library: ticketLibrary,
