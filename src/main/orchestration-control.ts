@@ -3,6 +3,7 @@ import type { AgentProvider } from '../shared/agent-provider'
 import {
   continueSpawnBudget,
   pauseOrchestration,
+  isPinnedAnswer,
   resolveOrchestrationQuestion,
   resumeOrchestration,
   spawnBudget,
@@ -313,6 +314,8 @@ export function createOrchestrationController(options: OrchestrationControllerOp
           })
           if (!result.record || !result.question) return result.record
           options.changed?.(result.record)
+          // Acknowledging a pinned answer is not news for the orchestrator: it relayed it itself.
+          if (isPinnedAnswer(result.question)) return result.record
           // A paused or stopped orchestration is not woken (`mayWake`): the resume wake's `status`
           // shows the question gone, and `question list --all` keeps the note.
           if (result.record.lifecycle !== undefined) return result.record

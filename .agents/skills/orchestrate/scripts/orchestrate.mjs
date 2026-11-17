@@ -23,7 +23,7 @@ const USAGE = [
   '| report',
   '| outcome --ticket <id> [--full]',
   '| followup --ticket <id> --text <text>',
-  '| question add [--ticket <id>] (--text <markdown> | --file <markdown file>) [--options <json> | --options-file <json file> [--multi] | --options-from-session]',
+  '| question add [--ticket <id>] (--text <markdown> | --file <markdown file>) [--options <json> | --options-file <json file> [--multi] | --options-from-session | --answer]',
   '| question resolve --id <Q<n>> [--note <text>]',
   '| question list [--all]'
 ].join(' ')
@@ -213,9 +213,20 @@ async function message(words) {
     const { flags, positionals } = parseFlags(
       rest,
       ['ticket', 'text', 'file', 'options', 'options-file'],
-      ['multi', 'options-from-session']
+      ['multi', 'options-from-session', 'answer']
     )
     if (positionals.length > 0) usage('question add takes no positional arguments')
+    if (
+      flags.answer &&
+      (flags.options !== undefined ||
+        flags['options-file'] !== undefined ||
+        flags.multi ||
+        flags['options-from-session'])
+    ) {
+      usage(
+        'question add --answer cannot be combined with --options, --options-file, --multi or --options-from-session'
+      )
+    }
     const options = await optionsInput(flags)
     return {
       command: 'question add',
@@ -224,7 +235,8 @@ async function message(words) {
         markdown: await markdownInput(flags),
         ...(options === undefined ? {} : { options }),
         ...(flags.multi ? { multiSelect: true } : {}),
-        ...(flags['options-from-session'] ? { optionsFromSession: true } : {})
+        ...(flags['options-from-session'] ? { optionsFromSession: true } : {}),
+        ...(flags.answer ? { answer: true } : {})
       }
     }
   }

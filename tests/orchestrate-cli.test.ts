@@ -539,6 +539,23 @@ test('question add, resolve and list reach the endpoint; add reads the markdown 
     ]) {
       assert.equal((await run(['question', 'add', ...args], environment)).code, 2, args.join(' '))
     }
+    // --answer pins an answer for the human to acknowledge; it takes no options.
+    const pinnedAnswer = await run(
+      ['question', 'add', '--ticket', '34', '--text', 'It is left.', '--answer'],
+      environment
+    )
+    assert.equal(pinnedAnswer.code, 0)
+    assert.equal((pinnedAnswer.output.question as { kind: string }).kind, 'answer')
+    for (const extra of [
+      ['--options', '["A"]'],
+      ['--options-file', optionsFile],
+      ['--multi'],
+      ['--options-from-session']
+    ]) {
+      const refused = await run(['question', 'add', '--ticket', '34', '--text', 'a', '--answer', ...extra], environment)
+      assert.equal(refused.code, 2, extra.join(' '))
+      assert.match(refused.output.error ?? '', /--answer/)
+    }
     // --options-from-session is checked here too, before anything is sent; with no session behind
     // the harness the endpoint refuses a well-formed one.
     for (const args of [

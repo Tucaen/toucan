@@ -56,7 +56,7 @@ Inspect its final report, diff and verification evidence first. Unresolved block
 An answer-only ticket is never merged. Once its session's turn has ended with the answer in its final report:
 
 1. Record `ticket update <id> --json '{"mergeStatus":"answered"}'`. Toucan accepts it only when the session has settled with nothing pending, its worktree is clean and its branch holds no commit the target lacks. A refusal naming commits means the session changed something: review and merge it as above instead.
-2. Put the answer, with the files and lines it rests on, in the ticket's body and relay it to the user.
+2. Put the answer, with the files and lines it rests on, in the ticket's body and relay it to the user. Also pin it, so the user can find it after other reports scroll by: copy the session's untruncated final answer (`outcome --ticket <id> --full`, `report`) into a file in the scratch folder and run `question add --ticket <id> --answer --file <that file>`. Do this after the `answered` update, whose settling leaves a pinned answer alone, and before `cleanup`, which ends the session `outcome --full` reads. Name it afterwards only by its id (`Q3`), as for a question; the user dismisses it with Gelesen and that wakes nobody.
 3. Call `cleanup --ticket <id>` immediately, as for a merged ticket.
 4. A follow-up question becomes a new answer-only ticket. Put the previous answer, its file references and the previous ticket's outcome record path in its body, so the new session reads the cited code and, only if needed, the earlier transcript, instead of searching again.
 

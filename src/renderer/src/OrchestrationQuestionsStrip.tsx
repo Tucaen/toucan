@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
 import type { OrchestrationControlRequest } from '../../shared/ticket-session-spawn'
 import OrchestrationQuestionsReader from './OrchestrationQuestionsReader'
+import { pinnedHeading } from '../../shared/orchestration-question-answer'
 import { useOrchestrationQuestions } from './useOrchestrationQuestions'
 
 /**
@@ -20,7 +21,7 @@ export function questionPreview(id: string, markdown: string): string {
 }
 
 /**
- * The orchestrator node's pinned open questions (#3): each is stored once in the record. The node
+ * The orchestrator node's pinned open questions and pinned answers (#3): each is stored once in the record. The node
  * itself only carries a one-row badge - the transcript is scaled by the canvas zoom and clipped by
  * the node, so the questions are read and answered in a floating window outside it. The badge opens
  * that window, or brings it forward when it is already open. Hidden when nothing is open.
@@ -48,7 +49,11 @@ export default function OrchestrationQuestionsStrip({
   const [first] = questions.questions
 
   return (
-    <section ref={band} className="orchestration-questions nodrag" aria-label="Offene Fragen">
+    <section
+      ref={band}
+      className="orchestration-questions nodrag"
+      aria-label={pinnedHeading(questions.questions, 'plural')}
+    >
       <button
         ref={badge}
         type="button"
@@ -66,7 +71,7 @@ export default function OrchestrationQuestionsStrip({
         }}
       >
         <span className="orchestration-questions-count">{count}</span>
-        <span className="orchestration-questions-label">{count === 1 ? 'Offene Frage' : 'Offene Fragen'}</span>
+        <span className="orchestration-questions-label">{pinnedHeading(questions.questions)}</span>
         <span className="orchestration-questions-preview">{questionPreview(first.id, first.markdown)}</span>
         <span className="orchestration-questions-open">
           {open ? 'Fokus' : 'Öffnen'}

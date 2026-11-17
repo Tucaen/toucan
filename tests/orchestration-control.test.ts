@@ -464,3 +464,19 @@ test('resolves the orchestrator could not take yet all arrive at its next ready,
   assert.equal((prompts[0].match(/\[Toucan: user resolved Q1\]/g) ?? []).length, 1)
   assert.equal((prompts[0].match(/\[Toucan: user resolved Q2\]/g) ?? []).length, 1)
 })
+
+test('acknowledging a pinned answer records it and wakes nobody', async () => {
+  const { records, controller, prompts, changes } = harness()
+  const pinned = addOrchestrationQuestion(
+    record(),
+    { ticketId: '1', markdown: 'It is the left one.', kind: 'answer' },
+    't1'
+  )
+  await records.update(key, () => ({ value: pinned.record!, result: undefined }))
+  await controller.resolveQuestion(key, 'orchestrator', 'Q1')
+  assert.equal(openOrchestrationQuestions((await records.read(key))!).length, 0)
+  assert.equal((await records.read(key))?.openQuestions?.[0]?.resolvedAt, new Date(RESET - 60_000).toISOString())
+  assert.equal(changes.length, 1)
+  await controller.idle()
+  assert.deepEqual(prompts, [])
+})

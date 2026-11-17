@@ -332,3 +332,43 @@ test('question add --options-from-session copies the head pending select questio
     await h.close()
   }
 })
+
+test('question add --answer pins an answer for a settled ticket, which survives and is acknowledged by resolve', async () => {
+  const h = await harness({
+    cleanup: { run: async () => ({ removed: [], retained: [] }), answeredRefusal: async () => undefined },
+    ticketSessions: { state: () => ({ status: 'ready', questions: [] }) } as unknown as TicketSessionControl
+  })
+  try {
+    await call(h.grant, 'plan set', plan)
+    await h.records.update(key, (current) => ({
+      value: recordTicketSession(current!, '3', { nodeId: 'node-3', conversationId: 'c-3' }, 'now'),
+      result: undefined
+    }))
+    assert.equal((await call(h.grant, 'ticket update', { id: '3', fields: { mergeStatus: 'answered' } })).status, 200)
+    // A question for an answered ticket is refused; an answer is exactly what is pinned for one.
+    assert.equal((await call(h.grant, 'question add', { ticket: '3', markdown })).status, 409)
+    const pinned = await call(h.grant, 'question add', { ticket: '3', markdown, answer: true })
+    assert.equal(pinned.status, 200)
+    assert.equal(pinned.body.question?.kind, 'answer')
+    assert.equal(pinned.body.question?.markdown, markdown)
+    assert.equal(h.changes.length, 1)
+    assert.equal(
+      (await call(h.grant, 'question add', { ticket: '3', markdown, answer: true, options: ['A'] })).status,
+      400
+    )
+    assert.deepEqual(
+      (await call(h.grant, 'question list')).body.questions?.map((question) => question.id),
+      ['Q1']
+    )
+    assert.deepEqual(
+      (await call(h.grant, 'status')).body.openQuestions?.map((question) => question.kind),
+      ['answer']
+    )
+    const resolved = await call(h.grant, 'question resolve', { id: 'Q1' })
+    assert.equal(resolved.body.changed, true)
+    assert.deepEqual((await call(h.grant, 'question list')).body.questions, [])
+    assert.equal((await call(h.grant, 'question list', { all: true })).body.questions?.length, 1)
+  } finally {
+    await h.close()
+  }
+})

@@ -15,6 +15,7 @@ import NodeFitAction from './NodeFitAction'
 import {
   OTHER_ANSWER_LIMIT,
   PINNED_QUESTION_FORM,
+  pinnedHeading,
   pinnedQuestionDecision,
   pinnedQuestionNote
 } from '../../shared/orchestration-question-answer'
@@ -142,6 +143,7 @@ export default function OrchestrationQuestionsReader({
     activeId = questionTabAfterChange(tabs.ids, ids, tabs.selected)
     setTabs({ key: idsKey, ids, selected: activeId })
   }
+  const activeKind = questions.find((question) => question.id === activeId)?.kind
   const select = (questionId: string): void => setTabs((current) => ({ ...current, selected: questionId }))
 
   const arrange = (next: { rect: ReaderRect; snap: ReaderSnap | null }): void => {
@@ -285,7 +287,9 @@ export default function OrchestrationQuestionsReader({
           track(event, (start, dx, dy) => moveReaderRect(start, dx, dy, viewport()))
         }}
       >
-        <h2 id={titleId}>Offene Fragen ({questions.length})</h2>
+        <h2 id={titleId}>
+          {pinnedHeading(questions, 'plural')} ({questions.length})
+        </h2>
         <NodeFitContext.Provider
           value={() => arrange(toggleReaderFit(latest.current, latestSnap.current, canvasBounds()))}
         >
@@ -314,6 +318,7 @@ export default function OrchestrationQuestionsReader({
               >
                 {question.id}
                 {question.ticketId && <span>{` #${question.ticketId}`}</span>}
+                {question.kind === 'answer' && <span>{' · Antwort'}</span>}
               </button>
             )
           })}
@@ -322,11 +327,13 @@ export default function OrchestrationQuestionsReader({
           <span className="orchestration-question-actions">
             <button
               type="button"
-              title={`${activeId} als erledigt markieren`}
+              title={
+                activeKind === 'answer' ? `${activeId} als gelesen markieren` : `${activeId} als erledigt markieren`
+              }
               disabled={pending === activeId}
               onClick={() => void resolve(activeId)}
             >
-              Erledigt
+              {activeKind === 'answer' ? 'Gelesen' : 'Erledigt'}
             </button>
           </span>
         )}
@@ -359,7 +366,7 @@ export default function OrchestrationQuestionsReader({
                 />
               )}
             </div>
-            {!decision && (
+            {!decision && question.kind !== 'answer' && (
               <div className="orchestration-question-answer">
                 <textarea
                   aria-label={`Antwort auf ${question.id}`}

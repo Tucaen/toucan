@@ -5,6 +5,7 @@ import {
   applyPlan,
   applyTicketUpdate,
   isOrchestrationRecord,
+  isPinnedAnswer,
   openOrchestrationQuestions,
   ORCHESTRATION_QUESTION_LIMIT,
   parseQuestionAddInput,
@@ -13,6 +14,7 @@ import {
   resolveOrchestrationQuestion,
   type OrchestrationRecord
 } from '../src/shared/orchestration'
+import { pinnedHeading } from '../src/shared/orchestration-question-answer'
 import { orchestrationControlState } from '../src/shared/ticket-session-spawn'
 
 // Pinned open questions (#2 of the pinned-questions plan): a question for the human is stored once,
@@ -224,4 +226,73 @@ test('the control state the UI renders carries the open questions verbatim, reso
     { id: 'Q1', ticketId: '3', markdown, createdAt: 't1' }
   ])
   assert.deepEqual(orchestrationControlState(planned()).openQuestions, [])
+})
+
+test('a pinned answer carries its kind, shares the id counter and is pinnable for an answered ticket', () => {
+  assert.deepEqual(parseQuestionAddInput({ ticket: '3', markdown, answer: true }), {
+    add: { ticketId: '3', markdown, kind: 'answer' }
+  })
+  assert.match(parseQuestionAddInput({ markdown, answer: false }).error ?? '', /--answer takes no value/)
+  for (const extra of [{ options: ['A'] }, { multiSelect: true }, { ticket: '3', optionsFromSession: true }]) {
+    assert.match(
+      parseQuestionAddInput({ markdown, answer: true, ...extra }).error ?? '',
+      /--answer/,
+      JSON.stringify(extra)
+    )
+  }
+
+  const asked = addOrchestrationQuestion(planned(), { ticketId: '3', markdown: 'Ask?' }, 't1').record!
+  const answered = applyTicketUpdate(asked, '3', { mergeStatus: 'answered' }, 't2').record!
+  // A question for a settled ticket is refused; an answer for it is the whole point.
+  assert.match(addOrchestrationQuestion(answered, { ticketId: '3', markdown }, 't3').error ?? '', /already answered/)
+  const pinned = addOrchestrationQuestion(answered, { ticketId: '3', markdown, kind: 'answer' }, 't3')
+  assert.equal(pinned.error, undefined)
+  assert.deepEqual(pinned.question, { id: 'Q2', ticketId: '3', markdown, kind: 'answer', createdAt: 't3' })
+  assert.ok(isOrchestrationRecord(JSON.parse(JSON.stringify(pinned.record))))
+  assert.equal('kind' in addOrchestrationQuestion(planned(), { markdown }, 't').question!, false)
+  assert.equal(isPinnedAnswer(pinned.question!), true)
+  assert.equal(isPinnedAnswer({}), false)
+
+  // The control state the UI renders marks it; a plain question carries no kind.
+  assert.deepEqual(orchestrationControlState(pinned.record!).openQuestions, [
+    { id: 'Q2', ticketId: '3', markdown, kind: 'answer', createdAt: 't3' }
+  ])
+  // An answer never carries options, and only `answer` is a kind.
+  const withOptions = [{ ...pinned.question, options: [{ label: 'A' }] }]
+  assert.equal(isOrchestrationRecord({ ...pinned.record, openQuestions: withOptions }), false)
+  assert.equal(
+    isOrchestrationRecord({ ...pinned.record, openQuestions: [{ ...pinned.question, kind: 'other' }] }),
+    false
+  )
+})
+
+test('settling its ticket never resolves a pinned answer; only an acknowledgement does', () => {
+  let record = addOrchestrationQuestion(planned(), { ticketId: '3', markdown: 'q' }, 't1').record!
+  record = addOrchestrationQuestion(record, { ticketId: '3', markdown: 'a', kind: 'answer' }, 't1').record!
+  const answered = applyTicketUpdate(record, '3', { mergeStatus: 'answered' }, 't2').record!
+  assert.deepEqual(
+    openOrchestrationQuestions(answered).map((question) => question.id),
+    ['Q2']
+  )
+  // The pin survives a re-plan too.
+  const replanned = applyPlan(answered, plan, identity, 't3').record!
+  assert.deepEqual(
+    openOrchestrationQuestions(replanned).map((question) => question.id),
+    ['Q2']
+  )
+  const acknowledged = resolveOrchestrationQuestion(replanned, 'Q2', 't4')
+  assert.equal(acknowledged.changed, true)
+  assert.deepEqual(openOrchestrationQuestions(acknowledged.record!), [])
+})
+
+test('the pinned list is named for what it holds', () => {
+  const question = {}
+  const answer = { kind: 'answer' as const }
+  assert.equal(pinnedHeading([question]), 'Offene Frage')
+  assert.equal(pinnedHeading([question, question]), 'Offene Fragen')
+  assert.equal(pinnedHeading([answer]), 'Antwort')
+  assert.equal(pinnedHeading([answer, answer]), 'Antworten')
+  assert.equal(pinnedHeading([answer], 'plural'), 'Antworten')
+  assert.equal(pinnedHeading([question], 'plural'), 'Offene Fragen')
+  assert.equal(pinnedHeading([question, answer]), 'Offene Fragen & Antworten')
 })

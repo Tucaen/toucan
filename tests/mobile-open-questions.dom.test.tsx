@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useState } from 'react'
 import { beforeEach, describe, expect, test, vi, type Mock } from 'vitest'
 import ChatScreen from '../mobile/src/ChatScreen'
@@ -51,6 +51,8 @@ const CHOICE = {
 }
 const WITH_CHOICE: RemoteChatSummary = { ...ORCHESTRATOR, openQuestions: [CHOICE, QUESTIONS[0]] }
 const WITH_QUESTIONS: RemoteChatSummary = { ...ORCHESTRATOR, openQuestions: QUESTIONS }
+const ANSWER = { id: 'Q6', ticketId: '7', markdown: 'It is the **left** one.', kind: 'answer' as const, createdAt: 6 }
+const WITH_ANSWER: RemoteChatSummary = { ...ORCHESTRATOR, openQuestions: [ANSWER] }
 
 /** The chat screen with the view switching App does, so a test can walk between the two. */
 function Harness({
@@ -244,5 +246,29 @@ describe('the questions view', () => {
   test('a plain question shows no decision card', () => {
     open(WITH_QUESTIONS, 'questions')
     expect(document.querySelectorAll('.pending-request[data-kind="decision"]')).toHaveLength(0)
+  })
+})
+
+describe('a pinned answer', () => {
+  test('is counted as an answer in the header link', () => {
+    open(WITH_ANSWER)
+    expect(screen.getByRole('button', { name: '1 Antwort ›' })).toBeInTheDocument()
+    cleanup()
+    open({ ...ORCHESTRATOR, openQuestions: [QUESTIONS[0], ANSWER] })
+    expect(screen.getByRole('button', { name: '2 offene Fragen & Antworten ›' })).toBeInTheDocument()
+  })
+
+  test('is read in the view and acknowledged with Gelesen, with no Antworten shortcut', async () => {
+    open(WITH_ANSWER, 'questions')
+    expect(screen.getByRole('heading', { name: 'Antworten' })).toBeInTheDocument()
+    expect(screen.getByRole('tab')).toHaveTextContent('Q6 · #7 · Antwort')
+    expect(screen.getByRole('tabpanel')).toHaveTextContent('It is the left one.')
+    expect(screen.queryByRole('button', { name: 'Antworten' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Erledigt' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Gelesen' }))
+    await waitFor(() => {
+      expect(posted(fetchStub)).toEqual(['http://work-pc:1789/api/chats/orch-1/questions/Q6/resolve'])
+    })
+    expect(await screen.findByText('Keine offenen Fragen.')).toBeInTheDocument()
   })
 })

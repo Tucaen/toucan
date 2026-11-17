@@ -8,7 +8,11 @@ import type {
   ProviderUsageReport
 } from '../../src/shared/agent'
 import { describeSessionUsage, describeUsageFreshness, type SessionUsageReadout } from '../../src/shared/session-usage'
-import { pinnedQuestionDecision, pinnedQuestionNote } from '../../src/shared/orchestration-question-answer'
+import {
+  pinnedHeading,
+  pinnedQuestionDecision,
+  pinnedQuestionNote
+} from '../../src/shared/orchestration-question-answer'
 import type { RemoteChatSummary } from '../../src/shared/remote-access'
 import type { OrchestrationOpenQuestion } from '../../src/shared/ticket-session-spawn'
 import { isToucanOriginText } from '../../src/shared/toucan-origin'
@@ -297,7 +301,7 @@ export default function ChatScreen({
               sat under a page that always scrolls to its newest message. */}
           {openQuestions.length > 0 && (
             <button type="button" className="chat-questions-link" onClick={() => onOpenQuestions(chatId)}>
-              {openQuestions.length === 1 ? '1 offene Frage' : `${openQuestions.length} offene Fragen`} ›
+              {openQuestions.length} {pinnedHeading(openQuestions).replace(/^Offene/, 'offene')} ›
             </button>
           )}
         </div>
@@ -565,7 +569,7 @@ function QuestionsView({
           ‹
         </button>
         <div className="chat-head-copy">
-          <h1>Offene Fragen</h1>
+          <h1>{pinnedHeading(questions, 'plural')}</h1>
           <span className="chat-status">{title}</span>
         </div>
       </header>
@@ -573,7 +577,7 @@ function QuestionsView({
         <p className="empty">Keine offenen Fragen.</p>
       ) : (
         <>
-          <div className="question-tabs" role="tablist" aria-label="Offene Fragen">
+          <div className="question-tabs" role="tablist" aria-label={pinnedHeading(questions, 'plural')}>
             {shown.map((candidate) => (
               <button
                 key={candidate.id}
@@ -624,11 +628,13 @@ function QuestionsView({
               </section>
             )}
             <div className="open-question-actions">
-              <button type="button" onClick={() => onAnswer(question.id)}>
-                Antworten
-              </button>
+              {question.kind !== 'answer' && (
+                <button type="button" onClick={() => onAnswer(question.id)}>
+                  Antworten
+                </button>
+              )}
               <button type="button" disabled={pendingId === question.id} onClick={() => void resolve(question.id)}>
-                Erledigt
+                {question.kind === 'answer' ? 'Gelesen' : 'Erledigt'}
               </button>
             </div>
           </article>

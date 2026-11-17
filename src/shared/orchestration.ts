@@ -291,6 +291,13 @@ export interface OrchestrationQuestion {
   options?: OrchestrationQuestionOption[]
   /** Several options may be picked; only meaningful with `options`. */
   multiSelect?: true
+  /**
+   * `answer` marks a pinned answer to the human's question (an answer-only ticket's final answer)
+   * rather than a question for them: it lives in the same list so it shows where questions do, but
+   * the human only acknowledges it, settling its ticket does not resolve it, and acknowledging it
+   * wakes nobody. Absent is a question. Never carries `options`.
+   */
+  kind?: 'answer'
   createdAt: string
   resolvedAt?: string
   /** The human's or orchestrator's note, or why Toucan resolved it. */
@@ -600,6 +607,13 @@ export interface OrchestrationQuestionInput {
   markdown: string
   options?: OrchestrationQuestionOption[]
   multiSelect?: true
+  /** `answer`: pin an answer for the human to acknowledge instead of a question (`OrchestrationQuestion.kind`). */
+  kind?: 'answer'
+}
+
+/** Whether a pinned entry is an answer the human acknowledges, not a question they answer. */
+export function isPinnedAnswer(question: Pick<OrchestrationQuestion, 'kind'>): boolean {
+  return question.kind === 'answer'
 }
 
 /** Validates and trims a list of options, however it arrived (`--options`, or a session's pending question). */
@@ -641,11 +655,20 @@ export function parseQuestionAddInput(
   const args = isRecord(value) ? value : {}
   if (
     Object.keys(args).some(
-      (key) => !['ticket', 'markdown', 'options', 'multiSelect', 'optionsFromSession'].includes(key)
+      (key) => !['ticket', 'markdown', 'options', 'multiSelect', 'optionsFromSession', 'answer'].includes(key)
     )
   ) {
     return refuse(
-      'question add takes only [--ticket <id>] --text <markdown> or --file <markdown file> [--options <json> | --options-file <file> [--multi] | --options-from-session]'
+      'question add takes only [--ticket <id>] --text <markdown> or --file <markdown file> [--options <json> | --options-file <file> [--multi] | --options-from-session | --answer]'
+    )
+  }
+  if (args.answer !== undefined && args.answer !== true) return refuse('question add --answer takes no value')
+  if (
+    args.answer === true &&
+    (args.options !== undefined || args.multiSelect !== undefined || args.optionsFromSession !== undefined)
+  ) {
+    return refuse(
+      'question add --answer pins an answer for the human to acknowledge; it cannot be combined with --options, --options-file, --multi or --options-from-session'
     )
   }
   if (args.ticket !== undefined && !nonEmptyString(args.ticket))
@@ -679,6 +702,7 @@ export function parseQuestionAddInput(
     add: {
       ...(nonEmptyString(args.ticket) ? { ticketId: args.ticket.trim() } : {}),
       markdown: args.markdown,
+      ...(args.answer === true ? { kind: 'answer' as const } : {}),
       ...(args.optionsFromSession === true ? { optionsFromSession: true as const } : {}),
       ...(parsed?.options ? { options: parsed.options } : {}),
       ...(parsed?.options && args.multiSelect === true ? { multiSelect: true as const } : {})
@@ -717,7 +741,11 @@ function nextQuestionId(questions: readonly OrchestrationQuestion[]): string {
   return `Q${highest + 1}`
 }
 
-/** Pins a question. A ticket it names must be in the plan and not yet settled. */
+/**
+ * Pins a question, or with `kind: 'answer'` an answer. A ticket it names must be in the plan; a
+ * question's must also not yet be settled, while an answer is pinned for a ticket that is
+ * typically already `answered`.
+ */
 export function addOrchestrationQuestion(
   record: OrchestrationRecord,
   input: OrchestrationQuestionInput,
@@ -726,13 +754,16 @@ export function addOrchestrationQuestion(
   if (input.ticketId !== undefined) {
     const ticket = record.tickets.find((candidate) => candidate.id === input.ticketId)
     if (!ticket) return refuse(`the plan has no ticket "${input.ticketId}"`)
-    if (isTicketSettled(ticket.mergeStatus)) return refuse(`ticket ${ticket.id} is already ${ticket.mergeStatus}`)
+    if (input.kind !== 'answer' && isTicketSettled(ticket.mergeStatus)) {
+      return refuse(`ticket ${ticket.id} is already ${ticket.mergeStatus}`)
+    }
   }
   const questions = record.openQuestions ?? []
   const question: OrchestrationQuestion = {
     id: nextQuestionId(questions),
     ...(input.ticketId !== undefined ? { ticketId: input.ticketId } : {}),
     markdown: input.markdown,
+    ...(input.kind === 'answer' ? { kind: 'answer' as const } : {}),
     ...(input.options ? { options: input.options, ...(input.multiSelect ? { multiSelect: true as const } : {}) } : {}),
     createdAt: now
   }
@@ -765,22 +796,26 @@ export function resolveOrchestrationQuestion(
   }
 }
 
-/** A settled ticket's open questions are moot: nothing of it is left to ask about. */
+/**
+ * A settled ticket's open questions are moot: nothing of it is left to ask about. A pinned answer
+ * is not: settling its (answered) ticket is exactly what makes it worth keeping, until the human
+ * acknowledges it.
+ */
 function resolveTicketQuestions(
   record: OrchestrationRecord,
   ticketId: string,
   resolution: string,
   now: string
 ): OrchestrationRecord {
-  if (!record.openQuestions?.some((question) => question.ticketId === ticketId && question.resolvedAt === undefined)) {
+  const moot = (question: OrchestrationQuestion): boolean =>
+    question.ticketId === ticketId && question.resolvedAt === undefined && !isPinnedAnswer(question)
+  if (!record.openQuestions?.some(moot)) {
     return record
   }
   return {
     ...record,
     openQuestions: record.openQuestions.map((question) =>
-      question.ticketId === ticketId && question.resolvedAt === undefined
-        ? { ...question, resolvedAt: now, resolution }
-        : question
+      moot(question) ? { ...question, resolvedAt: now, resolution } : question
     )
   }
 }
@@ -880,6 +915,7 @@ function isOrchestrationQuestion(value: unknown): value is OrchestrationQuestion
     nonEmptyString(value.markdown) &&
     (value.options === undefined || isQuestionOptionList(value.options)) &&
     (value.multiSelect === undefined || (value.multiSelect === true && value.options !== undefined)) &&
+    (value.kind === undefined || (value.kind === 'answer' && value.options === undefined)) &&
     typeof value.createdAt === 'string' &&
     optionalString(value.resolvedAt) &&
     optionalString(value.resolution)

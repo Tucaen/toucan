@@ -625,3 +625,44 @@ test('questionPreview is one plain-text line led by the question id', () => {
   )
   expect(questionPreview('Q5', '  \n')).toBe('Q5')
 })
+
+const pinnedAnswer = {
+  id: 'Q5',
+  ticketId: '3',
+  markdown: 'It is the **left** one.',
+  kind: 'answer' as const,
+  createdAt: 5
+}
+
+test('a pinned answer is acknowledged with Gelesen, has no answer field and is named an answer', async () => {
+  api.orchestrationState.mockResolvedValue(state([pinnedAnswer]))
+  api.resolveQuestion.mockResolvedValue(state([]))
+  render(<OrchestrationQuestionsStrip request={request} />)
+  const badge = await screen.findByRole('button', { name: /Antwort/ })
+  expect(badge.querySelector('.orchestration-questions-label')?.textContent).toBe('Antwort')
+  expect(badge.querySelector('.orchestration-questions-preview')?.textContent).toBe('Q5: It is the left one.')
+  fireEvent.click(badge)
+  await screen.findByRole('dialog', { name: 'Antworten (1)' })
+  expect(screen.getByRole('tab').textContent).toBe('Q5 #3 · Antwort')
+  expect(screen.getByText('left').tagName).toBe('STRONG')
+  // An answer is read, not answered: no free-text field, no Erledigt.
+  expect(screen.queryByLabelText('Antwort auf Q5')).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Erledigt' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Gelesen' }))
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  expect(api.resolveQuestion).toHaveBeenCalledWith({ ...request, questionId: 'Q5' })
+})
+
+test('questions and answers share the badge and the reader, each with its own action', async () => {
+  api.orchestrationState.mockResolvedValue(state([questions[1], pinnedAnswer]))
+  render(<OrchestrationQuestionsStrip request={request} />)
+  const badge = await screen.findByRole('button', { name: /Offene Fragen & Antworten/ })
+  expect(badge.querySelector('.orchestration-questions-count')?.textContent).toBe('2')
+  fireEvent.click(badge)
+  await screen.findByRole('dialog', { name: 'Offene Fragen & Antworten (2)' })
+  expect(screen.getByRole('button', { name: 'Erledigt' })).toBeTruthy()
+  expect(screen.getByLabelText('Antwort auf Q2')).toBeTruthy()
+  selectTab(/Q5/)
+  expect(screen.getByRole('button', { name: 'Gelesen' })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Erledigt' })).toBeNull()
+})

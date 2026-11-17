@@ -119,6 +119,8 @@ export interface OrchestrationControlState {
   /**
    * The questions pinned for the human and not yet resolved, oldest first (#2), each with its
    * markdown verbatim. Resolving one goes through `resolveQuestion`, which wakes the orchestrator.
+   * Pinned answers (`kind: 'answer'`) ride in the same list and are acknowledged the same way,
+   * without a wake.
    */
   openQuestions?: OrchestrationOpenQuestion[]
 }
@@ -126,7 +128,7 @@ export interface OrchestrationControlState {
 /** An open pinned question as the orchestrator node and the phone render it. */
 export type OrchestrationOpenQuestion = Pick<
   OrchestrationQuestion,
-  'id' | 'ticketId' | 'markdown' | 'options' | 'multiSelect' | 'createdAt'
+  'id' | 'ticketId' | 'markdown' | 'options' | 'multiSelect' | 'kind' | 'createdAt'
 >
 
 /**
@@ -156,10 +158,11 @@ export function orchestrationControlState(record: OrchestrationRecord): Orchestr
       : {}),
     startable: startableTickets(record).map((ticket) => ({ id: ticket.id, title: ticket.title })),
     openQuestions: openOrchestrationQuestions(record).map(
-      ({ id, ticketId, markdown, options, multiSelect, createdAt }) => ({
+      ({ id, ticketId, markdown, options, multiSelect, kind, createdAt }) => ({
         id,
         ...(ticketId !== undefined ? { ticketId } : {}),
         markdown,
+        ...(kind ? { kind } : {}),
         ...(options ? { options, ...(multiSelect ? { multiSelect } : {}) } : {}),
         createdAt
       })

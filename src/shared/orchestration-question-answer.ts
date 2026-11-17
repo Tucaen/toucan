@@ -85,3 +85,18 @@ export function questionOptionsFromDecision(
   if (parsed.error !== undefined) return { error: `the session's options cannot be pinned: ${parsed.error}` }
   return { options: parsed.options, ...(question.multiSelect ? { multiSelect: true as const } : {}) }
 }
+
+/**
+ * What the pinned list is called on the node's badge, the reader's title and the phone's link: open
+ * questions, pinned answers (`kind: 'answer'`), or both at once. `count` reads singular for one entry
+ * ("Offene Frage", "Antwort"); `plural` is for a title that carries the number itself.
+ */
+export function pinnedHeading(
+  items: ReadonlyArray<Pick<OrchestrationQuestion, 'kind'>>,
+  form: 'count' | 'plural' = 'count'
+): string {
+  const answers = items.filter((item) => item.kind === 'answer').length
+  if (answers === 0) return form === 'count' && items.length === 1 ? 'Offene Frage' : 'Offene Fragen'
+  if (answers === items.length) return form === 'count' && items.length === 1 ? 'Antwort' : 'Antworten'
+  return 'Offene Fragen & Antworten'
+}

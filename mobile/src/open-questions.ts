@@ -28,9 +28,10 @@ export function selectedQuestion(
   return questions.find((question) => question.id === picked) ?? questions[0]
 }
 
-/** A tab's label: the question id, and the ticket it is about when it names one. */
+/** A tab's label: the id, the ticket it is about when it names one, and `Antwort` for a pinned answer. */
 export function questionTabLabel(question: OrchestrationOpenQuestion): string {
-  return question.ticketId === undefined ? question.id : `${question.id} · #${question.ticketId}`
+  const label = question.ticketId === undefined ? question.id : `${question.id} · #${question.ticketId}`
+  return question.kind === 'answer' ? `${label} · Antwort` : label
 }
 
 /**
