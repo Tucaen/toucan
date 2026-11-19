@@ -7,8 +7,8 @@ import type { RemoteChatSummary } from '../src/shared/remote-access'
 
 /**
  * An orchestrator's open questions on the phone: a link in the chat's sticky header opens a view
- * of their own, one tab per question, in place of the transcript. Erledigt resolves one on the
- * host, Antworten returns to the chat with the composer started as `Zu Q<n>: `, and closing the
+ * of their own, one tab per question, in place of the transcript. Done resolves one on the
+ * host, Answer returns to the chat with the composer started as `Re Q<n>: `, and closing the
  * view returns to the orchestrator it was opened from.
  */
 
@@ -177,11 +177,11 @@ describe('the questions view', () => {
     expect(screen.getByLabelText('Message')).toBeInTheDocument()
   })
 
-  test('Erledigt resolves the shown question and its tab goes at once', async () => {
+  test('Done resolves the shown question and its tab goes at once', async () => {
     open(WITH_QUESTIONS, 'questions')
     fireEvent.click(screen.getByRole('tab', { name: 'Q2 · #4' }))
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Erledigt' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Done' }))
     })
     await waitFor(() =>
       expect(posted(fetchStub)).toEqual(['http://work-pc:1789/api/chats/orch-1/questions/Q2/resolve'])
@@ -196,21 +196,21 @@ describe('the questions view', () => {
       Promise.resolve(new Response(JSON.stringify({ error: 'That question is gone.' }), { status: 409 }))
     )
     open(WITH_QUESTIONS, 'questions')
-    fireEvent.click(screen.getByRole('button', { name: 'Erledigt' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }))
     expect(await screen.findByText('That question is gone.')).toBeInTheDocument()
     expect(screen.getAllByRole('tab')).toHaveLength(2)
   })
 
-  test('Antworten returns to the chat with the composer started as Zu Q<n>: ', () => {
+  test('Answer returns to the chat with the composer started as Re Q<n>: ', () => {
     const { onCloseQuestions } = open(WITH_QUESTIONS, 'questions')
-    fireEvent.click(screen.getByRole('button', { name: 'Antworten' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Answer' }))
     expect(onCloseQuestions).toHaveBeenCalledWith('orch-1')
-    expect(screen.getByLabelText('Message')).toHaveValue('Zu Q1: ')
+    expect(screen.getByLabelText('Message')).toHaveValue('Re Q1: ')
   })
 
   test('says so when every question is resolved', () => {
     open(ORCHESTRATOR, 'questions')
-    expect(screen.getByText('Keine offenen Fragen.')).toBeInTheDocument()
+    expect(screen.getByText('No open questions.')).toBeInTheDocument()
   })
 
   test('a question with options shows a decision card and resolves with the pick as its note', async () => {
@@ -231,13 +231,13 @@ describe('the questions view', () => {
 
   test('the answer panel collapses to a bar and expands again with its options intact', () => {
     open(WITH_CHOICE, 'questions')
-    const toggle = screen.getByRole('button', { name: /Antworten ausblenden/ })
+    const toggle = screen.getByRole('button', { name: /Hide answers/ })
     expect(toggle).toHaveAttribute('aria-expanded', 'true')
     fireEvent.click(screen.getByRole('button', { name: /Right/ }))
     fireEvent.click(toggle)
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
     expect(screen.getByLabelText('Other answer')).not.toBeVisible()
-    expect(screen.getByText('Antworten anzeigen')).toBeInTheDocument()
+    expect(screen.getByText('Show answers')).toBeInTheDocument()
     fireEvent.click(toggle)
     expect(screen.getByLabelText('Other answer')).toBeVisible()
     expect(screen.getByRole('button', { name: /Right/ })).toHaveAttribute('aria-pressed', 'true')
@@ -258,17 +258,17 @@ describe('a pinned answer', () => {
     expect(screen.getByRole('button', { name: '2 open questions & answers ›' })).toBeInTheDocument()
   })
 
-  test('is read in the view and acknowledged with Gelesen, with no Antworten shortcut', async () => {
+  test('is read in the view and acknowledged with Read, with no Answer shortcut', async () => {
     open(WITH_ANSWER, 'questions')
     expect(screen.getByRole('heading', { name: 'Answers' })).toBeInTheDocument()
-    expect(screen.getByRole('tab')).toHaveTextContent('Q6 · #7 · Antwort')
+    expect(screen.getByRole('tab')).toHaveTextContent('Q6 · #7 · Answer')
     expect(screen.getByRole('tabpanel')).toHaveTextContent('It is the left one.')
-    expect(screen.queryByRole('button', { name: 'Antworten' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Erledigt' })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Gelesen' }))
+    expect(screen.queryByRole('button', { name: 'Answer' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Done' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Read' }))
     await waitFor(() => {
       expect(posted(fetchStub)).toEqual(['http://work-pc:1789/api/chats/orch-1/questions/Q6/resolve'])
     })
-    expect(await screen.findByText('Keine offenen Fragen.')).toBeInTheDocument()
+    expect(await screen.findByText('No open questions.')).toBeInTheDocument()
   })
 })

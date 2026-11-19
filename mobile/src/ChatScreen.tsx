@@ -103,7 +103,7 @@ export default function ChatScreen({
   chatId: string
   /**
    * The transcript, or an orchestrator's open questions in its place. One screen for both, so the
-   * socket and the draft carry on while the questions are open and Antworten lands in the composer.
+   * socket and the draft carry on while the questions are open and Answer lands in the composer.
    */
   view: 'chat' | 'questions'
   /** What the chat list knew when it navigated here; null on a reloaded deep link. */
@@ -445,9 +445,9 @@ function SpawnCheckpoint({
   )
 }
 
-/** The composer text after Antworten: a `Zu Q<n>: ` lead-in, ahead of whatever is already typed. */
+/** The composer text after Answer: a `Re Q<n>: ` lead-in, ahead of whatever is already typed. */
 function answerDraft(draft: string, questionId: string): string {
-  const lead = `Zu ${questionId}: `
+  const lead = `Re ${questionId}: `
   return draft.startsWith(lead) ? draft : `${lead}${draft}`
 }
 
@@ -520,8 +520,8 @@ function CloseConfirmation({
 
 /**
  * An orchestrator's open questions, one tab each, in place of its transcript. Each is stored once,
- * verbatim, so its links and context are all here. Erledigt resolves one on the host; Antworten
- * returns to the chat with the composer started as `Zu Q<n>: `. Closing returns to the
+ * verbatim, so its links and context are all here. Done resolves one on the host; Answer
+ * returns to the chat with the composer started as `Re Q<n>: `. Closing returns to the
  * orchestrator; a question leaves when the next workspace read no longer lists it.
  */
 function QuestionsView({
@@ -574,7 +574,7 @@ function QuestionsView({
         </div>
       </header>
       {!question ? (
-        <p className="empty">Keine offenen Fragen.</p>
+        <p className="empty">No open questions.</p>
       ) : (
         <>
           <div className="question-tabs" role="tablist" aria-label={pinnedHeading(questions, 'plural')}>
@@ -614,7 +614,7 @@ function QuestionsView({
                   aria-controls="question-answer-body"
                   onClick={() => setCollapsed((current) => !current)}
                 >
-                  <span>{collapsed ? 'Antworten anzeigen' : 'Antworten ausblenden'}</span>
+                  <span>{collapsed ? 'Show answers' : 'Hide answers'}</span>
                   <span aria-hidden="true">{collapsed ? '▲' : '▼'}</span>
                 </button>
                 {/* Hidden, not unmounted: a half-made choice survives a collapse. */}
@@ -630,11 +630,11 @@ function QuestionsView({
             <div className="open-question-actions">
               {question.kind !== 'answer' && (
                 <button type="button" onClick={() => onAnswer(question.id)}>
-                  Antworten
+                  Answer
                 </button>
               )}
               <button type="button" disabled={pendingId === question.id} onClick={() => void resolve(question.id)}>
-                {question.kind === 'answer' ? 'Gelesen' : 'Erledigt'}
+                {question.kind === 'answer' ? 'Read' : 'Done'}
               </button>
             </div>
           </article>
