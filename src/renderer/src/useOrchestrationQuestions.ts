@@ -7,7 +7,7 @@ import type {
 
 export interface OrchestrationQuestions {
   questions: OrchestrationOpenQuestion[]
-  /** The question whose resolve is in flight, so its Erledigt can stay disabled. */
+  /** The question whose resolve is in flight, so its Done can stay disabled. */
   pending: string | undefined
   /** Bumped when a resolve fails, so a decision panel that locked itself on submit starts afresh. */
   formKey: number

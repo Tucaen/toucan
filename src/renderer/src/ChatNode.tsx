@@ -78,6 +78,7 @@ import { classifyAssistantMessage } from './decision-message'
 import { SelectorPicker, pickerCopy } from './SelectorPicker'
 import ComposerSettingsMenu, { type ComposerCommandGuard } from './ComposerSettingsMenu'
 import NodeBorderResizer from './NodeBorderResizer'
+import { CHAT_NODE_MIN_HEIGHT, CHAT_NODE_MIN_WIDTH } from './node-size-limits'
 import UnreadToggle from './UnreadToggle'
 import SessionUsageBar from './SessionUsageBar'
 import CheckoutBranchChip from './CheckoutBranchChip'
@@ -1362,7 +1363,12 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
         } as React.CSSProperties
       }
     >
-      <NodeBorderResizer minWidth={420} minHeight={320} selected={selected} color={data.projectColor} />
+      <NodeBorderResizer
+        minWidth={CHAT_NODE_MIN_WIDTH}
+        minHeight={CHAT_NODE_MIN_HEIGHT}
+        selected={selected}
+        color={data.projectColor}
+      />
       {/* The terminal-context edge's target: a connected terminal's output becomes readable to
           this node's agent. Several terminals may feed one chat. */}
       <Handle

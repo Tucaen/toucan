@@ -288,11 +288,11 @@ test('settling its ticket never resolves a pinned answer; only an acknowledgemen
 test('the pinned list is named for what it holds', () => {
   const question = {}
   const answer = { kind: 'answer' as const }
-  assert.equal(pinnedHeading([question]), 'Offene Frage')
-  assert.equal(pinnedHeading([question, question]), 'Offene Fragen')
-  assert.equal(pinnedHeading([answer]), 'Antwort')
-  assert.equal(pinnedHeading([answer, answer]), 'Antworten')
-  assert.equal(pinnedHeading([answer], 'plural'), 'Antworten')
-  assert.equal(pinnedHeading([question], 'plural'), 'Offene Fragen')
-  assert.equal(pinnedHeading([question, answer]), 'Offene Fragen & Antworten')
+  assert.equal(pinnedHeading([question]), 'Open question')
+  assert.equal(pinnedHeading([question, question]), 'Open questions')
+  assert.equal(pinnedHeading([answer]), 'Answer')
+  assert.equal(pinnedHeading([answer, answer]), 'Answers')
+  assert.equal(pinnedHeading([answer], 'plural'), 'Answers')
+  assert.equal(pinnedHeading([question], 'plural'), 'Open questions')
+  assert.equal(pinnedHeading([question, answer]), 'Open questions & answers')
 })

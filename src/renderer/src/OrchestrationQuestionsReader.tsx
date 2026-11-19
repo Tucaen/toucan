@@ -27,6 +27,7 @@ import {
   recallReaderRect,
   reflowReaderRect,
   rememberReaderRect,
+  READER_RESIZE_EDGES,
   resizeReaderRect,
   snapReaderRect,
   toggleReaderFit,
@@ -89,8 +90,8 @@ export function questionTabAfterChange(
  * its nodes stay usable beside it, so a long question can be read while its answer is typed. It
  * portals to `document.body` because the node's own subtree is scaled by the canvas zoom (and, on a
  * worktree canvas, by two of them) and clipped by the node. Escape closes it only while focus is
- * inside; a click elsewhere leaves it open. Its title bar moves it, its bottom-right corner resizes
- * it without limit, Alt+Arrow and the header's fit button arrange it like a node on the canvas, and
+ * inside; a click elsewhere leaves it open. Its title bar moves it, its edges and corners resize
+ * it like a chat node (same handles and minimum size), Alt+Arrow and the header's fit button arrange it like a node on the canvas, and
  * the rectangle is remembered per orchestrator node for the app session. Each question is a tab
  * that gets the whole window below the tab row.
  */
@@ -177,7 +178,7 @@ export default function OrchestrationQuestionsReader({
 
   // Whether focus belongs to the window: given by focus moving in, taken by focus moving elsewhere or
   // a press outside, but not by focus merely being dropped. Answering a question disables its
-  // focused Send, Erledigt or Submit button and then removes or hides it, and the browser drops focus
+  // focused Send, Done or Submit button and then removes or hides it, and the browser drops focus
   // to the page, where Alt+Arrow and typing reach the canvas; focus goes on to the shown question.
   const ownsFocus = useRef(false)
   useEffect(() => {
@@ -295,7 +296,7 @@ export default function OrchestrationQuestionsReader({
         >
           <NodeFitAction nodeId={nodeId} fitted={snap?.h === 'full' && snap.v === 'full'} />
         </NodeFitContext.Provider>
-        <button type="button" className="orchestration-reader-close" aria-label="Schließen" onClick={onClose}>
+        <button type="button" className="orchestration-reader-close" aria-label="Close" onClick={onClose}>
           <X aria-hidden="true" />
         </button>
       </header>
@@ -318,7 +319,7 @@ export default function OrchestrationQuestionsReader({
               >
                 {question.id}
                 {question.ticketId && <span>{` #${question.ticketId}`}</span>}
-                {question.kind === 'answer' && <span>{' · Antwort'}</span>}
+                {question.kind === 'answer' && <span>{' · Answer'}</span>}
               </button>
             )
           })}
@@ -327,13 +328,11 @@ export default function OrchestrationQuestionsReader({
           <span className="orchestration-question-actions">
             <button
               type="button"
-              title={
-                activeKind === 'answer' ? `${activeId} als gelesen markieren` : `${activeId} als erledigt markieren`
-              }
+              title={activeKind === 'answer' ? `Mark ${activeId} as read` : `Mark ${activeId} as done`}
               disabled={pending === activeId}
               onClick={() => void resolve(activeId)}
             >
-              {activeKind === 'answer' ? 'Gelesen' : 'Erledigt'}
+              {activeKind === 'answer' ? 'Read' : 'Done'}
             </button>
           </span>
         )}
@@ -369,8 +368,8 @@ export default function OrchestrationQuestionsReader({
             {!decision && question.kind !== 'answer' && (
               <div className="orchestration-question-answer">
                 <textarea
-                  aria-label={`Antwort auf ${question.id}`}
-                  placeholder="Antwort schreiben … (Strg/Cmd+Enter sendet)"
+                  aria-label={`Answer to ${question.id}`}
+                  placeholder="Write an answer… (Ctrl/Cmd+Enter sends)"
                   rows={3}
                   maxLength={OTHER_ANSWER_LIMIT}
                   value={text}
@@ -383,18 +382,22 @@ export default function OrchestrationQuestionsReader({
                   }}
                 />
                 <button type="button" disabled={text.trim() === '' || pending === question.id} onClick={send}>
-                  Senden
+                  Send
                 </button>
               </div>
             )}
           </section>
         )
       })}
-      <div
-        className="orchestration-reader-resize"
-        aria-hidden="true"
-        onMouseDown={(event) => track(event, (start, dx, dy) => resizeReaderRect(start, dx, dy))}
-      />
+      {READER_RESIZE_EDGES.map((edge) => (
+        <div
+          key={edge}
+          className={`orchestration-reader-resize ${edge}`}
+          data-resize-edge={edge}
+          aria-hidden="true"
+          onMouseDown={(event) => track(event, (start, dx, dy) => resizeReaderRect(start, edge, dx, dy))}
+        />
+      ))}
     </div>,
     document.body
   )

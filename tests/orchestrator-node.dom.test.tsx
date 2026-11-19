@@ -373,19 +373,19 @@ test('an orchestrator pins its open questions and a typed answer resolves one', 
   const { container } = renderChat('orchestrator', 'conv-1')
   await waitFor(() => expect(container.querySelector('.chat-scroll .orchestration-questions')).not.toBeNull())
   const badge = container.querySelector('.orchestration-questions') as HTMLElement
-  expect(badge).toHaveTextContent('Offene Frage')
+  expect(badge).toHaveTextContent('Open question')
   expect(badge).toHaveTextContent('Q3: Which color?')
   // The node carries only the badge; the question and its answer field live in the floating reader outside it.
   expect(container.querySelector('.orchestration-question')).toBeNull()
   fireEvent.click(badge.querySelector('.orchestration-questions-badge') as HTMLElement)
-  const reader = (await screen.findByRole('dialog', { name: 'Offene Fragen (1)' })) as HTMLElement
+  const reader = (await screen.findByRole('dialog', { name: 'Open questions (1)' })) as HTMLElement
   expect(container.contains(reader)).toBe(false)
   expect(reader).not.toHaveAttribute('aria-modal')
   // Non-modal: the node and its composer stay in the document and reachable beside the window.
   expect(container.querySelector('.chat-scroll')).not.toBeNull()
   fireEvent.mouseDown(container.firstElementChild as HTMLElement)
   expect(screen.getByRole('dialog')).toBeInTheDocument()
-  const answer = within(reader).getByLabelText('Antwort auf Q3')
+  const answer = within(reader).getByLabelText('Answer to Q3')
   fireEvent.change(answer, { target: { value: 'Blue' } })
   fireEvent.keyDown(answer, { key: 'Enter', ctrlKey: true })
   await waitFor(() =>

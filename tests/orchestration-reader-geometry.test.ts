@@ -54,11 +54,19 @@ test('moving shifts the window and stops at the viewport edges', () => {
   })
 })
 
-test('resizing from the bottom-right corner keeps the top-left corner and has no size limit', () => {
-  const start = { left: 100, top: 100, width: 400, height: 300 }
-  expect(resizeReaderRect(start, 50, 40)).toEqual({ ...start, width: 450, height: 340 })
-  expect(resizeReaderRect(start, 9999, 9999)).toEqual({ ...start, width: 10399, height: 10299 })
-  expect(resizeReaderRect(start, -9999, -9999)).toMatchObject({ width: 1, height: 1 })
+test('resizing follows a chat node: opposite edge fixed, minimum 420x320, no maximum', () => {
+  const start = { left: 100, top: 100, width: 600, height: 500 }
+  expect(resizeReaderRect(start, 'bottom-right', 50, 40)).toEqual({ ...start, width: 650, height: 540 })
+  expect(resizeReaderRect(start, 'bottom-right', 9999, 9999)).toEqual({ ...start, width: 10599, height: 10499 })
+  expect(resizeReaderRect(start, 'bottom-right', -9999, -9999)).toEqual({ ...start, width: 420, height: 320 })
+  expect(resizeReaderRect(start, 'right', 10, 99)).toEqual({ ...start, width: 610 })
+  expect(resizeReaderRect(start, 'bottom', 99, 10)).toEqual({ ...start, height: 510 })
+  expect(resizeReaderRect(start, 'top-left', -20, -10)).toEqual({ left: 80, top: 90, width: 620, height: 510 })
+  expect(resizeReaderRect(start, 'top-left', 9999, 9999)).toEqual({ left: 280, top: 280, width: 420, height: 320 })
+  expect(resizeReaderRect(start, 'left', 30, 99)).toEqual({ ...start, left: 130, width: 570 })
+  expect(resizeReaderRect(start, 'top', 99, 30)).toEqual({ ...start, top: 130, height: 470 })
+  expect(resizeReaderRect(start, 'top-right', 10, -10)).toEqual({ ...start, top: 90, width: 610, height: 510 })
+  expect(resizeReaderRect(start, 'bottom-left', -10, 10)).toEqual({ ...start, left: 90, width: 610, height: 510 })
 })
 
 test('Alt+Arrow steps through the same slices as a node, inside the canvas region, and restores', () => {

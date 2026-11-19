@@ -36,7 +36,7 @@ beforeEach(() => {
 })
 
 async function openReader(): Promise<void> {
-  fireEvent.click(await screen.findByRole('button', { name: /Offene (Frage|Fragen)/ }))
+  fireEvent.click(await screen.findByRole('button', { name: /Open (question|questions)/ }))
   await screen.findByRole('dialog')
 }
 
@@ -54,20 +54,20 @@ function shownQuestion(): string | null {
 
 test('the node shows one badge row with count, first question preview and an open action', async () => {
   render(<OrchestrationQuestionsStrip request={request} />)
-  const badge = await screen.findByRole('button', { name: /Offene Fragen/ })
+  const badge = await screen.findByRole('button', { name: /Open questions/ })
   expect(badge.querySelector('.orchestration-questions-count')?.textContent).toBe('2')
   expect(badge.querySelector('.orchestration-questions-preview')?.textContent).toBe('Q1: Ship it? shot')
-  expect(badge.textContent).toContain('Öffnen')
+  expect(badge.textContent).toContain('Open')
   // Nothing of the question body lives in the node.
   expect(screen.queryByRole('dialog')).toBeNull()
-  expect(screen.queryByRole('button', { name: 'Erledigt' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Done' })).toBeNull()
   expect(document.querySelectorAll('.orchestration-question')).toHaveLength(0)
 })
 
 test('the badge uses the singular for one open question', async () => {
   api.orchestrationState.mockResolvedValue(state([questions[1]]))
   render(<OrchestrationQuestionsStrip request={request} />)
-  expect(await screen.findByRole('button', { name: /Offene Frage(?!n)/ })).toBeTruthy()
+  expect(await screen.findByRole('button', { name: /Open question(?!s)/ })).toBeTruthy()
 })
 
 test('renders nothing without open questions', async () => {
@@ -80,7 +80,7 @@ test('renders nothing without open questions', async () => {
 test('the reader opens on document.body with one tab per open question, labelled with id and ticket', async () => {
   const { container } = render(<OrchestrationQuestionsStrip request={request} />)
   await openReader()
-  const dialog = screen.getByRole('dialog', { name: 'Offene Fragen (2)' })
+  const dialog = screen.getByRole('dialog', { name: 'Open questions (2)' })
   expect(container.contains(dialog)).toBe(false)
   expect(document.body.contains(dialog)).toBe(true)
   const tabs = screen.getAllByRole('tab')
@@ -99,7 +99,7 @@ test('a tab shows its question alone and keeps the others mounted', async () => 
   expect(screen.getByText('bold').tagName).toBe('STRONG')
   expect(screen.getByRole('tabpanel', { name: /Q2/ })).toBeTruthy()
   // The hidden question keeps its answer field, so switching tabs loses nothing typed there.
-  expect(screen.getByLabelText('Antwort auf Q1')).toBeTruthy()
+  expect(screen.getByLabelText('Answer to Q1')).toBeTruthy()
   selectTab(/Q1/)
   expect(shownQuestion()).toBe('Q1')
 })
@@ -125,7 +125,7 @@ test('resolving the selected question selects its neighbour, a new question leav
   render(<OrchestrationQuestionsStrip request={request} />)
   await openReader()
   selectTab(/Q2/)
-  fireEvent.click(screen.getByRole('button', { name: 'Erledigt' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Done' }))
   await waitFor(() => expect(screen.queryByRole('tab', { name: /Q2/ })).toBeNull())
   expect(api.resolveQuestion).toHaveBeenCalledWith({ ...request, questionId: 'Q2' })
   // The one after it takes its place, as a closed browser tab hands over to its right neighbour.
@@ -154,15 +154,15 @@ test('the reader is a non-modal window: no backdrop, no aria-modal, no focus tra
 test('opening the reader moves focus into the selected question’s answer field', async () => {
   render(<OrchestrationQuestionsStrip request={request} />)
   await openReader()
-  expect(document.activeElement).toBe(screen.getByLabelText('Antwort auf Q1'))
+  expect(document.activeElement).toBe(screen.getByLabelText('Answer to Q1'))
 })
 
 test('Escape closes the reader while focus is inside it and hands focus back to the badge', async () => {
   render(<OrchestrationQuestionsStrip request={request} />)
   await openReader()
-  fireEvent.keyDown(screen.getByLabelText('Antwort auf Q1'), { key: 'Escape' })
+  fireEvent.keyDown(screen.getByLabelText('Answer to Q1'), { key: 'Escape' })
   expect(screen.queryByRole('dialog')).toBeNull()
-  const badge = screen.getByRole('button', { name: /Offene Fragen/ })
+  const badge = screen.getByRole('button', { name: /Open questions/ })
   expect(badge).toBeTruthy()
   expect(document.activeElement).toBe(badge)
 })
@@ -173,7 +173,7 @@ test('Escape elsewhere and clicks outside leave the reader open', async () => {
   fireEvent.keyDown(document.body, { key: 'Escape' })
   fireEvent.mouseDown(document.body)
   fireEvent.click(document.body)
-  fireEvent.mouseDown(screen.getByRole('button', { name: /Offene Fragen/ }))
+  fireEvent.mouseDown(screen.getByRole('button', { name: /Open questions/ }))
   expect(screen.getByRole('dialog')).toBeTruthy()
 })
 
@@ -188,7 +188,7 @@ test('keys typed in the reader and clicks on it do not reach the node around it'
   )
   await openReader()
   onClick.mockClear()
-  fireEvent.keyDown(screen.getByLabelText('Antwort auf Q1'), { key: 'a' })
+  fireEvent.keyDown(screen.getByLabelText('Answer to Q1'), { key: 'a' })
   fireEvent.mouseDown(screen.getByText('Q1'))
   fireEvent.click(screen.getByText('Q1'))
   expect(onKeyDown).not.toHaveBeenCalled()
@@ -199,25 +199,25 @@ test('keys typed in the reader and clicks on it do not reach the node around it'
 test('the badge brings an open reader forward instead of closing it', async () => {
   render(<OrchestrationQuestionsStrip request={request} />)
   await openReader()
-  screen.getAllByRole('button', { name: 'Erledigt' })[0].focus()
-  fireEvent.click(screen.getByRole('button', { name: /Offene Fragen/, expanded: true }))
+  screen.getAllByRole('button', { name: 'Done' })[0].focus()
+  fireEvent.click(screen.getByRole('button', { name: /Open questions/, expanded: true }))
   expect(screen.getByRole('dialog')).toBeTruthy()
-  expect(document.activeElement).toBe(screen.getByLabelText('Antwort auf Q1'))
+  expect(document.activeElement).toBe(screen.getByLabelText('Answer to Q1'))
 })
 
 test('the close button closes the reader', async () => {
   render(<OrchestrationQuestionsStrip request={request} />)
   await openReader()
-  fireEvent.click(screen.getByRole('button', { name: 'Schließen' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Close' }))
   expect(screen.queryByRole('dialog')).toBeNull()
 })
 
-test('Erledigt resolves that question and drops it from the reader', async () => {
+test('Done resolves that question and drops it from the reader', async () => {
   render(<OrchestrationQuestionsStrip request={request} />)
   await openReader()
-  const [first] = screen.getAllByRole('button', { name: 'Erledigt' })
+  const [first] = screen.getAllByRole('button', { name: 'Done' })
   fireEvent.click(first)
-  await waitFor(() => expect(screen.getByRole('dialog', { name: 'Offene Fragen (1)' })).toBeTruthy())
+  await waitFor(() => expect(screen.getByRole('dialog', { name: 'Open questions (1)' })).toBeTruthy())
   expect(api.resolveQuestion).toHaveBeenCalledWith({ ...request, questionId: 'Q1' })
   expect(screen.queryByText('Q1')).toBeNull()
   expect(shownQuestion()).toBe('Q2')
@@ -228,9 +228,9 @@ test('resolving the last question closes the reader and the badge goes away', as
   api.resolveQuestion.mockResolvedValue(state([]))
   render(<OrchestrationQuestionsStrip request={request} />)
   await openReader()
-  fireEvent.click(screen.getByRole('button', { name: 'Erledigt' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Done' }))
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-  expect(screen.queryByRole('button', { name: /Offene Frage/ })).toBeNull()
+  expect(screen.queryByRole('button', { name: /Open question/ })).toBeNull()
 })
 
 test('a question that arrives after the reader closed does not reopen it', async () => {
@@ -240,7 +240,7 @@ test('a question that arrives after the reader closed does not reopen it', async
   act(() => push(state([])))
   expect(screen.queryByRole('dialog')).toBeNull()
   act(() => push(state([questions[0]])))
-  expect(screen.getByRole('button', { name: /Offene Frage/ })).toBeTruthy()
+  expect(screen.getByRole('button', { name: /Open question/ })).toBeTruthy()
   expect(screen.queryByRole('dialog')).toBeNull()
 })
 
@@ -324,31 +324,31 @@ test('a question without options has its own answer field under the question, no
   render(<OrchestrationQuestionsStrip request={request} />)
   await openReader()
   const plain = document.querySelector('[data-question-id="Q2"]')!
-  expect(plain.querySelector('textarea')).toBe(screen.getByLabelText('Antwort auf Q2'))
-  expect(screen.queryByLabelText('Antwort auf Q3')).toBeNull()
+  expect(plain.querySelector('textarea')).toBe(screen.getByLabelText('Answer to Q2'))
+  expect(screen.queryByLabelText('Answer to Q3')).toBeNull()
   // The old composer hand-off is gone: typing the answer here replaces it.
-  expect(screen.queryByRole('button', { name: 'Antworten' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Answers' })).toBeNull()
 })
 
 test('a typed answer resolves its question with the same note an Other answer gets', async () => {
   render(<OrchestrationQuestionsStrip request={request} />)
   await openReader()
-  const send = screen.getAllByRole('button', { name: 'Senden' })[0] as HTMLButtonElement
+  const send = screen.getAllByRole('button', { name: 'Send' })[0] as HTMLButtonElement
   expect(send.disabled).toBe(true)
-  fireEvent.change(screen.getByLabelText('Antwort auf Q1'), { target: { value: '  Yes, ship it.  ' } })
+  fireEvent.change(screen.getByLabelText('Answer to Q1'), { target: { value: '  Yes, ship it.  ' } })
   expect(send.disabled).toBe(false)
   fireEvent.click(send)
   await waitFor(() =>
     expect(api.resolveQuestion).toHaveBeenCalledWith({ ...request, questionId: 'Q1', note: 'Answer: Yes, ship it.' })
   )
   // Q2 is still open, so the window stays.
-  await waitFor(() => expect(screen.getByRole('dialog', { name: 'Offene Fragen (1)' })).toBeTruthy())
+  await waitFor(() => expect(screen.getByRole('dialog', { name: 'Open questions (1)' })).toBeTruthy())
 })
 
 test('Ctrl+Enter and Cmd+Enter send the typed answer, Enter alone and an empty field do not', async () => {
   render(<OrchestrationQuestionsStrip request={request} />)
   await openReader()
-  const field = screen.getByLabelText('Antwort auf Q1')
+  const field = screen.getByLabelText('Answer to Q1')
   fireEvent.keyDown(field, { key: 'Enter', ctrlKey: true })
   expect(api.resolveQuestion).not.toHaveBeenCalled()
   fireEvent.change(field, { target: { value: 'one' } })
@@ -358,8 +358,8 @@ test('Ctrl+Enter and Cmd+Enter send the typed answer, Enter alone and an empty f
   await waitFor(() => expect(api.resolveQuestion).toHaveBeenCalledTimes(1))
   expect(api.resolveQuestion).toHaveBeenLastCalledWith({ ...request, questionId: 'Q1', note: 'Answer: one' })
   selectTab(/Q2/)
-  fireEvent.change(screen.getByLabelText('Antwort auf Q2'), { target: { value: 'two' } })
-  fireEvent.keyDown(screen.getByLabelText('Antwort auf Q2'), { key: 'Enter', metaKey: true })
+  fireEvent.change(screen.getByLabelText('Answer to Q2'), { target: { value: 'two' } })
+  fireEvent.keyDown(screen.getByLabelText('Answer to Q2'), { key: 'Enter', metaKey: true })
   await waitFor(() => expect(api.resolveQuestion).toHaveBeenCalledTimes(2))
   expect(api.resolveQuestion).toHaveBeenLastCalledWith({ ...request, questionId: 'Q2', note: 'Answer: two' })
 })
@@ -368,43 +368,43 @@ test('typed answers survive closing and reopening the window, and a failed send 
   api.resolveQuestion.mockRejectedValueOnce(new Error('ipc down'))
   render(<OrchestrationQuestionsStrip request={request} />)
   await openReader()
-  fireEvent.change(screen.getByLabelText('Antwort auf Q1'), { target: { value: 'a long thought' } })
-  fireEvent.click(screen.getAllByRole('button', { name: 'Senden' })[0])
+  fireEvent.change(screen.getByLabelText('Answer to Q1'), { target: { value: 'a long thought' } })
+  fireEvent.click(screen.getAllByRole('button', { name: 'Send' })[0])
   await waitFor(() => expect(api.resolveQuestion).toHaveBeenCalledTimes(1))
   await waitFor(() =>
-    expect((screen.getAllByRole('button', { name: 'Senden' })[0] as HTMLButtonElement).disabled).toBe(false)
+    expect((screen.getAllByRole('button', { name: 'Send' })[0] as HTMLButtonElement).disabled).toBe(false)
   )
-  expect((screen.getByLabelText('Antwort auf Q1') as HTMLTextAreaElement).value).toBe('a long thought')
-  fireEvent.click(screen.getByRole('button', { name: 'Schließen' }))
+  expect((screen.getByLabelText('Answer to Q1') as HTMLTextAreaElement).value).toBe('a long thought')
+  fireEvent.click(screen.getByRole('button', { name: 'Close' }))
   await openReader()
-  expect((screen.getByLabelText('Antwort auf Q1') as HTMLTextAreaElement).value).toBe('a long thought')
+  expect((screen.getByLabelText('Answer to Q1') as HTMLTextAreaElement).value).toBe('a long thought')
 })
 
 test('an answered question takes its focused Send button along, and focus moves to the next question', async () => {
   render(<OrchestrationQuestionsStrip request={request} />)
   await openReader()
-  fireEvent.change(screen.getByLabelText('Antwort auf Q1'), { target: { value: 'yes' } })
-  const send = screen.getByRole('button', { name: 'Senden' })
+  fireEvent.change(screen.getByLabelText('Answer to Q1'), { target: { value: 'yes' } })
+  const send = screen.getByRole('button', { name: 'Send' })
   send.focus()
   fireEvent.click(send)
   await waitFor(() => expect(screen.queryByRole('tab', { name: /Q1/ })).toBeNull())
   // Not the page: from there Alt+Arrow and typing would reach the canvas instead of the window.
-  expect(document.activeElement).toBe(screen.getByLabelText('Antwort auf Q2'))
+  expect(document.activeElement).toBe(screen.getByLabelText('Answer to Q2'))
 })
 
-test('focus the browser drops off a disabled Erledigt still lands in the next question', async () => {
+test('focus the browser drops off a disabled Done still lands in the next question', async () => {
   let finish: (next: OrchestrationControlState) => void = () => undefined
   api.resolveQuestion.mockReturnValue(new Promise((done) => (finish = done)))
   render(<OrchestrationQuestionsStrip request={request} />)
   await openReader()
-  const erledigt = screen.getByRole('button', { name: 'Erledigt' })
+  const erledigt = screen.getByRole('button', { name: 'Done' })
   erledigt.focus()
   fireEvent.click(erledigt)
   // Chromium drops focus off a disabled button to the page; jsdom does not, so it is done by hand.
   act(() => (document.activeElement as HTMLElement).blur())
   expect(document.activeElement).toBe(document.body)
   await act(async () => finish(state([questions[1]])))
-  expect(document.activeElement).toBe(screen.getByLabelText('Antwort auf Q2'))
+  expect(document.activeElement).toBe(screen.getByLabelText('Answer to Q2'))
 })
 
 test('a question resolved elsewhere does not pull focus into the window', async () => {
@@ -426,8 +426,8 @@ test('resolving the last question with a typed answer closes the window', async 
   api.resolveQuestion.mockResolvedValue(state([]))
   render(<OrchestrationQuestionsStrip request={request} />)
   await openReader()
-  fireEvent.change(screen.getByLabelText('Antwort auf Q2'), { target: { value: 'done' } })
-  fireEvent.keyDown(screen.getByLabelText('Antwort auf Q2'), { key: 'Enter', ctrlKey: true })
+  fireEvent.change(screen.getByLabelText('Answer to Q2'), { target: { value: 'done' } })
+  fireEvent.keyDown(screen.getByLabelText('Answer to Q2'), { key: 'Enter', ctrlKey: true })
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
 })
 
@@ -454,7 +454,7 @@ test('the title bar drags the window, the close button does not, and it stays in
   const header = document.querySelector('.orchestration-reader-header')!
   drag(header, [500, 70], [440, 100])
   expect(windowStyle()).toEqual({ ...before, left: before.left - 60, top: before.top + 30 })
-  drag(screen.getByRole('button', { name: 'Schließen' }), [10, 10], [-300, -300])
+  drag(screen.getByRole('button', { name: 'Close' }), [10, 10], [-300, -300])
   expect(windowStyle().left).toBe(before.left - 60)
   drag(header, [500, 70], [-5000, -5000])
   expect(windowStyle()).toMatchObject({ left: 8, top: 8 })
@@ -464,24 +464,45 @@ test('the title bar drags the window, the close button does not, and it stays in
   expect(after.top + after.height).toBe(window.innerHeight - 8)
 })
 
-test('the bottom-right corner resizes without a minimum or maximum', async () => {
+test('every edge and corner resizes like a chat node: opposite side fixed, chat-node minimum, no maximum', async () => {
   render(<OrchestrationQuestionsStrip request={request} />)
   await openReader()
+  const handle = (edge: string): Element => document.querySelector(`.orchestration-reader-resize.${edge}`)!
+  expect(document.querySelectorAll('.orchestration-reader-resize')).toHaveLength(8)
   const before = windowStyle()
-  const corner = document.querySelector('.orchestration-reader-resize')!
-  drag(corner, [0, 0], [-100, -50])
+  drag(handle('bottom-right'), [0, 0], [-100, -50])
   expect(windowStyle()).toEqual({ ...before, width: before.width - 100, height: before.height - 50 })
-  drag(corner, [0, 0], [-9000, -9000])
-  expect(windowStyle()).toMatchObject({ width: 1, height: 1 })
-  drag(corner, [0, 0], [9000, 9000])
-  expect(windowStyle()).toMatchObject({ width: 9001, height: 9001 })
+  drag(handle('bottom-right'), [0, 0], [-9000, -9000])
+  expect(windowStyle()).toMatchObject({ left: before.left, top: before.top, width: 420, height: 320 })
+  drag(handle('bottom-right'), [0, 0], [9000, 9000])
+  expect(windowStyle()).toMatchObject({ width: 9420, height: 9320 })
+  drag(handle('bottom-right'), [0, 0], [-9000, -9000])
+  const small = windowStyle()
+  // The top-left corner moves the origin and keeps the bottom-right one in place.
+  drag(handle('top-left'), [0, 0], [-30, -20])
+  expect(windowStyle()).toEqual({ left: small.left - 30, top: small.top - 20, width: 450, height: 340 })
+  // At the minimum the dragged edge stops and the opposite edge never moves.
+  drag(handle('left'), [0, 0], [500, 0])
+  const afterLeft = windowStyle()
+  expect(afterLeft.width).toBe(420)
+  expect(afterLeft.left + afterLeft.width).toBe(small.left - 30 + 450)
+  drag(handle('top'), [0, 0], [0, 500])
+  expect(windowStyle().height).toBe(320)
+  expect(windowStyle().top + 320).toBe(small.top - 20 + 340)
+  const edges = windowStyle()
+  drag(handle('right'), [0, 0], [25, 0])
+  drag(handle('bottom'), [0, 0], [0, 15])
+  expect(windowStyle()).toEqual({ ...edges, width: edges.width + 25, height: edges.height + 15 })
+  drag(handle('top-right'), [0, 0], [10, -10])
+  drag(handle('bottom-left'), [0, 0], [-10, 10])
+  expect(windowStyle()).toMatchObject({ width: edges.width + 45, height: edges.height + 35 })
 })
 
 test('Alt+Arrow arranges the window like a node, also from its answer field, and Alt+Down restores it', async () => {
   render(<OrchestrationQuestionsStrip request={request} />)
   await openReader()
   const before = windowStyle()
-  const field = screen.getByLabelText('Antwort auf Q1')
+  const field = screen.getByLabelText('Answer to Q1')
   fireEvent.keyDown(field, { key: 'ArrowLeft', code: 'ArrowLeft', altKey: true })
   expect(windowStyle()).toEqual({
     left: 16,
@@ -573,9 +594,9 @@ test('reopening restores the last position and size of that orchestrator node', 
   const { unmount } = render(<OrchestrationQuestionsStrip request={request} />)
   await openReader()
   drag(document.querySelector('.orchestration-reader-header')!, [500, 70], [400, 120])
-  drag(document.querySelector('.orchestration-reader-resize')!, [0, 0], [-80, -60])
+  drag(document.querySelector('.orchestration-reader-resize.bottom-right')!, [0, 0], [-80, -60])
   const moved = windowStyle()
-  fireEvent.click(screen.getByRole('button', { name: 'Schließen' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Close' }))
   await openReader()
   expect(windowStyle()).toEqual(moved)
   unmount()
@@ -603,11 +624,11 @@ test('a smaller browser window pulls the reader back inside', async () => {
 
 test('a pushed state for this orchestration updates the badge, another one is ignored', async () => {
   render(<OrchestrationQuestionsStrip request={request} />)
-  await screen.findByRole('button', { name: /Offene Fragen/ })
+  await screen.findByRole('button', { name: /Open questions/ })
   act(() => push({ ...state([]), conversationId: 'other' }))
-  expect(screen.getByRole('button', { name: /Offene Fragen/ }).textContent).toContain('2')
+  expect(screen.getByRole('button', { name: /Open questions/ }).textContent).toContain('2')
   act(() => push(state([])))
-  expect(screen.queryByRole('button', { name: /Offene Fragen?/ })).toBeNull()
+  expect(screen.queryByRole('button', { name: /Open questions?/ })).toBeNull()
 })
 
 test('questionTabAfterChange keeps a live selection and hands a resolved one to its neighbour', () => {
@@ -634,21 +655,21 @@ const pinnedAnswer = {
   createdAt: 5
 }
 
-test('a pinned answer is acknowledged with Gelesen, has no answer field and is named an answer', async () => {
+test('a pinned answer is acknowledged with Read, has no answer field and is named an answer', async () => {
   api.orchestrationState.mockResolvedValue(state([pinnedAnswer]))
   api.resolveQuestion.mockResolvedValue(state([]))
   render(<OrchestrationQuestionsStrip request={request} />)
-  const badge = await screen.findByRole('button', { name: /Antwort/ })
-  expect(badge.querySelector('.orchestration-questions-label')?.textContent).toBe('Antwort')
+  const badge = await screen.findByRole('button', { name: /Answer/ })
+  expect(badge.querySelector('.orchestration-questions-label')?.textContent).toBe('Answer')
   expect(badge.querySelector('.orchestration-questions-preview')?.textContent).toBe('Q5: It is the left one.')
   fireEvent.click(badge)
-  await screen.findByRole('dialog', { name: 'Antworten (1)' })
-  expect(screen.getByRole('tab').textContent).toBe('Q5 #3 · Antwort')
+  await screen.findByRole('dialog', { name: 'Answers (1)' })
+  expect(screen.getByRole('tab').textContent).toBe('Q5 #3 · Answer')
   expect(screen.getByText('left').tagName).toBe('STRONG')
-  // An answer is read, not answered: no free-text field, no Erledigt.
-  expect(screen.queryByLabelText('Antwort auf Q5')).toBeNull()
-  expect(screen.queryByRole('button', { name: 'Erledigt' })).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: 'Gelesen' }))
+  // An answer is read, not answered: no free-text field, no Done.
+  expect(screen.queryByLabelText('Answer to Q5')).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Done' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Read' }))
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   expect(api.resolveQuestion).toHaveBeenCalledWith({ ...request, questionId: 'Q5' })
 })
@@ -656,13 +677,13 @@ test('a pinned answer is acknowledged with Gelesen, has no answer field and is n
 test('questions and answers share the badge and the reader, each with its own action', async () => {
   api.orchestrationState.mockResolvedValue(state([questions[1], pinnedAnswer]))
   render(<OrchestrationQuestionsStrip request={request} />)
-  const badge = await screen.findByRole('button', { name: /Offene Fragen & Antworten/ })
+  const badge = await screen.findByRole('button', { name: /Open questions & answers/ })
   expect(badge.querySelector('.orchestration-questions-count')?.textContent).toBe('2')
   fireEvent.click(badge)
-  await screen.findByRole('dialog', { name: 'Offene Fragen & Antworten (2)' })
-  expect(screen.getByRole('button', { name: 'Erledigt' })).toBeTruthy()
-  expect(screen.getByLabelText('Antwort auf Q2')).toBeTruthy()
+  await screen.findByRole('dialog', { name: 'Open questions & answers (2)' })
+  expect(screen.getByRole('button', { name: 'Done' })).toBeTruthy()
+  expect(screen.getByLabelText('Answer to Q2')).toBeTruthy()
   selectTab(/Q5/)
-  expect(screen.getByRole('button', { name: 'Gelesen' })).toBeTruthy()
-  expect(screen.queryByRole('button', { name: 'Erledigt' })).toBeNull()
+  expect(screen.getByRole('button', { name: 'Read' })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Done' })).toBeNull()
 })

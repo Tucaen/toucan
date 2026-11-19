@@ -119,20 +119,20 @@ beforeEach(() => {
 describe('the open-questions link in the chat', () => {
   test('counts the questions in the header and keeps them out of the transcript', () => {
     open(WITH_QUESTIONS)
-    expect(screen.getByRole('button', { name: '2 offene Fragen ›' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '2 open questions ›' })).toBeInTheDocument()
     expect(screen.queryByText('branch')).not.toBeInTheDocument()
   })
 
   test('is absent without open questions', () => {
     open(ORCHESTRATOR)
-    expect(screen.queryByText(/offene Frage/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/open question/)).not.toBeInTheDocument()
   })
 
   test('opens the questions view of this orchestrator', () => {
     const { onOpenQuestions } = open(WITH_QUESTIONS)
-    fireEvent.click(screen.getByRole('button', { name: '2 offene Fragen ›' }))
+    fireEvent.click(screen.getByRole('button', { name: '2 open questions ›' }))
     expect(onOpenQuestions).toHaveBeenCalledWith('orch-1')
-    expect(screen.getByRole('heading', { name: 'Offene Fragen' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Open questions' })).toBeInTheDocument()
     expect(screen.queryByLabelText('Message')).not.toBeInTheDocument()
   })
 
@@ -148,7 +148,7 @@ describe('the open-questions link in the chat', () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(3_100)
       })
-      expect(screen.queryByText(/offene Frage/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/open question/)).not.toBeInTheDocument()
     } finally {
       vi.useRealTimers()
     }
@@ -252,15 +252,15 @@ describe('the questions view', () => {
 describe('a pinned answer', () => {
   test('is counted as an answer in the header link', () => {
     open(WITH_ANSWER)
-    expect(screen.getByRole('button', { name: '1 Antwort ›' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '1 answer ›' })).toBeInTheDocument()
     cleanup()
     open({ ...ORCHESTRATOR, openQuestions: [QUESTIONS[0], ANSWER] })
-    expect(screen.getByRole('button', { name: '2 offene Fragen & Antworten ›' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '2 open questions & answers ›' })).toBeInTheDocument()
   })
 
   test('is read in the view and acknowledged with Gelesen, with no Antworten shortcut', async () => {
     open(WITH_ANSWER, 'questions')
-    expect(screen.getByRole('heading', { name: 'Antworten' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Answers' })).toBeInTheDocument()
     expect(screen.getByRole('tab')).toHaveTextContent('Q6 · #7 · Antwort')
     expect(screen.getByRole('tabpanel')).toHaveTextContent('It is the left one.')
     expect(screen.queryByRole('button', { name: 'Antworten' })).not.toBeInTheDocument()

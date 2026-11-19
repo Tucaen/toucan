@@ -7,10 +7,12 @@ import {
   type SnapArrow,
   type SnapSlice
 } from './node-snap'
+import { CHAT_NODE_MIN_HEIGHT, CHAT_NODE_MIN_WIDTH } from './node-size-limits'
 
 /**
  * Where the floating questions reader sits and how big it is. Pure, so the window's bounds are one
- * rule: its position never leaves the viewport. Its size has no limit, like a node's. Alt+Arrow and
+ * rule: its position never leaves the viewport. Its size follows a chat node's resize rules (all
+ * eight edges and corners, the chat node's minimum size, no maximum). Alt+Arrow and
  * the header's fit button arrange it through the canvas's own slice vocabulary (`node-snap.ts`),
  * in the region a node's fullscreen fills: the canvas on screen, so the sidebar, the top bar and a
  * docked panel stay visible.
@@ -71,13 +73,39 @@ export function moveReaderRect(rect: ReaderRect, dx: number, dy: number, viewpor
   return clampReaderRect({ ...rect, left: rect.left + dx, top: rect.top + dy }, viewport)
 }
 
-/** Drag of the bottom-right corner: the top-left corner stays and the size follows without limit. */
-export function resizeReaderRect(rect: ReaderRect, dx: number, dy: number): ReaderRect {
-  return {
-    ...rect,
-    width: Math.max(MIN_EXTENT, rect.width + dx),
-    height: Math.max(MIN_EXTENT, rect.height + dy)
+/** The eight grab bands of a chat node's border resizer: four edges and four corners. */
+export type ReaderResizeEdge =
+  'top' | 'bottom' | 'left' | 'right' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+
+export const READER_RESIZE_EDGES: readonly ReaderResizeEdge[] = [
+  'top',
+  'bottom',
+  'left',
+  'right',
+  'top-left',
+  'top-right',
+  'bottom-left',
+  'bottom-right'
+]
+
+/**
+ * Drag of one edge or corner, as a chat node's resize does: the opposite edge stays fixed, a left or
+ * top drag moves the origin with it, and the size stops at the chat node's minimum (the dragged edge
+ * stops there, the fixed one never moves) with no maximum.
+ */
+export function resizeReaderRect(rect: ReaderRect, edge: ReaderResizeEdge, dx: number, dy: number): ReaderRect {
+  let { left, top, width, height } = rect
+  if (edge.includes('right')) width = Math.max(CHAT_NODE_MIN_WIDTH, rect.width + dx)
+  if (edge.includes('bottom')) height = Math.max(CHAT_NODE_MIN_HEIGHT, rect.height + dy)
+  if (edge.includes('left')) {
+    width = Math.max(CHAT_NODE_MIN_WIDTH, rect.width - dx)
+    left = rect.left + rect.width - width
   }
+  if (edge.includes('top')) {
+    height = Math.max(CHAT_NODE_MIN_HEIGHT, rect.height - dy)
+    top = rect.top + rect.height - height
+  }
+  return { left, top, width, height }
 }
 
 /** Where the window is arranged, and where it returns to; session-local like a node's snap state. */

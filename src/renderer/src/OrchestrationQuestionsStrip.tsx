@@ -74,7 +74,7 @@ export default function OrchestrationQuestionsStrip({
         <span className="orchestration-questions-label">{pinnedHeading(questions.questions)}</span>
         <span className="orchestration-questions-preview">{questionPreview(first.id, first.markdown)}</span>
         <span className="orchestration-questions-open">
-          {open ? 'Fokus' : 'Öffnen'}
+          {open ? 'Fokus' : 'Open'}
           <ChevronRight aria-hidden="true" />
         </span>
       </button>

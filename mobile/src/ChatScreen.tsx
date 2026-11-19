@@ -301,7 +301,7 @@ export default function ChatScreen({
               sat under a page that always scrolls to its newest message. */}
           {openQuestions.length > 0 && (
             <button type="button" className="chat-questions-link" onClick={() => onOpenQuestions(chatId)}>
-              {openQuestions.length} {pinnedHeading(openQuestions).replace(/^Offene/, 'offene')} ›
+              {openQuestions.length} {pinnedHeading(openQuestions).replace(/^./, (first) => first.toLowerCase())} ›
             </button>
           )}
         </div>

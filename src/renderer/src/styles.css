@@ -8225,25 +8225,77 @@ button.worktree-agent-unread:focus-visible {
   height: 16px;
 }
 
+/* The grab bands of a chat node's border resizer (see .node-resize-line / .node-resize-handle): four
+   edges and four corners, 8px wide and growing inward from the window's border. Corners sit above
+   the edges they overlap, so a corner drag never degrades into a one-axis one. */
 .orchestration-reader-resize {
   position: absolute;
+  z-index: var(--z-base);
+}
+
+.orchestration-reader-resize.top,
+.orchestration-reader-resize.bottom {
+  left: 0;
+  right: 0;
+  height: 8px;
+  cursor: ns-resize;
+}
+
+.orchestration-reader-resize.left,
+.orchestration-reader-resize.right {
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: ew-resize;
+}
+
+.orchestration-reader-resize.top {
+  top: 0;
+}
+
+.orchestration-reader-resize.bottom {
+  bottom: 0;
+}
+
+.orchestration-reader-resize.left {
+  left: 0;
+}
+
+.orchestration-reader-resize.right {
+  right: 0;
+}
+
+.orchestration-reader-resize.top-left,
+.orchestration-reader-resize.top-right,
+.orchestration-reader-resize.bottom-left,
+.orchestration-reader-resize.bottom-right {
+  z-index: var(--z-control);
+  width: 12px;
+  height: 12px;
+}
+
+.orchestration-reader-resize.top-left {
+  top: 0;
+  left: 0;
+  cursor: nwse-resize;
+}
+
+.orchestration-reader-resize.bottom-right {
   right: 0;
   bottom: 0;
-  width: 18px;
-  height: 18px;
-  border-radius: 0 0 12px 0;
-  background: linear-gradient(
-    135deg,
-    transparent 55%,
-    #5b6677 55%,
-    #5b6677 62%,
-    transparent 62%,
-    transparent 72%,
-    #5b6677 72%,
-    #5b6677 79%,
-    transparent 79%
-  );
   cursor: nwse-resize;
+}
+
+.orchestration-reader-resize.top-right {
+  top: 0;
+  right: 0;
+  cursor: nesw-resize;
+}
+
+.orchestration-reader-resize.bottom-left {
+  bottom: 0;
+  left: 0;
+  cursor: nesw-resize;
 }
 
 .orchestration-reader-tabs {
