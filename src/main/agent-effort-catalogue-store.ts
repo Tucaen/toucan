@@ -17,6 +17,8 @@ export interface AgentEffortCatalogueStore {
   record(provider: AgentProvider, modelId: string, efforts: readonly string[]): void
   /** Settles once the file has been read. */
   ready: Promise<void>
+  /** Settles once every record so far has been written (or has failed and been logged). */
+  flushed(): Promise<void>
 }
 
 /** A guard against an adapter gone strange, like the model catalogue's. */
@@ -65,6 +67,7 @@ export function createAgentEffortCatalogueStore(options: {
   // A synchronous mirror, for the same reason as the model catalogue's: a route is resolved inside
   // a request handler, and a record that landed before the first read wins over the file.
   let current: AgentEffortCatalogue = {}
+  let pending: Promise<void> = Promise.resolve()
   const ready = store
     .load()
     .then((loaded) => {
@@ -82,7 +85,7 @@ export function createAgentEffortCatalogueStore(options: {
       if (sameList(current[provider]?.[modelId], efforts)) return
       const list = [...efforts]
       current = { ...current, [provider]: bounded(current[provider], modelId, list) }
-      void store
+      const write = store
         .update((stored) => ({
           value: { ...stored, [provider]: bounded(stored[provider], modelId, list) },
           result: undefined
@@ -90,6 +93,8 @@ export function createAgentEffortCatalogueStore(options: {
         .catch((error: unknown) => {
           options.log?.(`Could not record the ${provider} ${modelId} effort list: ${String(error)}`)
         })
-    }
+      pending = Promise.all([pending, write]).then(() => undefined)
+    },
+    flushed: () => pending
   }
 }
