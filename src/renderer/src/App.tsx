@@ -92,7 +92,7 @@ import {
 import { branchBlockedReason, lineageEdges, lineageKey, offersBranchAction, planBranch } from './conversation-lineage'
 import { orchestratedEdges, orchestratedKey } from './orchestration-edges'
 import { launchModeAfterConversation, relaunchInPlace } from './session-launch-mode'
-import { nodeHoldingConversation, planHistoryOpen } from './history-open'
+import { nodeHoldingConversation, planHistoryOpen, relinkTicketSessions } from './history-open'
 import type { HistoryRestoreRequest } from '../../shared/remote-history'
 import { useTicketsFolderRevision } from './use-tickets-folder-revision'
 import { useWorkspaceSnapshot } from './use-workspace-snapshot'
@@ -1867,11 +1867,18 @@ function Canvas(): JSX.Element {
         label: entry.title,
         titleSource: entry.titleSource,
         resumeConversationId: entry.id,
-        branchedFrom: plan.branchedFrom
+        branchedFrom: plan.branchedFrom,
+        role: plan.role
       })
+      // A reopened orchestrator takes back the ticket sessions that still name the node it was in.
+      if (chatId && plan.role) {
+        const orchestration = { provider: entry.provider, conversationId: entry.id }
+        nodesRef.current = relinkTicketSessions(nodesRef.current, orchestration, chatId)
+        setNodes((current) => relinkTicketSessions(current, orchestration, chatId))
+      }
       return chatId ? { ok: true, chatId } : { ok: false, message: 'The original checkout could not be opened.' }
     },
-    [addSessionNode, resumeNode]
+    [addSessionNode, resumeNode, setNodes]
   )
   const openRemoteHistory = useCallback(
     ({ projectId, entry }: HistoryRestoreRequest) =>

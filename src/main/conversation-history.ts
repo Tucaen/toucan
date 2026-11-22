@@ -6,10 +6,12 @@ import type {
   ConversationProvider,
   ConversationSummary
 } from '../shared/conversation'
+import { ORCHESTRATOR_ROLE } from '../shared/orchestration'
 import { pathIdentity } from '../shared/paths'
 import { claudeConfigRoot } from './claude-config'
 import type { ConversationLineageStore } from './conversation-lineage-store'
 import type { ConversationTitleStore } from './conversation-title-store'
+import type { OrchestratorConversations } from './orchestrator-conversations'
 
 export interface ConversationHistoryOptions {
   homeDirectory: string
@@ -17,6 +19,8 @@ export interface ConversationHistoryOptions {
   titles?: ConversationTitleStore
   /** Toucan's own fork records; the only lineage a Claude transcript has. */
   lineage?: ConversationLineageStore
+  /** Which conversations are orchestrators', so such an entry reopens as one (Tucaen/toucan#1). */
+  orchestrators?: Pick<OrchestratorConversations, 'has'>
 }
 
 export interface ConversationHistory {
@@ -425,6 +429,10 @@ export function createConversationHistory(options: ConversationHistoryOptions): 
     const durableTitle = await options.titles?.get(candidate.provider, candidate.id)
     // Toucan's record first: it names what the user actually branched, whichever provider ran it.
     const forkedFrom = (await options.lineage?.forkedFrom(candidate.provider, candidate.id)) ?? candidate.forkedFrom
+    const orchestrator = await options.orchestrators?.has({
+      provider: candidate.provider,
+      conversationId: candidate.id
+    })
     return {
       id: candidate.id,
       provider: candidate.provider,
@@ -436,7 +444,8 @@ export function createConversationHistory(options: ConversationHistoryOptions): 
       updatedAt: detail.updatedAt,
       messageCount: detail.messageCount,
       cwd: candidate.cwd,
-      ...(forkedFrom ? { forkedFrom } : {})
+      ...(forkedFrom ? { forkedFrom } : {}),
+      ...(orchestrator ? { role: ORCHESTRATOR_ROLE } : {})
     }
   }
 

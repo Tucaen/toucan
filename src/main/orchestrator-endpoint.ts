@@ -131,6 +131,14 @@ export interface OrchestratorEndpoint {
   grant(nodeId: string, scope: OrchestratorScope): Promise<OrchestratorGrant | undefined>
   /** Whether the listener is bound - the "no orchestrator, no open port" check. */
   listening(): boolean
+  /**
+   * The orchestration a live orchestrator session holds, once its conversation is known. Only a
+   * session launched with the role is granted, so this answers as surely as the token does - and
+   * before the canvas has saved the node, which a just-opened orchestrator's has not (Tucaen/toucan#1).
+   */
+  liveOrchestration(nodeId: string): OrchestrationKey | undefined
+  /** The node a live orchestrator session holding this orchestration runs in, if one does. */
+  liveOrchestrator(key: OrchestrationKey): string | undefined
   /** Re-evaluates deferred work after a provider ticket enters or leaves the live count. */
   pacingActivityChanged(provider: AgentProvider): void
   /** Retries a coalesced pacing wake when its orchestrator session becomes ready. */
@@ -229,6 +237,12 @@ export interface OrchestratorEndpointOptions {
    * orchestrator that is making the call. Absent, the record's pause is simply cleared.
    */
   resumePaused?(key: OrchestrationKey, orchestratorNodeId: string): Promise<unknown>
+  /**
+   * An orchestrator session opened its conversation: the moment that conversation is known to be an
+   * orchestrator's, and the moment its node's controls can first be answered - whether the node is
+   * new, restored or reopened from History (Tucaen/toucan#1).
+   */
+  onConversation?(nodeId: string, key: OrchestrationKey): void
   /**
    * How long `followup` waits for a working session to take the text before it answers "queued":
    * a session that cannot be steered only takes it when its turn ends, which can be an hour.
@@ -524,6 +538,7 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
         orchestratorNodeId: grant.nodeId,
         ticketId,
         provider: grant.provider,
+        orchestration: key,
         ...(session.conversationId ? { conversationId: session.conversationId } : {})
       })
     }
@@ -778,6 +793,7 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
         orchestratorNodeId: grant.nodeId,
         ticketId: ticket.id,
         provider: grant.provider,
+        orchestration: key,
         ...(session.conversationId ? { conversationId: session.conversationId } : {})
       })
       const link = (session: TicketSession, state: TicketRunState): Promise<void> => {
@@ -1547,6 +1563,7 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
             void pacingCoordinator
               ?.restore({ provider: grant.provider, conversationId }, grant.nodeId)
               .catch((error: unknown) => options.log?.(`provider pacing restore failed: ${errorMessage(error)}`))
+            options.onConversation?.(grant.nodeId, { provider: grant.provider, conversationId })
           },
           revoke: () => revoke(grant)
         }
@@ -1559,6 +1576,20 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     },
     listening() {
       return startedServer !== undefined
+    },
+    liveOrchestration(nodeId) {
+      for (const grant of grants) {
+        if (grant.nodeId === nodeId && grant.conversationId) {
+          return { provider: grant.provider, conversationId: grant.conversationId }
+        }
+      }
+      return undefined
+    },
+    liveOrchestrator(key) {
+      for (const grant of grants) {
+        if (grant.provider === key.provider && grant.conversationId === key.conversationId) return grant.nodeId
+      }
+      return undefined
     },
     pacingActivityChanged(provider) {
       pacingCoordinator?.activityChanged(provider)

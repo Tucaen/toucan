@@ -302,3 +302,47 @@ test('an unlinked session raises nothing for its orchestrator', async () => {
   await fold()
   assert.deepEqual(delivered, [])
 })
+
+// Tucaen/toucan#1: an orchestrator reopened from History runs in a new node. The wakes its ticket
+// sessions raise - already folded, held undelivered, or still to come - follow it there.
+test('wakes follow an orchestration into the node it was reopened in', async () => {
+  const orchestration = { provider: 'claude' as const, conversationId: 'orchestrator-conversation' }
+  const bound: TicketBinding = { ...bindings['ticket-a'], orchestratorNodeId: 'closed', orchestration }
+  const other: TicketBinding = {
+    ...bindings['ticket-b'],
+    orchestratorNodeId: 'elsewhere',
+    orchestration: { provider: 'claude', conversationId: 'another' }
+  }
+  const { waker, delivered, fold } = harness({
+    resolve: (nodeId) => (nodeId === 'ticket-a' ? bound : nodeId === 'ticket-b' ? other : null),
+    answers: [{ ok: false, undelivered: true }]
+  })
+
+  // Raised while the orchestrator's node was gone: the delivery comes back undelivered and is owed.
+  waker.observe('ticket-a', complete)
+  await fold()
+  assert.deepEqual(
+    delivered.map((entry) => entry.nodeId),
+    ['closed']
+  )
+
+  waker.relocate(orchestration, 'reopened')
+  await fold()
+  assert.deepEqual(
+    delivered.map((entry) => entry.nodeId),
+    ['closed', 'reopened']
+  )
+  assert.match(delivered[1].text, /#12 completed/)
+
+  // Later events of that orchestration go to the new node; another orchestration's stay put.
+  waker.observe('ticket-a', { type: 'turn_failed', message: 'boom' })
+  waker.observe('ticket-b', complete)
+  await fold()
+  assert.deepEqual(
+    delivered
+      .slice(2)
+      .map((entry) => entry.nodeId)
+      .sort(),
+    ['elsewhere', 'reopened']
+  )
+})

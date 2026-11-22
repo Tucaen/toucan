@@ -1,4 +1,6 @@
 import type { AgentProvider } from '../../shared/agent-provider'
+import { isChatNodeRole, type ChatNodeRole } from '../../shared/orchestration'
+import { orchestratorProvider } from '../../shared/ticket-session-spawn'
 import type { ConversationLineage } from '../../shared/workspace'
 import { isChatCanvasNode, type CanvasNode } from './canvas-workspace'
 
@@ -14,9 +16,11 @@ export type HistoryOpenPlan =
   | { action: 'focus'; nodeId: string }
   /**
    * `branchedFrom` is present when the entry is a fork whose parent is on the canvas, so the
-   * reopened node carries its provenance and draws its lineage edge again.
+   * reopened node carries its provenance and draws its lineage edge again. `role` is present when
+   * the conversation is an orchestrator's, so it reopens as one - minted its token, given its
+   * controls - rather than as a plain chat holding an orchestrator's transcript (Tucaen/toucan#1).
    */
-  | { action: 'open'; branchedFrom?: ConversationLineage }
+  | { action: 'open'; branchedFrom?: ConversationLineage; role?: ChatNodeRole }
 
 /** The little of an entry this decision reads. */
 export interface HistoryOpenEntry {
@@ -24,6 +28,8 @@ export interface HistoryOpenEntry {
   id: string
   /** The conversation the entry was forked from, when that is known. */
   forkedFrom?: string
+  /** The role main says the conversation's chat had. */
+  role?: ChatNodeRole
 }
 
 /** The chat node that holds this provider conversation, if one is on the canvas. */
@@ -41,7 +47,34 @@ export function planHistoryOpen(nodes: readonly CanvasNode[], entry: HistoryOpen
   const holder = nodeHoldingConversation(nodes, entry.provider, entry.id)
   if (holder) return { action: 'focus', nodeId: holder.id }
   const parent = entry.forkedFrom ? nodeHoldingConversation(nodes, entry.provider, entry.forkedFrom) : undefined
-  return parent && entry.forkedFrom
-    ? { action: 'open', branchedFrom: { nodeId: parent.id, conversationId: entry.forkedFrom } }
-    : { action: 'open' }
+  return {
+    action: 'open',
+    ...(parent && entry.forkedFrom ? { branchedFrom: { nodeId: parent.id, conversationId: entry.forkedFrom } } : {}),
+    ...(isChatNodeRole(entry.role) ? { role: entry.role } : {})
+  }
+}
+
+/**
+ * Points the ticket sessions of a reopened orchestrator at its new node. They still name the node
+ * that was closed, and that link is what draws their orchestrated-by edge and what main reads to
+ * address their wakes; the orchestration itself is the conversation, so a link matches on that.
+ * Every other node comes back as the same object.
+ */
+export function relinkTicketSessions(
+  nodes: readonly CanvasNode[],
+  orchestration: { provider: AgentProvider; conversationId: string },
+  nodeId: string
+): CanvasNode[] {
+  return nodes.map((node) => {
+    if (!isChatCanvasNode(node)) return node
+    const link = node.data.orchestratedBy
+    if (
+      !link ||
+      link.nodeId === nodeId ||
+      link.conversationId !== orchestration.conversationId ||
+      orchestratorProvider(link) !== orchestration.provider
+    )
+      return node
+    return { ...node, data: { ...node.data, orchestratedBy: { ...link, nodeId } } }
+  })
 }

@@ -83,6 +83,14 @@ title, body or source reference, `blocked_by`, route, spawned session, attempts 
 status. The orchestrator writes it through the CLI; a resumed orchestrator (or a restarted
 Toucan) rebuilds its picture from it, never from memory.
 
+Being an orchestrator belongs to the conversation, not only to the node holding it
+(Tucaen/toucan#1). Main keeps it in `src/main/orchestrator-conversations.ts`: a marker written
+when an orchestrator session opens its conversation, or the record itself. History reopens such a
+conversation as an orchestrator and points its ticket sessions at the new node, and a saved chat
+holding one without its role gets the role back when the canvas loads. A live orchestrator is
+answered from its grant rather than from the saved canvas, so its controls, pinned questions and
+wakes do not wait for the next debounced save.
+
 - Input is either free text, which becomes a plan held only in the record, or a reference to a
   tracker item, which the orchestrator reads with whatever tools its session has (`gh`, a
   connector, files).

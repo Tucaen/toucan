@@ -2,6 +2,7 @@ import type { AgentEvent, AgentPromptResult } from '../shared/agent'
 import type { SessionOutcomeIdentity } from '../shared/session-outcome'
 import { orchestratorWakePrompt, ticketWakeKind, type TicketWakeEvent } from '../shared/orchestration'
 import { errorMessage } from '../shared/text'
+import type { OrchestrationKey } from './orchestration-store'
 
 /**
  * Wakes an orchestrator when its ticket sessions finish, fail or ask something (#35; plan in
@@ -25,6 +26,11 @@ export interface TicketBinding {
   ticketId: string
   /** The ticket session's conversation, which its outcome record is keyed by. */
   conversationId?: string
+  /**
+   * The orchestration the ticket belongs to - the orchestrator's conversation, which outlives the
+   * node it runs in, so `relocate` can follow it into a node it was reopened in.
+   */
+  orchestration?: OrchestrationKey
 }
 
 export interface OrchestrationWakerOptions {
@@ -59,6 +65,12 @@ export interface OrchestrationWaker {
    * `spawn` answered `pending` - to wake the orchestrator with like one.
    */
   report(binding: TicketBinding, event: { kind: 'started' | 'start-failed'; reason?: string }): void
+  /**
+   * The orchestration's session opened in `nodeId` - after a History reopen, a node other than the
+   * one its tickets were bound to (Tucaen/toucan#1). Their bindings follow it, and what was waiting
+   * for the old node, folded or owed, is sent to the new one.
+   */
+  relocate(orchestration: OrchestrationKey, nodeId: string): void
   /** Settles once every lookup and delivery started so far has; for tests. */
   idle(): Promise<void>
 }
@@ -217,6 +229,35 @@ export function createOrchestrationWaker(options: OrchestrationWakerOptions): Or
 
     report(binding, event) {
       enqueue(binding, event)
+    },
+
+    relocate(orchestration, nodeId) {
+      const moved = new Set<string>()
+      for (const [ticketNodeId, binding] of bindings) {
+        if (
+          !binding?.orchestration ||
+          binding.orchestratorNodeId === nodeId ||
+          binding.orchestration.provider !== orchestration.provider ||
+          binding.orchestration.conversationId !== orchestration.conversationId
+        )
+          continue
+        moved.add(binding.orchestratorNodeId)
+        bindings.set(ticketNodeId, { ...binding, orchestratorNodeId: nodeId })
+      }
+      if (moved.size === 0) return
+      const target = queueFor(nodeId)
+      for (const previous of moved) {
+        const queue = queues.get(previous)
+        if (!queue) continue
+        queue.cancelTimer?.()
+        queues.delete(previous)
+        target.items.push(...queue.items)
+      }
+      target.items.sort((a, b) => a.sequence - b.sequence)
+      // The new session has not refused anything yet: what the old node owed is tried on it now, and
+      // held again for its first ready boundary if it cannot take it either.
+      target.owed = false
+      arm(nodeId, target)
     },
 
     async idle() {

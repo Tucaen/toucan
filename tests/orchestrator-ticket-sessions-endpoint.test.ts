@@ -154,7 +154,9 @@ test('a spawned ticket session is bound to its orchestrator for waking', async (
         ticketId: '34',
         orchestratorNodeId: 'orchestrator-1',
         provider: 'claude',
-        conversationId: 'conversation-34'
+        conversationId: 'conversation-34',
+        // The orchestrator's conversation, which wakes follow into whatever node holds it.
+        orchestration: { provider: 'claude', conversationId: 'conversation-1' }
       }
     ])
   } finally {

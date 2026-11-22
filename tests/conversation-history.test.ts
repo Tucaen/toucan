@@ -386,6 +386,55 @@ test('a fork names the conversation it was branched from: Codex from its rollout
   }
 })
 
+// Tucaen/toucan#1: History reopens an orchestrator's conversation as an orchestrator, so the entry
+// says which conversations are orchestrators' - per provider, from main's own record of it.
+test('marks the conversations main knows are orchestrators, and no others', async () => {
+  const home = makeHome()
+  try {
+    writeCodexTranscript({
+      home,
+      id: 'codex-orchestrator',
+      cwd: PROJECT,
+      day: '21',
+      turns: [{ role: 'user', text: 'split the release work' }],
+      mtimeSeconds: 1_700_000_900
+    })
+    writeClaudeTranscript({
+      home,
+      directoryName: encodeClaudeProjectDirectory(PROJECT),
+      id: 'claude-orchestrator',
+      turns: [{ role: 'user', text: 'orchestrate the migration' }],
+      mtimeSeconds: 1_700_000_800
+    })
+    writeClaudeTranscript({
+      home,
+      directoryName: encodeClaudeProjectDirectory(PROJECT),
+      id: 'claude-chat',
+      turns: [{ role: 'user', text: 'just a question' }],
+      mtimeSeconds: 1_700_000_700
+    })
+    const orchestrators = new Set(['codex:codex-orchestrator', 'claude:claude-orchestrator'])
+
+    const page = await createConversationHistory({
+      homeDirectory: home,
+      environment: {},
+      orchestrators: { has: async (key) => orchestrators.has(`${key.provider}:${key.conversationId}`) }
+    }).list({ directories: [PROJECT] })
+
+    assert.deepEqual(
+      page.entries.map((entry) => [entry.id, entry.role]),
+      [
+        ['codex-orchestrator', 'orchestrator'],
+        ['claude-orchestrator', 'orchestrator'],
+        ['claude-chat', undefined]
+      ]
+    )
+    assert.equal('role' in page.entries[2], false)
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
 test('reads a Codex session whose meta line outruns the head read', async () => {
   const home = makeHome()
   try {

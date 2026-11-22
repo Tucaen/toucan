@@ -1,5 +1,6 @@
 import type { ConversationTitle, ConversationTitleSource } from './conversation-title'
 import type { AgentProvider } from './agent-provider'
+import type { ChatNodeRole } from './orchestration'
 
 /** The provider a conversation ran on; the agent contract's `AgentProvider` under this module's name. */
 export type ConversationProvider = AgentProvider
@@ -22,6 +23,11 @@ export interface ConversationSummary {
   cwd: string
   /** The conversation this one was branched (forked) from, when the provider or Toucan recorded it. */
   forkedFrom?: string
+  /**
+   * The role of the chat that held this conversation, when main knows it was an orchestrator's
+   * (`orchestrator-conversations.ts`) - so reopening it opens an orchestrator again (Tucaen/toucan#1).
+   */
+  role?: ChatNodeRole
 }
 
 export interface ConversationListRequest {

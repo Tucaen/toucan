@@ -37,6 +37,7 @@ import {
 import { autoUpdater } from 'electron-updater'
 import { createAcpSessionManager, resolveToucanSkillsRoot, type AcpSessionManager } from './acp-session-manager'
 import { createOrchestrationStore } from './orchestration-store'
+import { createOrchestratorConversations, withOrchestratorRoles } from './orchestrator-conversations'
 import { createOrchestrationConfigStore } from './orchestration-config-store'
 import { loadOrchestrationPacingConfig } from './orchestration-pacing-config'
 import { commandGuardFiles } from './command-guard'
@@ -464,8 +465,19 @@ void app.whenReady().then(async () => {
     directory: join(app.getPath('userData'), 'orchestrations'),
     log: mainLog('orchestrations')
   })
+  // Which conversations are orchestrators' (Tucaen/toucan#1): what History and a restored canvas
+  // ask, so a conversation comes back as an orchestrator whichever node it comes back in.
+  const orchestratorConversations = createOrchestratorConversations({
+    path: join(app.getPath('userData'), 'orchestrator-conversations.json'),
+    records: orchestrationRecords,
+    log: mainLog('orchestrator conversations')
+  })
   let providerUsage: ProviderUsage
   const orchestrationSessionForNode = async (nodeId: string): Promise<OrchestrationSession | null | undefined> => {
+    // A live orchestrator answers from its grant: a node just opened - new, or reopened from
+    // History - is not in the saved canvas until the next debounced save lands.
+    const live = orchestratorEndpoint.liveOrchestration(nodeId)
+    if (live) return { provider: live.provider, key: live, orchestratorNodeId: nodeId }
     const node = (await workspace.load()).state?.nodes.find((candidate) => candidate.id === nodeId)
     if (!node) return undefined
     if (node.orchestratedBy) {
@@ -479,7 +491,7 @@ void app.whenReady().then(async () => {
       return {
         provider: node.kind,
         key,
-        orchestratorNodeId: node.orchestratedBy.nodeId,
+        orchestratorNodeId: orchestratorEndpoint.liveOrchestrator(key) ?? node.orchestratedBy.nodeId,
         ticketNodeId: nodeId
       }
     }
@@ -518,14 +530,15 @@ void app.whenReady().then(async () => {
       if (!node.orchestratedBy) return null
       if (!isAgentProvider(node.kind)) return undefined
       const link = node.orchestratedBy
-      const record = await orchestrationRecords.read({
-        provider: orchestratorProvider(link),
-        conversationId: link.conversationId
-      })
+      const orchestration = { provider: orchestratorProvider(link), conversationId: link.conversationId }
+      const record = await orchestrationRecords.read(orchestration)
       const ticket = record?.tickets.find((candidate) => candidate.session?.nodeId === nodeId)
       return ticket
         ? {
-            orchestratorNodeId: link.nodeId,
+            // The orchestration is the conversation: a live orchestrator holding it is where the
+            // wake goes, even when the link still names a node it has since been reopened out of.
+            orchestratorNodeId: orchestratorEndpoint.liveOrchestrator(orchestration) ?? link.nodeId,
+            orchestration,
             // The orchestration record follows the link's provider; the outcome belongs to the
             // ticket session itself. They normally match, but both identities stay explicit when
             // a persisted canvas is recovered after a restart.
@@ -651,6 +664,21 @@ void app.whenReady().then(async () => {
     spawned: publishOrchestrationState,
     questionsChanged: publishOrchestrationState,
     resumePaused: (key, orchestratorNodeId) => orchestrationController.resumeForForce(key, orchestratorNodeId),
+    // An orchestrator's conversation is open (Tucaen/toucan#1): it is remembered as one, its ticket
+    // sessions' wakes follow it into this node, and its node's controls and pinned questions get the
+    // record - whatever they asked on mount may have been refused, before the canvas was saved.
+    onConversation: (nodeId, key) => {
+      void orchestratorConversations
+        .remember(key)
+        .catch((error: unknown) => mainLog('orchestrator conversations')(`could not remember: ${String(error)}`))
+      orchestrationWaker.relocate(key, nodeId)
+      void orchestrationController
+        .state(key, nodeId)
+        .then((record) => {
+          if (record) publishOrchestrationState(record)
+        })
+        .catch(() => undefined)
+    },
     log: mainLog('orchestrator endpoint')
   })
   // Sibling-session messaging (#2): a session asks another chat of its project a question through
@@ -1033,7 +1061,8 @@ void app.whenReady().then(async () => {
     homeDirectory: app.getPath('home'),
     environment: process.env,
     titles: conversationTitles,
-    lineage: conversationLineage
+    lineage: conversationLineage,
+    orchestrators: orchestratorConversations
   })
   const remote = createRemoteAccessServer({
     history: createRemoteHistory({
@@ -1172,7 +1201,9 @@ void app.whenReady().then(async () => {
     // A saved canvas is how main learns a chat node was closed: an ask still waiting on it is
     // answered "target closed" (#2).
     workspace: {
-      load: () => workspace.load(),
+      // A chat saved without the role its conversation has - the History reopen of Tucaen/toucan#1 -
+      // gets it back before the canvas restores it, so it relaunches as the orchestrator it is.
+      load: async () => withOrchestratorRoles(await workspace.load(), orchestratorConversations),
       save: async (state) => {
         const result = await workspace.save(state)
         if (result.ok) sessionMessenger.nodesChanged(chatNodeIds(state))

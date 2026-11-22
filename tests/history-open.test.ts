@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'vitest'
 import type { CanvasNode } from '../src/renderer/src/canvas-workspace'
-import { planHistoryOpen } from '../src/renderer/src/history-open'
+import { planHistoryOpen, relinkTicketSessions } from '../src/renderer/src/history-open'
 
 /** Only what the plan reads; the rest of a canvas node is irrelevant to it. */
 function node(id: string, data: { kind: string; conversationId?: string }, type = 'terminalNode'): CanvasNode {
@@ -42,4 +42,56 @@ test('a fork whose parent is not on the canvas opens without a lineage edge to d
   assert.deepEqual(planHistoryOpen([], { provider: 'codex', id: 'thread-branch', forkedFrom: 'thread-parent' }), {
     action: 'open'
   })
+})
+
+// Tucaen/toucan#1: an orchestrator's conversation reopens as an orchestrator, and takes back the
+// ticket sessions still on the canvas that name it.
+
+test('an orchestrator entry opens with the orchestrator role; any other entry opens with none', () => {
+  assert.deepEqual(planHistoryOpen([], { provider: 'claude', id: 'orchestrator', role: 'orchestrator' }), {
+    action: 'open',
+    role: 'orchestrator'
+  })
+  assert.deepEqual(
+    planHistoryOpen([], { provider: 'claude', id: 'chat', role: 'manager' as unknown as 'orchestrator' }),
+    { action: 'open' }
+  )
+})
+
+test('an orchestrator entry already on the canvas is focused, role or not', () => {
+  const nodes = [node('holder', { kind: 'codex', conversationId: 'orchestrator' })]
+  assert.deepEqual(planHistoryOpen(nodes, { provider: 'codex', id: 'orchestrator', role: 'orchestrator' }), {
+    action: 'focus',
+    nodeId: 'holder'
+  })
+})
+
+test('a reopened orchestrator takes back exactly the ticket sessions linked to its conversation', () => {
+  const ticket = (id: string, link: { nodeId: string; conversationId: string; provider?: 'claude' | 'codex' }) =>
+    node(id, { kind: 'claude', conversationId: `${id}-conversation`, orchestratedBy: link } as never)
+  const nodes = [
+    ticket('mine', { nodeId: 'closed-orchestrator', conversationId: 'orchestrator', provider: 'claude' }),
+    ticket('legacy', { nodeId: 'closed-orchestrator', conversationId: 'orchestrator' }),
+    ticket('other-provider', { nodeId: 'codex-orchestrator', conversationId: 'orchestrator', provider: 'codex' }),
+    ticket('other-orchestration', { nodeId: 'elsewhere', conversationId: 'another', provider: 'claude' }),
+    node('plain', { kind: 'claude', conversationId: 'plain' })
+  ]
+
+  const relinked = relinkTicketSessions(nodes, { provider: 'claude', conversationId: 'orchestrator' }, 'reopened')
+
+  const links = Object.fromEntries(
+    relinked.map((candidate) => [
+      candidate.id,
+      (candidate.data as { orchestratedBy?: { nodeId: string } }).orchestratedBy?.nodeId
+    ])
+  )
+  assert.deepEqual(links, {
+    mine: 'reopened',
+    legacy: 'reopened',
+    'other-provider': 'codex-orchestrator',
+    'other-orchestration': 'elsewhere',
+    plain: undefined
+  })
+  assert.equal(relinked[4], nodes[4])
+  assert.equal(relinked[2], nodes[2])
 })
