@@ -15,7 +15,9 @@ import type { OrchestrationKey, OrchestrationStore } from './orchestration-store
  * opens its conversation - only a session launched with the role is granted a token, so main
  * writes it on its own authority, never on the renderer's word - and the orchestration record,
  * which only an orchestrator can have written and which every conversation that planned before
- * the marker existed already has.
+ * the marker existed already has. Neither covers an orchestrator that never planned and whose
+ * session last opened before markers were written: nothing durable says what it was, so it
+ * reopens as a plain chat.
  */
 export interface OrchestratorConversations {
   /** Never rejects: an unreadable marker file or record counts as not known. */
@@ -38,7 +40,7 @@ function parseMarkers(value: unknown): StoredMarkers | null {
 
 export function createOrchestratorConversations(options: {
   path: string
-  records: Pick<OrchestrationStore, 'read'>
+  records: Pick<OrchestrationStore, 'has'>
   log?(message: string): void
 }): OrchestratorConversations {
   const store = createDurableJsonStore<StoredMarkers>({
@@ -55,7 +57,7 @@ export function createOrchestratorConversations(options: {
         () => false
       )
       if (marked) return true
-      return (await options.records.read(key).catch(() => undefined)) !== undefined
+      return options.records.has(key).catch(() => false)
     },
     async remember(key) {
       await store.update((markers) =>

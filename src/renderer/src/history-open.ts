@@ -1,5 +1,10 @@
 import type { AgentProvider } from '../../shared/agent-provider'
-import { isChatNodeRole, type ChatNodeRole } from '../../shared/orchestration'
+import {
+  isChatNodeRole,
+  sameOrchestration,
+  type ChatNodeRole,
+  type OrchestrationConversation
+} from '../../shared/orchestration'
 import { orchestratorProvider } from '../../shared/ticket-session-spawn'
 import type { ConversationLineage } from '../../shared/workspace'
 import { isChatCanvasNode, type CanvasNode } from './canvas-workspace'
@@ -62,7 +67,7 @@ export function planHistoryOpen(nodes: readonly CanvasNode[], entry: HistoryOpen
  */
 export function relinkTicketSessions(
   nodes: readonly CanvasNode[],
-  orchestration: { provider: AgentProvider; conversationId: string },
+  orchestration: OrchestrationConversation,
   nodeId: string
 ): CanvasNode[] {
   return nodes.map((node) => {
@@ -71,8 +76,7 @@ export function relinkTicketSessions(
     if (
       !link ||
       link.nodeId === nodeId ||
-      link.conversationId !== orchestration.conversationId ||
-      orchestratorProvider(link) !== orchestration.provider
+      !sameOrchestration({ provider: orchestratorProvider(link), conversationId: link.conversationId }, orchestration)
     )
       return node
     return { ...node, data: { ...node.data, orchestratedBy: { ...link, nodeId } } }

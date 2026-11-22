@@ -27,14 +27,20 @@ export function useOrchestrationQuestions(request: OrchestrationControlRequest):
 
   useEffect(() => {
     let current = true
+    // A push that arrived first is newer than this read's answer: a node reopened from History is
+    // refused the read, then given the record when its session connects (Tucaen/toucan#1).
+    let pushed = false
     void window.orchestratorApi
       .orchestrationState({ provider, conversationId, nodeId })
       .then((next) => {
-        if (current) setState(next)
+        if (current && !pushed) setState(next)
       })
       .catch(() => undefined)
     const unsubscribe = window.orchestratorApi.onOrchestrationState((next) => {
-      if (current && `${next.provider}:${next.conversationId}` === identity) setState(next)
+      if (current && `${next.provider}:${next.conversationId}` === identity) {
+        pushed = true
+        setState(next)
+      }
     })
     return () => {
       current = false

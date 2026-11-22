@@ -34,6 +34,7 @@ import {
   recordForcedSpawn,
   recordTicketRoute,
   recordTicketSession,
+  sameOrchestration,
   reserveSpawn,
   resolveOrchestrationQuestion,
   resumeOrchestration,
@@ -136,9 +137,9 @@ export interface OrchestratorEndpoint {
    * session launched with the role is granted, so this answers as surely as the token does - and
    * before the canvas has saved the node, which a just-opened orchestrator's has not (Tucaen/toucan#1).
    */
-  liveOrchestration(nodeId: string): OrchestrationKey | undefined
+  orchestrationInNode(nodeId: string): OrchestrationKey | undefined
   /** The node a live orchestrator session holding this orchestration runs in, if one does. */
-  liveOrchestrator(key: OrchestrationKey): string | undefined
+  nodeHoldingOrchestration(key: OrchestrationKey): string | undefined
   /** Re-evaluates deferred work after a provider ticket enters or leaves the live count. */
   pacingActivityChanged(provider: AgentProvider): void
   /** Retries a coalesced pacing wake when its orchestrator session becomes ready. */
@@ -242,7 +243,7 @@ export interface OrchestratorEndpointOptions {
    * orchestrator's, and the moment its node's controls can first be answered - whether the node is
    * new, restored or reopened from History (Tucaen/toucan#1).
    */
-  onConversation?(nodeId: string, key: OrchestrationKey): void
+  onOrchestratorConversation?(nodeId: string, key: OrchestrationKey): void
   /**
    * How long `followup` waits for a working session to take the text before it answers "queued":
    * a session that cannot be steered only takes it when its turn ends, which can be an hour.
@@ -1563,7 +1564,7 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
             void pacingCoordinator
               ?.restore({ provider: grant.provider, conversationId }, grant.nodeId)
               .catch((error: unknown) => options.log?.(`provider pacing restore failed: ${errorMessage(error)}`))
-            options.onConversation?.(grant.nodeId, { provider: grant.provider, conversationId })
+            options.onOrchestratorConversation?.(grant.nodeId, { provider: grant.provider, conversationId })
           },
           revoke: () => revoke(grant)
         }
@@ -1577,7 +1578,7 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     listening() {
       return startedServer !== undefined
     },
-    liveOrchestration(nodeId) {
+    orchestrationInNode(nodeId) {
       for (const grant of grants) {
         if (grant.nodeId === nodeId && grant.conversationId) {
           return { provider: grant.provider, conversationId: grant.conversationId }
@@ -1585,9 +1586,10 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
       }
       return undefined
     },
-    liveOrchestrator(key) {
+    nodeHoldingOrchestration(key) {
       for (const grant of grants) {
-        if (grant.provider === key.provider && grant.conversationId === key.conversationId) return grant.nodeId
+        const { provider, conversationId } = grant
+        if (conversationId && sameOrchestration({ provider, conversationId }, key)) return grant.nodeId
       }
       return undefined
     },

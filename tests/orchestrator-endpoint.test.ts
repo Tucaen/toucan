@@ -440,23 +440,23 @@ test('a live grant names its orchestrator by node and by conversation, from the 
   const connected: Array<{ nodeId: string; key: { provider: string; conversationId: string } }> = []
   const endpoint = createOrchestratorEndpoint({
     records: createOrchestrationStore({ directory }),
-    onConversation: (nodeId, key) => connected.push({ nodeId, key })
+    onOrchestratorConversation: (nodeId, key) => connected.push({ nodeId, key })
   })
   const key = { provider: 'codex' as const, conversationId: 'thread-1' }
   try {
-    const grant = (await endpoint.grant('orchestrator-1', { provider: 'codex', projectPath: 'D:\project' }))!
-    assert.equal(endpoint.liveOrchestration('orchestrator-1'), undefined)
-    assert.equal(endpoint.liveOrchestrator(key), undefined)
+    const grant = (await endpoint.grant('orchestrator-1', { provider: 'codex', projectPath: 'D:\\project' }))!
+    assert.equal(endpoint.orchestrationInNode('orchestrator-1'), undefined)
+    assert.equal(endpoint.nodeHoldingOrchestration(key), undefined)
 
     grant.setConversation('thread-1')
-    assert.deepEqual(endpoint.liveOrchestration('orchestrator-1'), key)
-    assert.equal(endpoint.liveOrchestrator(key), 'orchestrator-1')
-    assert.equal(endpoint.liveOrchestrator({ provider: 'claude', conversationId: 'thread-1' }), undefined)
+    assert.deepEqual(endpoint.orchestrationInNode('orchestrator-1'), key)
+    assert.equal(endpoint.nodeHoldingOrchestration(key), 'orchestrator-1')
+    assert.equal(endpoint.nodeHoldingOrchestration({ provider: 'claude', conversationId: 'thread-1' }), undefined)
     assert.deepEqual(connected, [{ nodeId: 'orchestrator-1', key }])
 
     grant.revoke()
-    assert.equal(endpoint.liveOrchestration('orchestrator-1'), undefined)
-    assert.equal(endpoint.liveOrchestrator(key), undefined)
+    assert.equal(endpoint.orchestrationInNode('orchestrator-1'), undefined)
+    assert.equal(endpoint.nodeHoldingOrchestration(key), undefined)
   } finally {
     await endpoint.close()
   }

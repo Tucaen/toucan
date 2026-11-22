@@ -50,6 +50,22 @@ test('a file naming another conversation, or a damaged one, reads as no record',
   assert.equal(await createOrchestrationStore({ directory }).read(key), undefined)
 })
 
+// Tucaen/toucan#1: History asks this of every entry it lists, so it must answer without a record.
+test('has answers whether a conversation has a readable record, and leaves no file behind when it has none', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-orchestrations-'))
+  const store = createOrchestrationStore({ directory })
+  assert.equal(await store.has(key), false)
+  assert.deepEqual(readdirSync(directory), [])
+
+  await store.update(key, () => ({ value: record(), result: undefined }))
+  assert.equal(await store.has(key), true)
+  assert.equal(await createOrchestrationStore({ directory }).has(key), true)
+  assert.equal(await store.has({ provider: 'codex', conversationId: key.conversationId }), false)
+
+  writeFileSync(join(directory, orchestrationFileName(key)), JSON.stringify(record('someone-else')))
+  assert.equal(await createOrchestrationStore({ directory }).has(key), false)
+})
+
 test('file names cannot escape the directory and never collide', () => {
   assert.equal(
     orchestrationFileName({ provider: 'codex', conversationId: '../../etc' }),

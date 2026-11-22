@@ -2,6 +2,7 @@ import { strict as assert } from 'node:assert'
 import { test } from 'vitest'
 import type { CanvasNode } from '../src/renderer/src/canvas-workspace'
 import { planHistoryOpen, relinkTicketSessions } from '../src/renderer/src/history-open'
+import type { OrchestratorLink } from '../src/shared/ticket-session-spawn'
 
 /** Only what the plan reads; the rest of a canvas node is irrelevant to it. */
 function node(id: string, data: { kind: string; conversationId?: string }, type = 'terminalNode'): CanvasNode {
@@ -67,7 +68,7 @@ test('an orchestrator entry already on the canvas is focused, role or not', () =
 })
 
 test('a reopened orchestrator takes back exactly the ticket sessions linked to its conversation', () => {
-  const ticket = (id: string, link: { nodeId: string; conversationId: string; provider?: 'claude' | 'codex' }) =>
+  const ticket = (id: string, link: OrchestratorLink) =>
     node(id, { kind: 'claude', conversationId: `${id}-conversation`, orchestratedBy: link } as never)
   const nodes = [
     ticket('mine', { nodeId: 'closed-orchestrator', conversationId: 'orchestrator', provider: 'claude' }),

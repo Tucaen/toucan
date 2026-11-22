@@ -316,6 +316,13 @@ export interface OrchestrationIdentity {
   projectPath: string
 }
 
+/** An orchestration as the conversation it is: what records, ticket links and grants are matched on. */
+export type OrchestrationConversation = Pick<OrchestrationIdentity, 'provider' | 'conversationId'>
+
+export function sameOrchestration(a: OrchestrationConversation, b: OrchestrationConversation): boolean {
+  return a.provider === b.provider && a.conversationId === b.conversationId
+}
+
 /** A ticket as `plan set` states it: what the orchestrator decides, none of the progress. */
 export type PlannedTicket = Pick<OrchestrationTicket, 'id' | 'title' | 'body' | 'source' | 'blockedBy'>
 

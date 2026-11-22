@@ -1,6 +1,11 @@
 import type { AgentEvent, AgentPromptResult } from '../shared/agent'
 import type { SessionOutcomeIdentity } from '../shared/session-outcome'
-import { orchestratorWakePrompt, ticketWakeKind, type TicketWakeEvent } from '../shared/orchestration'
+import {
+  orchestratorWakePrompt,
+  sameOrchestration,
+  ticketWakeKind,
+  type TicketWakeEvent
+} from '../shared/orchestration'
 import { errorMessage } from '../shared/text'
 import type { OrchestrationKey } from './orchestration-store'
 
@@ -237,8 +242,7 @@ export function createOrchestrationWaker(options: OrchestrationWakerOptions): Or
         if (
           !binding?.orchestration ||
           binding.orchestratorNodeId === nodeId ||
-          binding.orchestration.provider !== orchestration.provider ||
-          binding.orchestration.conversationId !== orchestration.conversationId
+          !sameOrchestration(binding.orchestration, orchestration)
         )
           continue
         moved.add(binding.orchestratorNodeId)

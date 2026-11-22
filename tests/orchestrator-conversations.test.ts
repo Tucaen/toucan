@@ -5,7 +5,6 @@ import { join } from 'node:path'
 import { test } from 'vitest'
 import { createOrchestratorConversations, withOrchestratorRoles } from '../src/main/orchestrator-conversations'
 import type { OrchestrationKey } from '../src/main/orchestration-store'
-import type { OrchestrationRecord } from '../src/shared/orchestration'
 import type { WorkspaceLoadResult, WorkspaceTerminalNode } from '../src/shared/workspace'
 
 // Tucaen/toucan#1: whether a conversation is an orchestrator's is kept with the conversation, so a
@@ -24,10 +23,8 @@ function withDirectory(run: (directory: string) => Promise<void>): () => Promise
 
 function recordsHolding(...keys: OrchestrationKey[]) {
   return {
-    read: async (key: OrchestrationKey) =>
+    has: async (key: OrchestrationKey) =>
       keys.some((held) => held.provider === key.provider && held.conversationId === key.conversationId)
-        ? ({ provider: key.provider, conversationId: key.conversationId } as OrchestrationRecord)
-        : undefined
   }
 }
 
@@ -65,7 +62,7 @@ test(
     const conversations = createOrchestratorConversations({
       path,
       records: {
-        read: async () => {
+        has: async () => {
           throw new Error('EBUSY')
         }
       }
@@ -121,7 +118,7 @@ test('a saved chat holding an orchestrator conversation gets its role back, on t
       ],
       [node({ id: 'closed', kind: 'codex', conversationId: 'closed-orchestrator' })]
     ),
-    { has: (key) => known.read(key).then(Boolean) }
+    known
   )
 
   const roles = Object.fromEntries((repaired.state?.nodes ?? []).map((saved) => [saved.id, saved.role]))

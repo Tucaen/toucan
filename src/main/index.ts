@@ -29,6 +29,7 @@ import {
   isTicketSessionCanvasResult,
   isTicketSessionProgress,
   orchestratorProvider,
+  type OrchestratorLink,
   type OrchestrationControlRequest,
   orchestrationControlState,
   type TicketSessionCanvasRequest,
@@ -473,10 +474,17 @@ void app.whenReady().then(async () => {
     log: mainLog('orchestrator conversations')
   })
   let providerUsage: ProviderUsage
+  // The orchestration is the conversation: a live orchestrator holding it is where its tickets report,
+  // even when a link still names the node it has since been reopened out of (Tucaen/toucan#1).
+  const orchestratorNodeFor = (link: OrchestratorLink): string =>
+    orchestratorEndpoint.nodeHoldingOrchestration({
+      provider: orchestratorProvider(link),
+      conversationId: link.conversationId
+    }) ?? link.nodeId
   const orchestrationSessionForNode = async (nodeId: string): Promise<OrchestrationSession | null | undefined> => {
     // A live orchestrator answers from its grant: a node just opened - new, or reopened from
     // History - is not in the saved canvas until the next debounced save lands.
-    const live = orchestratorEndpoint.liveOrchestration(nodeId)
+    const live = orchestratorEndpoint.orchestrationInNode(nodeId)
     if (live) return { provider: live.provider, key: live, orchestratorNodeId: nodeId }
     const node = (await workspace.load()).state?.nodes.find((candidate) => candidate.id === nodeId)
     if (!node) return undefined
@@ -491,7 +499,7 @@ void app.whenReady().then(async () => {
       return {
         provider: node.kind,
         key,
-        orchestratorNodeId: orchestratorEndpoint.liveOrchestrator(key) ?? node.orchestratedBy.nodeId,
+        orchestratorNodeId: orchestratorNodeFor(node.orchestratedBy),
         ticketNodeId: nodeId
       }
     }
@@ -535,9 +543,7 @@ void app.whenReady().then(async () => {
       const ticket = record?.tickets.find((candidate) => candidate.session?.nodeId === nodeId)
       return ticket
         ? {
-            // The orchestration is the conversation: a live orchestrator holding it is where the
-            // wake goes, even when the link still names a node it has since been reopened out of.
-            orchestratorNodeId: orchestratorEndpoint.liveOrchestrator(orchestration) ?? link.nodeId,
+            orchestratorNodeId: orchestratorNodeFor(link),
             orchestration,
             // The orchestration record follows the link's provider; the outcome belongs to the
             // ticket session itself. They normally match, but both identities stay explicit when
@@ -667,7 +673,7 @@ void app.whenReady().then(async () => {
     // An orchestrator's conversation is open (Tucaen/toucan#1): it is remembered as one, its ticket
     // sessions' wakes follow it into this node, and its node's controls and pinned questions get the
     // record - whatever they asked on mount may have been refused, before the canvas was saved.
-    onConversation: (nodeId, key) => {
+    onOrchestratorConversation: (nodeId, key) => {
       void orchestratorConversations
         .remember(key)
         .catch((error: unknown) => mainLog('orchestrator conversations')(`could not remember: ${String(error)}`))
@@ -677,7 +683,7 @@ void app.whenReady().then(async () => {
         .then((record) => {
           if (record) publishOrchestrationState(record)
         })
-        .catch(() => undefined)
+        .catch((error: unknown) => mainLog('orchestration control')(`could not read on connect: ${String(error)}`))
     },
     log: mainLog('orchestrator endpoint')
   })

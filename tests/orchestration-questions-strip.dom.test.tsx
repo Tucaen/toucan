@@ -687,3 +687,19 @@ test('questions and answers share the badge and the reader, each with its own ac
   expect(screen.getByRole('button', { name: 'Read' })).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Done' })).toBeNull()
 })
+
+// Tucaen/toucan#1: a node reopened from History asks for its state before main can answer it - the
+// reply is a refusal - and is then given the record by the push its session's connect triggers. A
+// refusal that lands after that push must not blank the questions it already shows.
+test('a refused first read that lands after the push does not hide the pushed questions', async () => {
+  let refuse: (value: null) => void = () => undefined
+  api.orchestrationState.mockReturnValue(new Promise<null>((resolve) => (refuse = resolve)))
+  render(<OrchestrationQuestionsStrip request={request} />)
+  await waitFor(() => expect(api.onOrchestrationState).toHaveBeenCalled())
+
+  act(() => push(state(questions)))
+  expect((await screen.findByRole('button', { name: /Open questions/ })).textContent).toContain('2')
+
+  await act(async () => refuse(null))
+  expect(screen.getByRole('button', { name: /Open questions/ })).toBeInTheDocument()
+})

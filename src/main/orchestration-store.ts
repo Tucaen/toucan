@@ -1,4 +1,4 @@
-import { readdir } from 'node:fs/promises'
+import { readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { AGENT_PROVIDERS, type AgentProvider } from '../shared/agent-provider'
 import { isOrchestrationRecord, type OrchestrationRecord } from '../shared/orchestration'
@@ -17,6 +17,11 @@ export interface OrchestrationKey {
 
 export interface OrchestrationStore {
   read(key: OrchestrationKey): Promise<OrchestrationRecord | undefined>
+  /**
+   * Whether the conversation has a readable record, without keeping a store for one that has none:
+   * History asks this of every entry it lists (Tucaen/toucan#1). An unreadable file answers false.
+   */
+  has(key: OrchestrationKey): Promise<boolean>
   /**
    * Every readable record in the directory - what the routing report (#40) aggregates. A file that
    * is damaged, unreadable or not a record's name is skipped: one lost orchestration costs its own
@@ -79,6 +84,21 @@ export function createOrchestrationStore(options: {
   }
   return {
     read: async (key) => (await storeFor(key).load()) ?? undefined,
+    async has(key) {
+      const fileName = orchestrationFileName(key)
+      if (!stores.has(fileName)) {
+        const exists = await stat(join(options.directory, fileName)).then(
+          () => true,
+          () => false
+        )
+        if (!exists) return false
+      }
+      return (
+        (await storeFor(key)
+          .load()
+          .catch(() => null)) !== null
+      )
+    },
     async list() {
       let names: string[]
       try {
