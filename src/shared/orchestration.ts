@@ -1631,7 +1631,10 @@ export function orchestratorFolderName(nodeId: string): string {
   return `orchestrator-${nodeId}`
 }
 
-/** `ticket-<scope>-<slug>` for a branch `ticket/<scope>/<slug>`; a legacy `ticket/<slug>` gives `ticket-<slug>`. */
+/**
+ * `ticket-<scope>-<slug>` for a branch `ticket/<scope>/<slug>`; a legacy `ticket/<slug>` gives `ticket-<slug>`.
+ * @internal exported for tests
+ */
 export function ticketFolderName(branch: string): string {
   return branch.replace(/\//g, '-')
 }
