@@ -53,6 +53,7 @@ export function createSetupCommandRunner(options: {
       }
       const launch = setupCommandLaunch(options.shell.resolveLaunch(), command)
       let settled = false
+      let stopping = false
       const settle = (result: SetupCommandResult): void => {
         if (settled) return
         settled = true
@@ -63,10 +64,13 @@ export function createSetupCommandRunner(options: {
       let child: ReturnType<typeof execFile> | undefined
       // Own timer rather than execFile's `timeout`, which kills only the shell: an `npm install`
       // below it would keep the pipes open and the callback - and the waiting spawn - unanswered.
+      // Answered once the tree is gone, so a worktree removed next is no longer held open by it.
       const stop = (result: SetupCommandResult): void => {
+        if (stopping) return
+        stopping = true
+        clearTimeout(timer)
         // The shell and everything it started; a tree that is already gone is the goal anyway.
-        if (child) void killProcessTree(child, 'SIGKILL')
-        settle(result)
+        void (child ? killProcessTree(child, 'SIGKILL') : Promise.resolve()).then(() => settle(result))
       }
       const timer = setTimeout(
         () => stop({ ok: false, error: `"${command}" timed out after ${Math.round(timeout / 1000)}s` }),
@@ -81,6 +85,8 @@ export function createSetupCommandRunner(options: {
           launch.args,
           hiddenProcessOptions({ cwd, maxBuffer: SETUP_MAX_BUFFER }),
           (error, stdout, stderr) => {
+            // A stopped command answers with why it was stopped, not with the kill's exit.
+            if (stopping) return
             if (!error) {
               settle({ ok: true })
               return

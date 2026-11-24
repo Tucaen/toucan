@@ -57,7 +57,7 @@ describe('a ticket session recorded while it starts', () => {
   })
 
   // Tucaen/toucan#3: the attempt is recorded once its worktree exists, before the canvas holds a node.
-  const attempt = { worktreePath: 'D:\wt', branch: 'ticket/1' }
+  const attempt = { worktreePath: 'D:\\wt', branch: 'ticket/1' }
 
   it('is recorded by its branch before it has a node, and the node fills in later', () => {
     const recorded = recordTicketSession(base(), '1', attempt, 'now', undefined, 'starting')

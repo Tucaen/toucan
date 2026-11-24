@@ -1815,8 +1815,11 @@ export function ticketWakeKind(event: { type: string; errorKind?: string }): Tic
 /** How much of a failure reason a wake carries: enough to recognise it, never a pasted log. */
 const WAKE_REASON_LIMIT = 160
 
+/** A wake is one line per event: whatever the text, its whitespace is folded to single spaces. */
+const oneLine = (text: string | undefined): string | undefined => text?.replace(/\s+/g, ' ').trim()
+
 function shortReason(reason: string | undefined): string | undefined {
-  const flat = reason?.replace(/\s+/g, ' ').trim()
+  const flat = oneLine(reason)
   return flat && flat.length > WAKE_REASON_LIMIT ? `${flat.slice(0, WAKE_REASON_LIMIT - 3)}...` : flat
 }
 
@@ -1844,7 +1847,7 @@ function wakeLine(event: TicketWakeEvent): string {
     }
     case 'start-failed': {
       const shown = shortReason(event.reason)
-      const cleanup = event.cleanup?.replace(/\s+/g, ' ').trim()
+      const cleanup = oneLine(event.cleanup)
       return (
         `${ticket} could not be started${shown ? `: ${shown}` : ''}${cleanup ? ` - ${cleanup}` : ''}` +
         ' - Toucan unlinked the attempt; spawn the ticket again'

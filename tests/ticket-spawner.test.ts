@@ -596,19 +596,28 @@ test('a late start the canvas gave up on without a node is withdrawn rather than
 
 test('a start cancelled during setup stops the setup and never asks the canvas', async () => {
   let signal: AbortSignal | undefined
+  let stopped = false
   const { spawner, canvas, git } = harness({
     runSetup: (_command, _cwd, abort) => {
       signal = abort
       return new Promise((resolve) =>
-        abort?.addEventListener('abort', () => resolve({ ok: false, error: '"npm ci" was cancelled' }))
+        abort?.addEventListener('abort', () =>
+          setTimeout(() => {
+            stopped = true
+            resolve({ ok: false, error: '"npm ci" was cancelled' })
+          }, 10)
+        )
       )
     }
   })
   const result = await spawner.spawn(request)
   assert.ok(result.ok)
   await tick()
-  result.cancel()
+  const cancelling = result.cancel()
   assert.equal(signal?.aborted, true)
+  // Answered once the setup has stopped, so the worktree can be removed under it.
+  await cancelling
+  assert.equal(stopped, true)
   const settled = await result.settled
   assert.ok(!settled.ok)
   assert.equal(settled.cancelled, true)

@@ -19,6 +19,6 @@ export async function startedSpawn(
     ok: true,
     attempt,
     settled: Promise.resolve({ ok: true, session, ...settings, warnings: [] }),
-    cancel: () => undefined
+    cancel: () => Promise.resolve()
   }
 }

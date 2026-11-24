@@ -18,6 +18,7 @@ import type { AgentProvider } from '../shared/agent-provider'
 import type { GitRunner, WorktreeManager } from './git-worktree'
 import type { ScratchDirectoryResult } from './scratch-directory'
 import type { PushGuardResult } from './ticket-push-guard'
+import { createSerialQueue } from './serial-queue'
 import type { TicketSessionObserver } from './ticket-session-requests'
 
 /**
@@ -100,9 +101,10 @@ export type TicketSpawnResult =
       settled: Promise<TicketSpawnSettlement>
       /**
        * The attempt is superseded or discarded: its setup is stopped, the canvas is not asked, and a
-       * node it already has is closed. Its worktree stays for whoever cancelled it.
+       * node it already has is closed. Its worktree stays for whoever cancelled it, who may remove it
+       * once this resolves: the setup no longer runs in it then.
        */
-      cancel(): void
+      cancel(): Promise<void>
     }
 
 export interface TicketSpawner {
@@ -193,6 +195,8 @@ export function createTicketSpawner(options: TicketSpawnerOptions): TicketSpawne
   interface StartControl {
     cancelled: boolean
     abort: AbortController
+    /** The setup command while it runs; it answers only once it has stopped. */
+    setup?: Promise<unknown>
     /** The node as far as the canvas has reported it, so a failure after that can stop its session. */
     node?: TicketSessionProgress
   }
@@ -200,6 +204,10 @@ export function createTicketSpawner(options: TicketSpawnerOptions): TicketSpawne
   const stop = (nodeId: string | undefined): void => {
     if (nodeId) options.canvas.cancelTicketSession?.(nodeId)
   }
+
+  const worktreeStays = (worktree: CreatedWorktree): string =>
+    `the worktree stays at ${worktree.path} on ${worktree.branch}`
+  const couldNotStart = (error: unknown): string => `Toucan could not start the ticket session: ${errorMessage(error)}`
 
   /** The setup command and the canvas, after `spawn` answered. */
   const start = async (
@@ -209,7 +217,7 @@ export function createTicketSpawner(options: TicketSpawnerOptions): TicketSpawne
     control: StartControl
   ): Promise<TicketSpawnSettlement> => {
     const provider = orchestratorProvider(request.orchestrator)
-    const stays = `the worktree stays at ${worktree.path} on ${worktree.branch}`
+    const stays = worktreeStays(worktree)
     const cancelled: TicketSpawnSettlement = {
       ok: false,
       error: 'the start was cancelled',
@@ -224,7 +232,9 @@ export function createTicketSpawner(options: TicketSpawnerOptions): TicketSpawne
           "set its Setup command in the project's settings in Toucan, or install dependencies in the session"
       )
     } else {
-      const setup = await options.runSetup(setupCommand, worktree.path, control.abort.signal)
+      const running = options.runSetup(setupCommand, worktree.path, control.abort.signal)
+      control.setup = running
+      const setup = await running
       if (control.cancelled) return cancelled
       if (!setup.ok) {
         return {
@@ -262,7 +272,7 @@ export function createTicketSpawner(options: TicketSpawnerOptions): TicketSpawne
     })
     // The caller's records of the session, in the order the canvas reported it: a verdict is
     // never reported before the link it settles.
-    let linking: Promise<void> = Promise.resolve()
+    const inOrder = createSerialQueue()
     let linkFailure: { error: unknown } | undefined
 
     // Confirmed, not requested: what the session reports is what the caller is told.
@@ -310,11 +320,9 @@ export function createTicketSpawner(options: TicketSpawnerOptions): TicketSpawne
                 stop(progress.nodeId)
                 return
               }
-              linking = linking
-                .then(() => request.onSession?.(linked(progress)))
-                .catch((error) => {
-                  linkFailure ??= { error }
-                })
+              void inOrder(async () => request.onSession?.(linked(progress))).catch((error: unknown) => {
+                linkFailure ??= { error }
+              })
             },
             late: (result) => {
               if (awaitingLate) resolve(result)
@@ -334,14 +342,14 @@ export function createTicketSpawner(options: TicketSpawnerOptions): TicketSpawne
             }
           }, reject)
       })
-      await linking
+      await inOrder(() => Promise.resolve())
       if (linkFailure) throw linkFailure.error
     } catch (error) {
       // Toucan treats this start as failed, so its session is stopped, not only left in its worktree.
       stop(control.node?.nodeId)
       return {
         ok: false,
-        error: `Toucan could not start the ticket session: ${errorMessage(error)}`,
+        error: couldNotStart(error),
         cleanup: control.node ? `${stays}; Toucan closed its session` : stays
       }
     }
@@ -395,18 +403,20 @@ export function createTicketSpawner(options: TicketSpawnerOptions): TicketSpawne
     const control: StartControl = { cancelled: false, abort: new AbortController() }
     const settled = start(request, project, worktree, control).catch((error): TicketSpawnSettlement => ({
       ok: false,
-      error: `Toucan could not start the ticket session: ${errorMessage(error)}`,
-      cleanup: `the worktree stays at ${worktree.path} on ${worktree.branch}`
+      error: couldNotStart(error),
+      cleanup: worktreeStays(worktree)
     }))
     return {
       ok: true,
       attempt,
       settled,
-      cancel: () => {
-        if (control.cancelled) return
-        control.cancelled = true
-        control.abort.abort()
-        stop(control.node?.nodeId)
+      cancel: async () => {
+        if (!control.cancelled) {
+          control.cancelled = true
+          control.abort.abort()
+          stop(control.node?.nodeId)
+        }
+        await control.setup
       }
     }
   }

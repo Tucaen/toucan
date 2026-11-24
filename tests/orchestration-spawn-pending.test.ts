@@ -65,6 +65,8 @@ function harness() {
   const stopped: string[] = []
   const killed: Array<{ nodeId: string; starting: boolean }> = []
   const git: string[][] = []
+  /** What happened to held setups and removed worktrees, in order. */
+  const events: string[] = []
 
   /** Setup commands finish at once unless the test holds them; held ones wait for `finish`. */
   const setup = {
@@ -126,7 +128,13 @@ function harness() {
       setup.hold
         ? new Promise((resolve) => {
             const finish = (result: SetupResult = setup.result) => resolve(result)
-            signal?.addEventListener('abort', () => finish({ ok: false, error: '"npm ci" was cancelled' }))
+            // Like a killed process tree, it takes a moment to be gone.
+            signal?.addEventListener('abort', () =>
+              setTimeout(() => {
+                events.push('setup stopped')
+                finish({ ok: false, error: '"npm ci" was cancelled' })
+              }, 10)
+            )
             setup.held.push({ signal, finish })
           })
         : Promise.resolve(setup.result),
@@ -168,6 +176,12 @@ function harness() {
         waker.unbind(nodeId)
       },
       onTicketStartSettled: (binding, outcome) => waker.report(binding, outcome),
+      cleanup: {
+        discard: async (_record: OrchestrationRecord, target: { branch: string }) => {
+          events.push(`removed ${target.branch}`)
+          return { ok: true }
+        }
+      } as never,
       now: () => '2026-11-05T12:00:00.000Z'
     })
   return {
@@ -181,6 +195,7 @@ function harness() {
     stopped,
     killed,
     git,
+    events,
     setup,
     waker,
     wake,
@@ -517,6 +532,21 @@ test('--replace stops an attempt still in setup, and that attempt is not reporte
     const wakes = await world.wake()
     assert.equal(wakes.length, 1)
     assert.doesNotMatch(wakes[0], /could not be started/)
+  } finally {
+    await world.endpoint.close()
+  }
+})
+
+test('discard stops an attempt still in setup before its worktree is removed, and it is not reported', async () => {
+  const world = await planned()
+  world.setup.hold = true
+  try {
+    assert.equal((await call(world.grant, 'spawn', spawn)).status, 200)
+    const reply = await call(world.grant, 'discard', { ticket: '1', attempt: 1 })
+    assert.equal(reply.status, 200, JSON.stringify(reply.body))
+    assert.deepEqual(world.events, ['setup stopped', `removed ${BRANCH}`])
+    assert.equal(world.starts(), 0)
+    assert.deepEqual(await world.wake(false), [])
   } finally {
     await world.endpoint.close()
   }

@@ -14,7 +14,8 @@ import {
   continueSpawnBudget,
   pauseOrchestration,
   stopOrchestration,
-  type OrchestrationRecord
+  type OrchestrationRecord,
+  type TicketStartWake
 } from '../src/shared/orchestration'
 import { startedSpawn } from './helpers/fake-ticket-spawner'
 
@@ -499,6 +500,84 @@ test('same-provider concurrent spawns in different projects are admitted atomica
       saved.reduce((total, record) => total + (record?.spawnCount ?? 0), 0),
       1
     )
+  } finally {
+    await endpoint.close()
+  }
+})
+
+// Tucaen/toucan#3: the start is tracked from the moment its attempt is recorded.
+test('a second plain spawn after the first recorded its attempt, but before that spawn answered, is refused', async () => {
+  let recorded!: () => void
+  const attemptRecorded = new Promise<void>((resolve) => {
+    recorded = resolve
+  })
+  let answer!: () => void
+  const answering = new Promise<void>((resolve) => {
+    answer = resolve
+  })
+  const calls: TicketSpawnRequest[] = []
+  const spawner: TicketSpawner = {
+    async spawn(request) {
+      calls.push(request)
+      const attempt = { worktreePath: 'D:\\project-ticket-34', branch: 'ticket/34' }
+      await request.onAttempt?.(attempt)
+      recorded()
+      if (calls.length === 1) await answering
+      return { ok: true, attempt, settled: new Promise(() => undefined), cancel: () => Promise.resolve() }
+    }
+  }
+  const { endpoint, grant } = await planned(spawner)
+  try {
+    const first = call(grant, 'spawn', spawn34)
+    await attemptRecorded
+    const second = await call(grant, 'spawn', spawn34)
+    assert.equal(second.status, 409)
+    assert.equal(second.body.duplicate, true)
+    answer()
+    assert.equal((await first).status, 200)
+    assert.equal(calls.length, 1)
+  } finally {
+    await endpoint.close()
+  }
+})
+
+test('the orchestrator is woken with the started session even when its record cannot be written', async () => {
+  const records = createOrchestrationStore({ directory: mkdtempSync(join(tmpdir(), 'toucan-orchestrator-spawn-')) })
+  let broken = false
+  const wakes: TicketStartWake[] = []
+  const logged: string[] = []
+  const endpoint = createOrchestratorEndpoint({
+    records: {
+      ...records,
+      update: (key, change) => (broken ? Promise.reject(new Error('disk full')) : records.update(key, change))
+    },
+    spawner: {
+      async spawn(request) {
+        const spawned = await startedSpawn(request, {
+          nodeId: 'node-1',
+          conversationId: 'ticket-conversation-1',
+          worktreePath: 'D:\\project-ticket-34',
+          branch: 'ticket/34'
+        })
+        broken = true
+        return spawned
+      }
+    },
+    onTicketStartSettled: (_binding, outcome) => wakes.push(outcome),
+    log: (line) => logged.push(line),
+    now: () => '2026-09-30T12:00:00.000Z'
+  })
+  const grant = (await endpoint.grant('orchestrator-1', { provider: 'claude', projectPath: 'D:\\project' }))!
+  grant.setConversation('conversation-1')
+  try {
+    assert.equal((await call(grant, 'plan set', plan)).status, 200)
+    assert.equal((await call(grant, 'spawn', spawn34)).status, 200)
+    await endpoint.idle()
+    assert.deepEqual(
+      wakes.map((wake) => wake.kind),
+      ['started']
+    )
+    assert.ok(logged.some((line) => /disk full/.test(line)))
   } finally {
     await endpoint.close()
   }
