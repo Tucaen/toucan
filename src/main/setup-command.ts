@@ -59,7 +59,7 @@ export function createSetupCommandRunner(options: {
       // below it would keep the pipes open and the callback - and the waiting spawn - unanswered.
       const timer = setTimeout(() => {
         // The shell and everything it started; a tree that is already gone is the goal anyway.
-        if (child) killProcessTree(child, 'SIGKILL')
+        if (child) void killProcessTree(child, 'SIGKILL')
         settle({ ok: false, error: `"${command}" timed out after ${Math.round(timeout / 1000)}s` })
       }, timeout)
       try {
