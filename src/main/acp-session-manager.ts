@@ -1274,11 +1274,12 @@ function isOrchestrator(request: AgentCreateRequest): boolean {
  * user's project, where the skill's relative path means nothing.
  * @internal exported for tests
  */
-export function orchestratorInstructionFor(skillsRoot: string, scratchPath?: string): string {
+export function orchestratorInstructionFor(skillsRoot: string, scratchPath?: string, nodeId?: string): string {
   return orchestratorInstruction({
     cliPath: join(skillsRoot, PROJECT_SKILLS_DIRECTORY, ...ORCHESTRATE_CLI_PATH),
     skillPath: join(skillsRoot, PROJECT_SKILLS_DIRECTORY, ...ORCHESTRATE_SKILL_PATH),
-    ...(scratchPath ? { scratchPath } : {})
+    ...(scratchPath ? { scratchPath } : {}),
+    ...(nodeId ? { nodeId } : {})
   })
 }
 
@@ -1827,7 +1828,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           ? withOrchestratorToolLimits(
               withSessionInstruction(
                 messagingConfiguration,
-                orchestratorInstructionFor(toucanSkillsRoot ?? options.appPath, running.scratchPath)
+                orchestratorInstructionFor(toucanSkillsRoot ?? options.appPath, running.scratchPath, running.request.id)
               )
             )
           : messagingConfiguration
@@ -2284,7 +2285,11 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       const orchestratingEnvironment =
         request.provider === 'codex' && isOrchestrator(request)
           ? withCodexSessionConfig(messagingEnvironment, {
-              developer_instructions: orchestratorInstructionFor(toucanSkillsRoot ?? options.appPath, scratchPath)
+              developer_instructions: orchestratorInstructionFor(
+                toucanSkillsRoot ?? options.appPath,
+                scratchPath,
+                request.id
+              )
             })
           : messagingEnvironment
       // Claude's half of the same lines rides `_meta.systemPrompt` with the plugin folders.

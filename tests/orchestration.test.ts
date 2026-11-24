@@ -11,6 +11,7 @@ import {
   SPAWNS_PER_CHECKPOINT,
   TICKET_CONTRACT_HEADING,
   ticketContract,
+  ticketFolderName,
   isOrchestrationRecord,
   decisionAnswerFromText,
   orchestratorInstruction,
@@ -311,20 +312,67 @@ test('the example link the rule teaches is one both chat surfaces classify as th
 
 test('with a scratch folder, both prompts say where to save user-facing files and link from there (#3)', () => {
   const scratch = 'D:\\My Project\\.toucan-scratch'
-  const instruction = orchestratorInstruction({ cliPath: 'cli.mjs', skillPath: 'SKILL.md', scratchPath: scratch })
-  const contract = ticketContract({ path: 'D:\\My Project-ticket-3', branch: 'ticket/3' }, scratch)
-  for (const text of [instruction, contract]) {
+  const instruction = orchestratorInstruction({
+    cliPath: 'cli.mjs',
+    skillPath: 'SKILL.md',
+    scratchPath: scratch,
+    nodeId: 'node-1'
+  })
+  const contract = ticketContract({ path: 'D:\\My Project-ticket-abc123-3', branch: 'ticket/abc123/3' }, scratch)
+  const folders = [
+    [instruction, 'orchestrator-node-1'],
+    [contract, 'ticket-abc123-3']
+  ] as const
+  for (const [text, folder] of folders) {
     assert.ok(text.includes(FILE_REFERENCE_RULE))
     assert.ok(text.includes(`scratch folder ${scratch}`))
     assert.match(text, /not in your worktree and not in the system temp folder/)
     assert.match(text, /a worktree is deleted after the merge/)
-    // The example is the real folder, spaces encoded, and the link a session copies opens that file.
-    assert.ok(text.includes('[before.png](file:///D:/My%20Project/.toucan-scratch/before.png)'))
+    // The example is the session's own folder, spaces encoded, and the link a session copies opens that file.
+    assert.ok(text.includes(`[before.png](file:///D:/My%20Project/.toucan-scratch/${folder}/before.png)`))
+    assert.deepEqual(classifyMarkdownLink(`file:///D:/My%20Project/.toucan-scratch/${folder}/before.png`), {
+      kind: 'file',
+      path: `${scratch}\\${folder}\\before.png`
+    })
   }
-  assert.deepEqual(classifyMarkdownLink('file:///D:/My%20Project/.toucan-scratch/before.png'), {
-    kind: 'file',
-    path: `${scratch}\\before.png`
+})
+
+test('helper, temp and --file inputs go into a folder named by the session, never a generic temp path', () => {
+  const scratch = 'D:\\My Project\\.toucan-scratch'
+  const instruction = orchestratorInstruction({
+    cliPath: 'cli.mjs',
+    skillPath: 'SKILL.md',
+    scratchPath: scratch,
+    nodeId: 'node-1'
   })
+  const contract = ticketContract({ path: 'D:\\wt', branch: 'ticket/abc123/3' }, scratch)
+  assert.ok(instruction.includes(`inside ${scratch}\\orchestrator-node-1, and nowhere else`))
+  assert.ok(contract.includes(`inside ${scratch}\\ticket-abc123-3, and nowhere else`))
+  for (const text of [instruction, contract]) {
+    assert.match(text, /never under a generic name such as \/tmp\/plan\.json/)
+    assert.match(text, /--file or --options-file/)
+  }
+  assert.match(instruction, /Prefer `--json` over `--file`/)
+  // Two orchestrations (or tickets) never get the same path.
+  const other = orchestratorInstruction({
+    cliPath: 'cli.mjs',
+    skillPath: 'SKILL.md',
+    scratchPath: scratch,
+    nodeId: 'node-2'
+  })
+  assert.ok(!other.includes('orchestrator-node-1'))
+  assert.ok(!contract.includes('ticket-abc123-4'))
+  assert.notEqual(ticketFolderName('ticket/abc123/3'), ticketFolderName('ticket/def456/3'))
+  assert.equal(ticketFolderName('ticket/3'), 'ticket-3')
+})
+
+test('without a scratch folder, helper files still go into a session-named folder in the system temp folder', () => {
+  const instruction = orchestratorInstruction({ cliPath: 'cli.mjs', skillPath: 'SKILL.md', nodeId: 'node-1' })
+  const contract = ticketContract({ path: 'D:\\wt', branch: 'ticket/abc123/3' })
+  assert.match(instruction, /a folder named orchestrator-node-1 in the system temp folder/)
+  assert.match(contract, /a folder named ticket-abc123-3 in the system temp folder/)
+  assert.ok(!instruction.includes('.toucan-scratch'))
+  assert.ok(!contract.includes('.toucan-scratch'))
 })
 
 test('without a scratch folder the prompts carry only the base link rule, and nothing names one', () => {

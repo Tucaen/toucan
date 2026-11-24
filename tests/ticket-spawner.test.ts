@@ -144,7 +144,10 @@ test("the ticket prompt names the main checkout's scratch folder, not the worktr
   assert.deepEqual(asked, ['D:\\project'])
   const [started] = canvas
   assert.ok(started.prompt.includes('D:\\project\\.toucan-scratch'))
-  assert.ok(started.prompt.includes('file:///D:/project/.toucan-scratch/before.png'))
+  // The ticket's own subfolder, named by orchestration scope and ticket id: no other session shares it.
+  const own = `ticket-${branch34.slice('ticket/'.length).replace('/', '-')}`
+  assert.ok(started.prompt.includes(`D:\\project\\.toucan-scratch\\${own}`))
+  assert.ok(started.prompt.includes(`file:///D:/project/.toucan-scratch/${own}/before.png`))
   assert.ok(!started.prompt.includes(`D:\\project-${branch34}\\.toucan-scratch`))
 })
 

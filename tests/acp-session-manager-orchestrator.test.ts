@@ -163,6 +163,11 @@ test('an orchestrator is told its project scratch folder, and no other session i
     const [orchestratorOpen, plainOpen] = recorded(claudeRecord)
     const instruction = orchestratorOpen?.params._meta?.systemPrompt?.append ?? ''
     assert.ok(instruction.includes(`scratch folder ${join(appPath, '.toucan-scratch')}`))
+    // The files it writes for `--file` are scoped by its node id, which Toucan has at launch.
+    assert.ok(
+      instruction.includes(`inside ${join(appPath, '.toucan-scratch')}\\orchestrator-orchestrator,`) ||
+        instruction.includes(`inside ${join(appPath, '.toucan-scratch')}/orchestrator-orchestrator,`)
+    )
     assert.ok(!(plainOpen?.params._meta?.systemPrompt?.append ?? '').includes('.toucan-scratch'))
     assert.deepEqual(asked, [appPath])
   } finally {

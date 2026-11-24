@@ -7,7 +7,7 @@ import {
 } from './orchestration-pacing-types'
 import { fileUrlOf } from './local-file-link'
 import { isRecord } from './record'
-import { SCRATCH_DIRECTORY_NAME } from './scratch-directory'
+import { SCRATCH_DIRECTORY_NAME, sessionScratchFolder } from './scratch-directory'
 import { toucanPrompt } from './toucan-prompt'
 
 /**
@@ -1609,13 +1609,47 @@ export const FILE_REFERENCE_RULE =
  * has to adapt. `scratchPath` is the folder's absolute path in the platform's own form.
  * @internal exported for tests
  */
-export function fileReferenceRule(scratchPath?: string): string {
+export function fileReferenceRule(scratchPath?: string, folderName?: string): string {
   if (!scratchPath) return FILE_REFERENCE_RULE
-  const example = `[before.png](${fileUrlOf(scratchPath)}/before.png)`
+  const own = folderName ? sessionScratchFolder(scratchPath, folderName) : scratchPath
+  const example = `[before.png](${fileUrlOf(own)}/before.png)`
+  const placement = folderName
+    ? `Put them in your own subfolder ${own}, never directly in the scratch folder: every session of the project shares it, so a file under a bare name can be another session's.`
+    : 'Create subfolders there as you like.'
   return [
     FILE_REFERENCE_RULE,
-    `Save every screenshot, image, report or other file meant for the human in the scratch folder ${scratchPath} (${SCRATCH_DIRECTORY_NAME} in the main project checkout, ignored by git), not in your worktree and not in the system temp folder: Toucan opens only files inside a project or worktree, and a worktree is deleted after the merge, so a link into it stops working. Create subfolders there as you like, and link what you saved there, for example ${example}.`
+    `Save every screenshot, image, report or other file meant for the human in the scratch folder ${scratchPath} (${SCRATCH_DIRECTORY_NAME} in the main project checkout, ignored by git), not in your worktree and not in the system temp folder: Toucan opens only files inside a project or worktree, and a worktree is deleted after the merge, so a link into it stops working. ${placement} Link what you saved there, for example ${example}.`
   ].join(' ')
+}
+
+/**
+ * The folder name that identifies a session in every path it writes outside its worktree: an
+ * orchestrator by its node id (known at launch, unlike its conversation id), a ticket session by
+ * its branch's `<scope>-<slug>`, which is also its worktree's folder suffix.
+ */
+export function orchestratorFolderName(nodeId: string): string {
+  return `orchestrator-${nodeId}`
+}
+
+/** `ticket-<scope>-<slug>` for a branch `ticket/<scope>/<slug>`; a legacy `ticket/<slug>` gives `ticket-<slug>`. */
+export function ticketFolderName(branch: string): string {
+  return branch.replace(/\//g, '-')
+}
+
+/**
+ * Where a session's helper, temp and hand-off files go (a plan for `--file`, a question's text, a
+ * script, a log). A generic name such as `/tmp/plan.json` is shared with every other session on the
+ * machine, and a stale file of that name - another orchestration's plan - was read as the current
+ * one's. The folder is the session's own (`folderName`), inside the scratch folder when the
+ * project has one (ignored by git, so it never dirties a checkout) and otherwise in the system
+ * temp folder.
+ * @internal exported for tests
+ */
+export function ownFilesRule(folderName: string, scratchPath?: string): string {
+  const where = scratchPath
+    ? sessionScratchFolder(scratchPath, folderName)
+    : `a folder named ${folderName} in the system temp folder (create it first)`
+  return `Write every helper, temp or hand-off file you create outside your worktree - input for a command's --file or --options-file, a script, a log - inside ${where}, and nowhere else: never under a generic name such as /tmp/plan.json or /tmp/out.json, which another session may have left behind or may overwrite.`
 }
 
 /**
@@ -1639,7 +1673,8 @@ export function ticketContract(worktree: { path: string; branch: string }, scrat
     "- Do not run the project's full test suite before your final report; run the tests that cover your change. When the project's agent instructions (AGENTS.md or CLAUDE.md) name a pre-merge quick check, run it too before you report done, fix what it reports, and report its result with the commit it passed on; that quick check is not the full suite. The orchestrator rebases this branch onto the target right before the merge and decides from the risk of the change whether to ask you for the full suite, an affected subset, or nothing more (CI runs the full suite anyway), so a full run happens at most once, on what is merged.",
     '- When the orchestrator asks, run the full test suite or the tests it names here and report the commit you tested with its result. When it hands you a rebase conflict, rebase this branch onto the target, resolve it, then run what it asks for (the full suite unless it names less) and report the same way. The orchestrator only fast-forwards what it verified.',
     '- End with a final report: commit, verification commands and results, unresolved blocking review findings, skipped or deleted tests with reasons, and open questions.',
-    `- ${fileReferenceRule(scratchPath)}`
+    `- ${fileReferenceRule(scratchPath, ticketFolderName(worktree.branch))}`,
+    `- ${ownFilesRule(ticketFolderName(worktree.branch), scratchPath)}`
   ].join('\n')
 }
 
@@ -1680,7 +1715,14 @@ export function ticketSessionPrompt(
  * What an orchestrator session carries on its system prompt, appended like the session outcome
  * pointer. The skill owns the procedure; this mandatory pointer puts it in scope before the task.
  */
-export function orchestratorInstruction(paths: { cliPath: string; skillPath: string; scratchPath?: string }): string {
+export function orchestratorInstruction(paths: {
+  cliPath: string
+  skillPath: string
+  scratchPath?: string
+  /** The orchestrator's canvas node id: its files live in a folder named after it. */
+  nodeId?: string
+}): string {
+  const folderName = paths.nodeId ? orchestratorFolderName(paths.nodeId) : undefined
   const cli = `node "${paths.cliPath}"`
   return [
     'You are a Toucan orchestrator. The first user message is your task.',
@@ -1696,7 +1738,10 @@ export function orchestratorInstruction(paths: { cliPath: string; skillPath: str
     'Those prompts wait for the human and belong on the review list.',
     `Merge a tested ticket with \`${cli} merge --ticket <id> --tested <commit>\`, which fast-forwards, pushes, records and cleans up;`,
     'never merge into or push the target with your own Git.',
-    fileReferenceRule(paths.scratchPath)
+    fileReferenceRule(paths.scratchPath, folderName),
+    ...(folderName
+      ? [ownFilesRule(folderName, paths.scratchPath), 'Prefer `--json` over `--file` wherever the payload fits inline.']
+      : [])
   ].join(' ')
 }
 
