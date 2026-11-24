@@ -1353,8 +1353,19 @@ export function recordTicketSession(
 }
 
 /**
- * Fills in what a recorded session learned since (its conversation id, that it is `started`). Only
- * the session this node is: a ticket already respawned onto another node is left alone.
+ * Whether `session` is the attempt the ticket records: by node once both have one, else by branch.
+ * A spawn records its attempt once the worktree exists (Tucaen/toucan#3), before the canvas holds
+ * a node, so the branch - fresh for every attempt - is what names it until then.
+ */
+function isRecordedAttempt(recorded: TicketSession | undefined, session: TicketSession): boolean {
+  if (!recorded) return false
+  if (recorded.nodeId && session.nodeId) return recorded.nodeId === session.nodeId
+  return recorded.branch !== undefined && recorded.branch === session.branch
+}
+
+/**
+ * Fills in what a recorded session learned since (its node, its conversation id, that it is
+ * `started`). Only the attempt this session is: a ticket already respawned is left alone.
  */
 export function updateTicketSession(
   record: OrchestrationRecord,
@@ -1364,7 +1375,7 @@ export function updateTicketSession(
   state: TicketRunState
 ): OrchestrationRecord {
   const tickets = record.tickets.map((ticket) => {
-    if (ticket.id !== ticketId || !ticket.session || ticket.session.nodeId !== session.nodeId) return ticket
+    if (ticket.id !== ticketId || !ticket.session || !isRecordedAttempt(ticket.session, session)) return ticket
     const runs = ticket.runs ?? []
     const last = runs[runs.length - 1]
     const { state: _state, ...started } = last ?? {}
@@ -1391,17 +1402,17 @@ export function updateTicketSession(
 /**
  * Takes back the session a spawn recorded early once its start has failed, restoring the session and
  * runs the ticket had before: a retry must find the ticket as it was, never linked to a session
- * Toucan stopped. A ticket already respawned onto another node is left alone.
+ * Toucan stopped. A ticket already respawned is left alone.
  */
 export function abandonTicketSession(
   record: OrchestrationRecord,
   ticketId: string,
-  nodeId: string,
+  attempt: TicketSession,
   before: Pick<OrchestrationTicket, 'session' | 'runs'>,
   now: string
 ): OrchestrationRecord {
   const tickets = record.tickets.map((ticket) => {
-    if (ticket.id !== ticketId || ticket.session?.nodeId !== nodeId) return ticket
+    if (ticket.id !== ticketId || !isRecordedAttempt(ticket.session, attempt)) return ticket
     const { session: _session, runs: _runs, ...rest } = ticket
     return {
       ...rest,
@@ -1751,14 +1762,28 @@ export function orchestratorInstruction(paths: {
 /**
  * What happened in a ticket session that the orchestrator is woken for (#35): its turn ended one of
  * three ways, or it raised something only an answer unblocks - a question the orchestrator may
- * answer with `followup`, or a tool-permission prompt that stays with the human. A spawn that
- * answered `pending` (#1) adds the two ways its start then settles: `started`, or `start-failed`
- * (Toucan stopped the session, so the ticket is free to spawn again).
+ * answer with `followup`, or a tool-permission prompt that stays with the human. Every spawn
+ * answers before its session is up (Tucaen/toucan#3), so two more report how its start settled:
+ * `started`, or `start-failed` (Toucan unlinked the attempt, so the ticket is free to spawn again).
  */
 export type TicketWakeKind =
   'completed' | 'failed' | 'cancelled' | 'question' | 'permission' | 'started' | 'start-failed'
 
-export interface TicketWakeEvent {
+/** How a spawn's start settled, as the orchestrator is woken with it. */
+export interface TicketStartWake {
+  kind: 'started' | 'start-failed'
+  /** Why the start failed. */
+  reason?: string
+  /** What the failed start left behind or removed; never cut short like `reason`. */
+  cleanup?: string
+  /** The model and effort the running session reports. */
+  model?: string
+  effort?: string
+  /** What did not stop the start but the orchestrator should know. */
+  warnings?: readonly string[]
+}
+
+export interface TicketWakeEvent extends Omit<Partial<TicketStartWake>, 'kind'> {
   ticketId: string
   kind: TicketWakeKind
   /** A failed or cancelled turn's own short reason, never transcript text. */
@@ -1790,6 +1815,11 @@ export function ticketWakeKind(event: { type: string; errorKind?: string }): Tic
 /** How much of a failure reason a wake carries: enough to recognise it, never a pasted log. */
 const WAKE_REASON_LIMIT = 160
 
+function shortReason(reason: string | undefined): string | undefined {
+  const flat = reason?.replace(/\s+/g, ' ').trim()
+  return flat && flat.length > WAKE_REASON_LIMIT ? `${flat.slice(0, WAKE_REASON_LIMIT - 3)}...` : flat
+}
+
 function wakeLine(event: TicketWakeEvent): string {
   const ticket = `#${event.ticketId}`
   const outcome = event.outcome
@@ -1804,16 +1834,21 @@ function wakeLine(event: TicketWakeEvent): string {
     }
     case 'failed':
     case 'cancelled': {
-      const reason = event.reason?.replace(/\s+/g, ' ').trim()
-      const shown =
-        reason && reason.length > WAKE_REASON_LIMIT ? `${reason.slice(0, WAKE_REASON_LIMIT - 3)}...` : reason
+      const shown = shortReason(event.reason)
       return `${ticket} ${event.kind}${shown ? `: ${shown}` : ''}${outcome}`
     }
-    case 'started':
-      return `${ticket} finished starting - its session is up and works the ticket; wait for its next wake`
+    case 'started': {
+      const on = event.model ? ` on ${event.model}${event.effort ? ` at effort ${event.effort}` : ''}` : ''
+      const warnings = event.warnings?.length ? ` (warnings: ${event.warnings.join('; ')})` : ''
+      return `${ticket} finished starting${on}${warnings} - its session is up and works the ticket; wait for its next wake`
+    }
     case 'start-failed': {
-      const reason = event.reason?.replace(/\s+/g, ' ').trim().slice(0, WAKE_REASON_LIMIT)
-      return `${ticket} could not be started${reason ? `: ${reason}` : ''} - Toucan stopped the session and unlinked it; spawn the ticket again`
+      const shown = shortReason(event.reason)
+      const cleanup = event.cleanup?.replace(/\s+/g, ' ').trim()
+      return (
+        `${ticket} could not be started${shown ? `: ${shown}` : ''}${cleanup ? ` - ${cleanup}` : ''}` +
+        ' - Toucan unlinked the attempt; spawn the ticket again'
+      )
     }
     case 'question':
       return `${ticket} asks a question - read it with status, answer it with followup --ticket ${event.ticketId} --text <answer>`

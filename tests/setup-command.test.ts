@@ -54,3 +54,25 @@ test.runIf(process.platform === 'win32')(
     assert.ok(Date.now() - started < 10_000, 'answered at the bound, not when the child finished')
   }
 )
+
+// Tucaen/toucan#3: a spawn whose attempt is replaced or discarded while it sets up stops its setup.
+test.runIf(process.platform === 'win32')('a cancelled setup command is killed and reported', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'toucan-setup-command-'))
+  const run = createSetupCommandRunner({
+    shell: { resolveLaunch: () => ({ executable: process.env.ComSpec ?? 'cmd.exe', args: [] }) }
+  })
+  const controller = new AbortController()
+  const started = Date.now()
+  const running = run('ping -n 30 127.0.0.1', cwd, controller.signal)
+  setTimeout(() => controller.abort(), 300)
+  const result = await running
+  assert.equal(result.ok, false)
+  assert.match(!result.ok ? result.error : '', /cancelled/)
+  assert.ok(Date.now() - started < 10_000, 'answered at the cancel, not when the child finished')
+
+  const aborted = new AbortController()
+  aborted.abort()
+  const never = await run('echo never> never.txt', cwd, aborted.signal)
+  assert.equal(never.ok, false)
+  assert.ok(!existsSync(join(cwd, 'never.txt')), 'a setup cancelled before it began never runs')
+})

@@ -262,8 +262,8 @@ async function message(words) {
 }
 
 /**
- * `node:http` rather than `fetch`: a spawn waits for the project's setup command (up to 15
- * minutes) and the canvas (up to 90 seconds), far past fetch's default headers timeout.
+ * `node:http` rather than `fetch`: no command is cut off by fetch's default headers timeout. A
+ * spawn answers once its worktree exists; the setup command and the canvas run on in Toucan.
  */
 function post(body) {
   const text = JSON.stringify(body)

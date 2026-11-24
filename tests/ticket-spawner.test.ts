@@ -1,13 +1,22 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'vitest'
 import type { GitResult } from '../src/main/git-worktree'
-import { createTicketSpawner, type SessionSettings, type TicketSpawnerOptions } from '../src/main/ticket-spawner'
+import {
+  createTicketSpawner,
+  type SessionSettings,
+  type TicketSpawner,
+  type TicketSpawnerOptions,
+  type TicketSpawnRequest,
+  type TicketSpawnSettlement
+} from '../src/main/ticket-spawner'
 import { orchestrationBranchScope, type OrchestrationTicket } from '../src/shared/orchestration'
 import type { TicketSessionCanvasRequest, TicketSessionCanvasResult } from '../src/shared/ticket-session-spawn'
 import type { WorktreeCreateRequest } from '../src/shared/worktree'
 
 // The ticket spawner (#34): worktree through the worktree manager, push guard, the project's setup
 // command, then the canvas - and the model and effort read back from the session that came up.
+// Since Tucaen/toucan#3 `spawn` answers once the attempt is recorded; the setup command and the
+// canvas settle later, in `settled`.
 
 const ticket: OrchestrationTicket = {
   id: '34',
@@ -77,10 +86,26 @@ function harness(overrides: Partial<TicketSpawnerOptions> = {}) {
   return { spawner: createTicketSpawner(options), log, created, canvas, git }
 }
 
+/** Spawns, requires the attempt to be admitted, and waits for how its start settles. */
+async function settle(
+  spawner: TicketSpawner,
+  spawnRequest: TicketSpawnRequest = request
+): Promise<TicketSpawnSettlement> {
+  const result = await spawner.spawn(spawnRequest)
+  assert.ok(result.ok, result.ok ? '' : result.error)
+  return result.settled
+}
+
+const failure = (settled: TicketSpawnSettlement): { error: string; cleanup: string } => {
+  assert.ok(!settled.ok, 'the start settled ok')
+  return settled
+}
+
+const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve))
+
 test('a spawn creates the worktree, guards it, runs setup and then starts the chat on the canvas', async () => {
   const { spawner, log, created, canvas } = harness()
-  const result = await spawner.spawn(request)
-  assert.deepEqual(result, {
+  assert.deepEqual(await settle(spawner), {
     ok: true,
     session: {
       nodeId: 'ticket-node-1',
@@ -119,6 +144,52 @@ test('a spawn creates the worktree, guards it, runs setup and then starts the ch
   assert.ok(started.prompt.includes(`D:\\project-${branch34}`))
 })
 
+test('a spawn answers once the attempt is recorded, before the setup command and the canvas are done', async () => {
+  let finishSetup: (() => void) | undefined
+  const { spawner, log } = harness({
+    runSetup: (command, cwd) => {
+      log.push(`setup ${command} in ${cwd}`)
+      return new Promise((resolve) => (finishSetup = () => resolve({ ok: true })))
+    }
+  })
+  const result = await spawner.spawn({
+    ...request,
+    onAttempt: (attempt) => void log.push(`recorded ${attempt.branch} at ${attempt.worktreePath}`)
+  })
+  assert.ok(result.ok)
+  assert.deepEqual(result.attempt, { worktreePath: `D:\\project-${branch34}`, branch: branch34 })
+  await tick()
+  // Recorded after the guard, and answered with the setup command still running.
+  assert.deepEqual(log, [
+    `create ${branch34}`,
+    `registered D:\\project-${branch34}`,
+    `guard D:\\project-${branch34}`,
+    `recorded ${branch34} at D:\\project-${branch34}`,
+    `setup npm ci in D:\\project-${branch34}`
+  ])
+
+  finishSetup!()
+  assert.equal((await result.settled).ok, true)
+  assert.equal(log.at(-1), 'canvas')
+})
+
+test('an attempt that cannot be recorded fails the spawn and removes its worktree', async () => {
+  const { spawner, git, log } = harness()
+  const result = await spawner.spawn({
+    ...request,
+    onAttempt: () => {
+      throw new Error('disk full')
+    }
+  })
+  assert.ok(!result.ok)
+  assert.match(result.error, /could not be recorded: disk full; the worktree and its branch were removed again/)
+  assert.deepEqual(git, [
+    ['worktree', 'remove', '--force', `D:\\project-${branch34}`],
+    ['branch', '-D', branch34]
+  ])
+  assert.ok(!log.some((entry) => entry.startsWith('setup')))
+})
+
 test('a Bypass orchestrator spawns a ticket session that requests no mode, so it starts in Auto', async () => {
   const { spawner, canvas } = harness({
     // A broker snapshot still carries the orchestrator's mode; the spawner must not read it.
@@ -127,7 +198,7 @@ test('a Bypass orchestrator spawns a ticket session that requests no mode, so it
         ? { permissionMode: 'bypassPermissions' }
         : { model: 'claude-opus-5-5', effort: 'high' }) as SessionSettings
   })
-  assert.ok((await spawner.spawn(request)).ok)
+  assert.ok((await settle(spawner)).ok)
   assert.equal('permissionMode' in canvas[0], false)
 })
 
@@ -139,8 +210,9 @@ test("the ticket prompt names the main checkout's scratch folder, not the worktr
       return { ok: true, path: 'D:\\project\\.toucan-scratch' }
     }
   })
-  const result = await spawner.spawn(request)
-  assert.equal(result.ok && result.warnings.length, 0)
+  const result = await settle(spawner)
+  assert.ok(result.ok)
+  assert.equal(result.warnings.length, 0)
   assert.deepEqual(asked, ['D:\\project'])
   const [started] = canvas
   assert.ok(started.prompt.includes('D:\\project\\.toucan-scratch'))
@@ -155,7 +227,7 @@ test('a scratch folder that cannot be prepared is a warning, and the session sta
   const { spawner, canvas } = harness({
     scratchDirectory: async () => ({ ok: false, error: 'could not prepare the scratch folder (x): not a repo' })
   })
-  const result = await spawner.spawn(request)
+  const result = await settle(spawner)
   assert.ok(result.ok)
   assert.match(result.warnings.join(' '), /scratch folder.*not told where to save/)
   assert.ok(!canvas[0].prompt.includes('.toucan-scratch'))
@@ -172,7 +244,8 @@ test('a retry gets the next free branch name', async () => {
     }
   })
   const result = await spawner.spawn(request)
-  assert.equal(result.ok && result.session.branch, `${branch34}-2`)
+  assert.ok(result.ok)
+  assert.equal(result.attempt.branch, `${branch34}-2`)
   assert.deepEqual(
     created.map((entry) => entry.branch),
     [branch34, `${branch34}-2`]
@@ -194,7 +267,8 @@ test('a retry past the old twenty-first name still finds a free branch', async (
     }
   })
   const result = await spawner.spawn(request)
-  assert.equal(result.ok && result.session.branch, `${branch34}-31`)
+  assert.ok(result.ok)
+  assert.equal(result.attempt.branch, `${branch34}-31`)
   assert.equal(created.length, 31)
 })
 
@@ -217,9 +291,10 @@ test('Codex spawning uses its catalogue and mode, and reports confirmed settings
   }
   assert.equal((await spawner.spawn({ ...codex, model: 'claude-opus-5-5' })).ok, false)
   const invalidEffort = await spawner.spawn({ ...codex, effort: 'max' })
-  assert.match(!invalidEffort.ok ? invalidEffort.error : '', /effort.*not offered/)
+  assert.ok(!invalidEffort.ok)
+  assert.match(invalidEffort.error, /effort.*not offered/)
   assert.equal(created.length, 0)
-  const result = await spawner.spawn(codex)
+  const result = await settle(spawner, codex)
   assert.ok(result.ok)
   assert.equal(result.model, 'gpt-5.6')
   assert.equal(result.effort, 'high')
@@ -248,28 +323,38 @@ test('a worktree git refuses for another reason fails the spawn without trying o
     }
   })
   const result = await spawner.spawn(request)
-  assert.equal(result.ok, false)
-  assert.match(!result.ok ? result.error : '', /invalid reference/)
+  assert.ok(!result.ok)
+  assert.match(result.error, /invalid reference/)
   assert.equal(created.length, 1)
   assert.equal(canvas.length, 0)
 })
 
-test('a failing setup command or guard removes the fresh worktree and its branch', async () => {
-  for (const failure of ['setup', 'guard'] as const) {
-    const { spawner, canvas, git } = harness({
-      ...(failure === 'setup'
-        ? { runSetup: async () => ({ ok: false as const, error: 'npm ERR! missing script' }) }
-        : { installGuard: async () => ({ ok: false as const, error: 'could not install the push guard' }) })
-    })
-    const result = await spawner.spawn(request)
-    assert.equal(result.ok, false, failure)
-    assert.match(!result.ok ? result.error : '', failure === 'setup' ? /npm ERR! missing script/ : /push guard/)
-    assert.equal(canvas.length, 0, failure)
-    assert.deepEqual(git, [
-      ['worktree', 'remove', '--force', `D:\\project-${branch34}`],
-      ['branch', '-D', branch34]
-    ])
-  }
+test('a failing guard fails the spawn and removes the fresh worktree and its branch', async () => {
+  const { spawner, canvas, git } = harness({
+    installGuard: async () => ({ ok: false as const, error: 'could not install the push guard' })
+  })
+  const result = await spawner.spawn(request)
+  assert.ok(!result.ok)
+  assert.match(result.error, /push guard; the worktree and its branch were removed again/)
+  assert.equal(canvas.length, 0)
+  assert.deepEqual(git, [
+    ['worktree', 'remove', '--force', `D:\\project-${branch34}`],
+    ['branch', '-D', branch34]
+  ])
+})
+
+test('a failing setup command fails the start and removes the fresh worktree and its branch', async () => {
+  const { spawner, canvas, git } = harness({
+    runSetup: async () => ({ ok: false as const, error: 'npm ERR! missing script' })
+  })
+  const failed = failure(await settle(spawner))
+  assert.match(failed.error, /setup command failed: npm ERR! missing script/)
+  assert.equal(failed.cleanup, 'the worktree and its branch were removed again')
+  assert.equal(canvas.length, 0)
+  assert.deepEqual(git, [
+    ['worktree', 'remove', '--force', `D:\\project-${branch34}`],
+    ['branch', '-D', branch34]
+  ])
 })
 
 test('a project without a setup command starts the chat without running one and warns that setup was skipped', async () => {
@@ -277,7 +362,7 @@ test('a project without a setup command starts the chat without running one and 
     const { spawner, log } = harness({
       project: async () => ({ id: 'project-1', ...(setupCommand === undefined ? {} : { setupCommand }) })
     })
-    const result = await spawner.spawn(request)
+    const result = await settle(spawner)
     assert.ok(result.ok)
     assert.ok(!log.some((entry) => entry.startsWith('setup')))
     assert.equal(result.warnings.length, 1)
@@ -289,8 +374,8 @@ test('a project without a setup command starts the chat without running one and 
 test('a model the picker does not offer is refused before anything is created', async () => {
   const { spawner, created } = harness()
   const result = await spawner.spawn({ ...request, model: 'claude-imaginary' })
-  assert.equal(result.ok, false)
-  assert.match(!result.ok ? result.error : '', /claude-imaginary.*claude-opus-5-5/)
+  assert.ok(!result.ok)
+  assert.match(result.error, /claude-imaginary.*claude-opus-5-5/)
   assert.equal(created.length, 0)
   // An empty catalogue - no Claude session has run yet - cannot refuse anything.
   const unknown = harness({ offeredModels: () => [] })
@@ -300,16 +385,18 @@ test('a model the picker does not offer is refused before anything is created', 
 test('a project Toucan does not know is refused', async () => {
   const { spawner, created } = harness({ project: async () => undefined })
   const result = await spawner.spawn(request)
-  assert.match(!result.ok ? result.error : '', /not open in Toucan/)
+  assert.ok(!result.ok)
+  assert.match(result.error, /not open in Toucan/)
   assert.equal(created.length, 0)
 })
 
-test('a canvas that cannot start the chat fails the spawn but keeps the worktree it registered', async () => {
+test('a canvas that cannot start the chat fails the start but keeps the worktree it registered', async () => {
   const { spawner, git } = harness({
     canvas: { startTicketSession: async () => ({ ok: false, message: 'Toucan is not open on the desktop.' }) }
   })
-  const result = await spawner.spawn(request)
-  assert.match(!result.ok ? result.error : '', /not open on the desktop.*D:\\project-ticket\/[a-z0-9]{6}\/34/s)
+  const failed = failure(await settle(spawner))
+  assert.equal(failed.error, 'Toucan is not open on the desktop.')
+  assert.equal(failed.cleanup, `the worktree stays at D:\\project-${branch34} on ${branch34}`)
   assert.deepEqual(git, [])
 })
 
@@ -317,7 +404,7 @@ test('a session that came up on another model or effort is reported, not hidden'
   const { spawner } = harness({
     session: (nodeId) => (nodeId === 'ticket-node-1' ? { model: 'claude-sonnet-5-5', effort: 'medium' } : undefined)
   })
-  const result = await spawner.spawn(request)
+  const result = await settle(spawner)
   assert.ok(result.ok)
   assert.equal(result.model, 'claude-sonnet-5-5')
   assert.equal(result.effort, 'medium')
@@ -331,12 +418,12 @@ test('a clean-up git refuses is reported with what it left behind', async () => 
     runSetup: async () => ({ ok: false as const, error: 'npm ERR!' }),
     runGit: async () => ({ code: 128, stdout: '', stderr: 'fatal: locked' })
   })
-  const result = await spawner.spawn(request)
-  assert.match(!result.ok ? result.error : '', /could not be removed and stays at D:\\project-ticket\/[a-z0-9]{6}\/34/)
+  const failed = failure(await settle(spawner))
+  assert.equal(failed.cleanup, `the worktree could not be removed and stays at D:\\project-${branch34} on ${branch34}`)
 })
 
 // Issue #1: the spawner reports the node to its caller the moment the canvas holds it, a wait that
-// runs out is `pending` rather than a failure, and a start Toucan gives up on is stopped.
+// runs out is no verdict, and a start Toucan gives up on is stopped.
 
 test('the session is reported as soon as the canvas holds it, before the canvas answers', async () => {
   const seen: string[] = []
@@ -350,12 +437,15 @@ test('the session is reported as soon as the canvas holds it, before the canvas 
       }
     }
   })
-  const result = await spawner.spawn({
+  const result = await settle(spawner, {
     ...request,
     onSession: (session) => void seen.push(`linked ${session.nodeId} ${session.conversationId ?? '-'}`)
   })
   assert.ok(result.ok)
-  assert.deepEqual(seen, ['canvas answered', 'linked ticket-node-1 -', 'linked ticket-node-1 ticket-conversation-1'])
+  assert.deepEqual(
+    seen.filter((entry) => entry.startsWith('linked')),
+    ['linked ticket-node-1 -', 'linked ticket-node-1 ticket-conversation-1']
+  )
 })
 
 test('the start wait the caller names reaches the canvas', async () => {
@@ -368,12 +458,11 @@ test('the start wait the caller names reaches the canvas', async () => {
       }
     }
   })
-  await spawner.spawn({ ...request, startTimeoutMs: 600_000 })
+  await settle(spawner, { ...request, startTimeoutMs: 600_000 })
   assert.equal(timeoutMs, 600_000)
 })
 
-test('a canvas wait that ran out is pending with the session, and its verdict is delivered later', async () => {
-  const settled: unknown[] = []
+test("a canvas wait that ran out with the node on the canvas is waited out, and settles on the window's verdict", async () => {
   const cancelled: string[] = []
   let late: ((result: TicketSessionCanvasResult) => void) | undefined
   const { spawner } = harness({
@@ -383,44 +472,51 @@ test('a canvas wait that ran out is pending with the session, and its verdict is
         late = observer?.late
         return { ok: false, pending: true, message: 'still starting', nodeId: 'ticket-node-1' }
       },
-      cancelTicketSession: (nodeId) => cancelled.push(nodeId)
+      cancelTicketSession: (nodeId) => void cancelled.push(nodeId)
     }
   })
-  const result = await spawner.spawn({ ...request, onSettled: (outcome) => settled.push(outcome) })
-  assert.deepEqual(result, {
-    ok: false,
-    pending: true,
+  const result = await spawner.spawn(request)
+  assert.ok(result.ok)
+  let settled: TicketSpawnSettlement | undefined
+  void result.settled.then((outcome) => (settled = outcome))
+  await tick()
+  // A slow start is no failure: nothing is stopped and nothing has settled.
+  assert.equal(settled, undefined)
+  assert.deepEqual(cancelled, [])
+
+  late!({ ok: true, nodeId: 'ticket-node-1', conversationId: 'ticket-conversation-1' })
+  assert.deepEqual(await result.settled, {
+    ok: true,
     session: {
       nodeId: 'ticket-node-1',
       conversationId: 'ticket-conversation-1',
       worktreePath: `D:\\project-${branch34}`,
       branch: branch34
     },
-    error: 'still starting'
+    model: 'claude-opus-5-5',
+    effort: 'high',
+    warnings: []
   })
-  // Pending is not failure: the session is not stopped.
-  assert.deepEqual(cancelled, [])
-
-  late!({ ok: true, nodeId: 'ticket-node-1', conversationId: 'ticket-conversation-1' })
-  await new Promise((resolve) => setTimeout(resolve))
-  assert.deepEqual(settled, [
-    {
-      ok: true,
-      session: {
-        nodeId: 'ticket-node-1',
-        conversationId: 'ticket-conversation-1',
-        worktreePath: `D:\\project-${branch34}`,
-        branch: branch34
-      },
-      model: 'claude-opus-5-5',
-      effort: 'high',
-      warnings: []
-    }
-  ])
 })
 
-test('a start that fails after the wait ran out is reported failed', async () => {
-  const settled: unknown[] = []
+test("a window answer that beats the canvas's timed-out answer is still the verdict", async () => {
+  const cancelled: string[] = []
+  const { spawner } = harness({
+    canvas: {
+      async startTicketSession(_request, observer) {
+        observer?.progress?.({ nodeId: 'ticket-node-1', conversationId: 'ticket-conversation-1' })
+        // The window answers in the same tick the wait runs out.
+        observer?.late?.({ ok: true, nodeId: 'ticket-node-1', conversationId: 'ticket-conversation-1' })
+        return { ok: false, pending: true, message: 'still starting', nodeId: 'ticket-node-1' }
+      },
+      cancelTicketSession: (nodeId) => void cancelled.push(nodeId)
+    }
+  })
+  assert.ok((await settle(spawner)).ok)
+  assert.deepEqual(cancelled, [])
+})
+
+test('a start that fails after the wait ran out is reported failed, its node kept for the human', async () => {
   let late: ((result: TicketSessionCanvasResult) => void) | undefined
   const { spawner } = harness({
     canvas: {
@@ -431,13 +527,16 @@ test('a start that fails after the wait ran out is reported failed', async () =>
       }
     }
   })
-  await spawner.spawn({ ...request, onSettled: (outcome) => settled.push(outcome) })
+  const result = await spawner.spawn(request)
+  assert.ok(result.ok)
+  await tick()
   late!({ ok: false, message: 'The ticket session could not be started on the desktop.' })
-  await new Promise((resolve) => setTimeout(resolve))
-  assert.deepEqual(settled, [{ ok: false, error: 'The ticket session could not be started on the desktop.' }])
+  const failed = failure(await result.settled)
+  assert.equal(failed.error, 'The ticket session could not be started on the desktop.')
+  assert.match(failed.cleanup, /worktree stays at .*, and its node stays on the canvas without the ticket prompt$/)
 })
 
-test('a session that cannot be recorded is stopped and fails the spawn', async () => {
+test('a session that cannot be recorded is stopped and fails the start', async () => {
   const cancelled: string[] = []
   const { spawner } = harness({
     canvas: {
@@ -445,16 +544,19 @@ test('a session that cannot be recorded is stopped and fails the spawn', async (
         observer?.progress?.({ nodeId: 'ticket-node-1' })
         return { ok: true, nodeId: 'ticket-node-1', conversationId: 'ticket-conversation-1' }
       },
-      cancelTicketSession: (nodeId) => cancelled.push(nodeId)
+      cancelTicketSession: (nodeId) => void cancelled.push(nodeId)
     }
   })
-  const result = await spawner.spawn({
-    ...request,
-    onSession: () => {
-      throw new Error('disk full')
-    }
-  })
-  assert.match(!result.ok ? result.error : '', /disk full/)
+  const failed = failure(
+    await settle(spawner, {
+      ...request,
+      onSession: () => {
+        throw new Error('disk full')
+      }
+    })
+  )
+  assert.match(failed.error, /disk full/)
+  assert.match(failed.cleanup, /Toucan closed its session/)
   assert.deepEqual(cancelled, ['ticket-node-1'])
 })
 
@@ -466,15 +568,14 @@ test('a canvas that throws after reporting the node stops that node', async () =
         observer?.progress?.({ nodeId: 'ticket-node-1' })
         throw new Error('ipc closed')
       },
-      cancelTicketSession: (nodeId) => cancelled.push(nodeId)
+      cancelTicketSession: (nodeId) => void cancelled.push(nodeId)
     }
   })
-  const result = await spawner.spawn(request)
-  assert.match(!result.ok ? result.error : '', /ipc closed/)
+  assert.match(failure(await settle(spawner)).error, /ipc closed/)
   assert.deepEqual(cancelled, ['ticket-node-1'])
 })
 
-test('a late start the caller was never told about is withdrawn rather than left working', async () => {
+test('a late start the canvas gave up on without a node is withdrawn rather than left working', async () => {
   const cancelled: string[] = []
   let late: ((result: TicketSessionCanvasResult) => void) | undefined
   const { spawner } = harness({
@@ -483,11 +584,59 @@ test('a late start the caller was never told about is withdrawn rather than left
         late = observer?.late
         return { ok: false, message: 'The Toucan window closed before the ticket session was started.' }
       },
-      cancelTicketSession: (nodeId) => cancelled.push(nodeId)
+      cancelTicketSession: (nodeId) => void cancelled.push(nodeId)
+    }
+  })
+  failure(await settle(spawner))
+  late!({ ok: true, nodeId: 'ticket-node-9', conversationId: 'c' })
+  assert.deepEqual(cancelled, ['ticket-node-9'])
+})
+
+// Tucaen/toucan#3: an attempt replaced or discarded while it starts is cancelled.
+
+test('a start cancelled during setup stops the setup and never asks the canvas', async () => {
+  let signal: AbortSignal | undefined
+  const { spawner, canvas, git } = harness({
+    runSetup: (_command, _cwd, abort) => {
+      signal = abort
+      return new Promise((resolve) =>
+        abort?.addEventListener('abort', () => resolve({ ok: false, error: '"npm ci" was cancelled' }))
+      )
     }
   })
   const result = await spawner.spawn(request)
-  assert.equal(result.ok, false)
-  late!({ ok: true, nodeId: 'ticket-node-9', conversationId: 'c' })
-  assert.deepEqual(cancelled, ['ticket-node-9'])
+  assert.ok(result.ok)
+  await tick()
+  result.cancel()
+  assert.equal(signal?.aborted, true)
+  const settled = await result.settled
+  assert.ok(!settled.ok)
+  assert.equal(settled.cancelled, true)
+  assert.equal(canvas.length, 0)
+  // Its worktree is left to whoever cancelled it.
+  assert.deepEqual(git, [])
+})
+
+test('a start cancelled once the canvas holds its node closes that node', async () => {
+  const cancelled: string[] = []
+  let late: ((result: TicketSessionCanvasResult) => void) | undefined
+  const { spawner } = harness({
+    canvas: {
+      async startTicketSession(_request, observer) {
+        observer?.progress?.({ nodeId: 'ticket-node-1' })
+        late = observer?.late
+        return { ok: false, pending: true, message: 'still starting', nodeId: 'ticket-node-1' }
+      },
+      cancelTicketSession: (nodeId) => void cancelled.push(nodeId)
+    }
+  })
+  const result = await spawner.spawn(request)
+  assert.ok(result.ok)
+  await tick()
+  result.cancel()
+  assert.deepEqual(cancelled, ['ticket-node-1'])
+  late!({ ok: false, message: 'closed' })
+  const settled = await result.settled
+  assert.ok(!settled.ok)
+  assert.equal(settled.cancelled, true)
 })

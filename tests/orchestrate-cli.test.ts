@@ -16,6 +16,7 @@ import type { UnrecordedAttempt } from '../src/shared/orchestration-cleanup'
 import type { TicketSpawnRequest } from '../src/main/ticket-spawner'
 import { PROJECT_SKILLS_DIRECTORY } from '../src/shared/project-skills'
 import { ORCHESTRATE_CLI_PATH, ORCHESTRATOR_TOKEN_ENV, ORCHESTRATOR_URL_ENV } from '../src/shared/orchestration'
+import { startedSpawn } from './helpers/fake-ticket-spawner'
 
 // The orchestrator's CLI (#33, #34): a thin client that finds the endpoint and token in its
 // environment, prints one JSON line per call, and fails clearly when either is missing - which is
@@ -86,18 +87,12 @@ async function harness({ liveSessions = false }: { liveSessions?: boolean } = {}
     spawner: {
       async spawn(request) {
         calls.push(request)
-        return {
-          ok: true,
-          session: {
-            nodeId: 'ticket-node',
-            conversationId: 'ticket-conversation',
-            worktreePath: 'D:\\w',
-            branch: 'ticket/34'
-          },
-          model: request.model,
-          effort: request.effort,
-          warnings: []
-        }
+        return startedSpawn(request, {
+          nodeId: 'ticket-node',
+          conversationId: 'ticket-conversation',
+          worktreePath: 'D:\\w',
+          branch: 'ticket/34'
+        })
       }
     }
   })
@@ -238,7 +233,8 @@ test('plan set, plan show, ticket update and spawn each print one JSON line', as
       environment
     )
     assert.deepEqual([spawned.code, spawned.lines, spawned.output.ok], [0, 1, true])
-    assert.equal(spawned.output.model, 'claude-opus-5-5')
+    assert.equal(spawned.output.state, 'starting')
+    assert.equal((spawned.output.route as { model: string }).model, 'claude-opus-5-5')
     assert.equal(calls[0]?.ticket.id, '34')
 
     const shown = await run(['plan', 'show'], environment)

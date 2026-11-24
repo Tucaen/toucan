@@ -4,6 +4,7 @@ import {
   orchestratorWakePrompt,
   sameOrchestration,
   ticketWakeKind,
+  type TicketStartWake,
   type TicketWakeEvent
 } from '../shared/orchestration'
 import { errorMessage } from '../shared/text'
@@ -66,10 +67,10 @@ export interface OrchestrationWaker {
   /** A session Toucan stopped and unlinked from its ticket: nothing it raises is the orchestrator's news. */
   unbind(nodeId: string): void
   /**
-   * Something about a linked ticket session that is not a session event - its start settled after
-   * `spawn` answered `pending` - to wake the orchestrator with like one.
+   * Something about a ticket that is not a session event - its start settled after `spawn`
+   * answered - to wake the orchestrator with like one.
    */
-  report(binding: TicketBinding, event: { kind: 'started' | 'start-failed'; reason?: string }): void
+  report(binding: TicketBinding, event: TicketStartWake): void
   /**
    * The orchestration's session opened in `nodeId` - after a History reopen, a node other than the
    * one its tickets were bound to (Tucaen/toucan#1). Their bindings follow it, and what was waiting

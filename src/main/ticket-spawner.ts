@@ -36,22 +36,40 @@ export interface TicketSpawnRequest {
   effort: string
   /** What the prompt opens with (#36); the default skill when absent. */
   implementationSkill?: string
-  /** How long to wait for the session to show life before answering `pending`; the default when absent. */
+  /**
+   * How long the canvas may stay silent - no node, no output - before a start it has not shown a
+   * node for is given up; the default when absent. A start whose node exists is waited out (#1).
+   */
   startTimeoutMs?: number
   /**
+   * The worktree exists and is guarded (Tucaen/toucan#3): the caller records the attempt now, and
+   * `spawn` answers once it has, before the setup command and the canvas. A throw fails the spawn
+   * and removes the worktree again.
+   */
+  onAttempt?(attempt: TicketAttempt): Promise<void> | void
+  /**
    * The canvas holds the session's node and it is not up yet (#1), and again once it has a
-   * conversation id: the caller records it against the ticket now, so a start that outlasts the
-   * wait - or never finishes - leaves a linked session rather than an invisible one.
+   * conversation id: the caller records it against the ticket now, so a start that is slow - or
+   * never finishes - leaves a linked session rather than an invisible one.
    */
   onSession?(session: LinkedTicketSession): Promise<void> | void
-  /** How a spawn that answered `pending` settled, once it has. */
-  onSettled?(outcome: TicketSpawnSettlement): void
 }
+
+/** Where an attempt runs, known as soon as its worktree exists. */
+export type TicketAttempt = Required<Pick<TicketSession, 'worktreePath' | 'branch'>>
+
+/** A worktree as the worktree manager created it. */
+type CreatedWorktree = { path: string; branch: string; baseRef: string }
+
+const attemptOf = (worktree: CreatedWorktree): TicketAttempt => ({
+  worktreePath: worktree.path,
+  branch: worktree.branch
+})
 
 /** A ticket session as far as is known: the conversation comes with the session's first output. */
 export type LinkedTicketSession = Omit<Required<TicketSession>, 'conversationId'> & { conversationId?: string }
 
-/** A spawn's final verdict: what a result says once it is not `pending`. */
+/** How an admitted spawn's start ended: its session is up, or the attempt is over. */
 export type TicketSpawnSettlement =
   | {
       ok: true
@@ -59,19 +77,32 @@ export type TicketSpawnSettlement =
       /** The model and effort the running session reports, read back rather than assumed. */
       model?: string
       effort?: string
-      /** What the caller should know but that did not stop the spawn. */
+      /** What the caller should know but that did not stop the start. */
       warnings: string[]
     }
-  | { ok: false; error: string }
-
-export type TicketSpawnResult =
-  | TicketSpawnSettlement
   | {
       ok: false
-      /** The session did not show life in time but is neither failed nor closed; `onSettled` follows. */
-      pending: true
-      session: LinkedTicketSession
       error: string
+      /** What the failure left behind or removed: the worktree, its branch, the node. */
+      cleanup: string
+      /** The caller cancelled the start; nothing of it is news to the orchestrator. */
+      cancelled?: true
+    }
+
+export type TicketSpawnResult =
+  /** Refused, or failed before the attempt existed: nothing is left behind unless `error` says so. */
+  | { ok: false; error: string }
+  | {
+      ok: true
+      /** Recorded through `onAttempt` before this answer. */
+      attempt: TicketAttempt
+      /** The setup command and the canvas, still running; never rejects. */
+      settled: Promise<TicketSpawnSettlement>
+      /**
+       * The attempt is superseded or discarded: its setup is stopped, the canvas is not asked, and a
+       * node it already has is closed. Its worktree stays for whoever cancelled it.
+       */
+      cancel(): void
     }
 
 export interface TicketSpawner {
@@ -92,7 +123,7 @@ export interface TicketSpawnerOptions {
   installGuard(worktreePath: string): Promise<PushGuardResult>
   /** The workspace project behind a checkout path, with its setup command. */
   project(projectPath: string): Promise<{ id: string; setupCommand?: string } | undefined>
-  runSetup(command: string, cwd: string): Promise<{ ok: true } | { ok: false; error: string }>
+  runSetup(command: string, cwd: string, signal?: AbortSignal): Promise<{ ok: true } | { ok: false; error: string }>
   canvas: {
     startTicketSession(
       request: TicketSessionCanvasRequest,
@@ -116,26 +147,30 @@ export interface TicketSpawnerOptions {
 }
 
 /**
- * Creates the worktree, guards it, sets it up, and only then asks the canvas for the chat - so a
- * ticket session never starts in a checkout that can push or that is missing its dependencies. A
- * project without a setup command has nothing to install them with, so that spawn says so in its
- * warnings instead of starting the chat as if the worktree were ready. A worktree that fails
- * before the canvas has seen it is removed again with its branch: both are seconds old and hold
- * nothing but the target branch's commits. One the canvas has registered stays, because from then
- * on it is a canvas entity the human can see and remove.
+ * Creates the worktree and guards it, and answers once the caller has recorded the attempt
+ * (Tucaen/toucan#3): the setup command - minutes, up to fifteen - and the canvas run on in
+ * `settled`, so an orchestrator's `spawn` never holds its turn open for them. Setup comes before
+ * the canvas, so a ticket session never starts in a checkout that can push or that is missing its
+ * dependencies. A project without a setup command has nothing to install them with, so that start
+ * says so in its warnings instead of starting the chat as if the worktree were ready. A worktree
+ * that fails before the canvas has seen it is removed again with its branch: it holds nothing but
+ * the target branch's commits. One the canvas has registered stays, because from then on it is a
+ * canvas entity the human can see and remove.
  */
 export function createTicketSpawner(options: TicketSpawnerOptions): TicketSpawner {
-  /** Removes a worktree only this spawn has seen; says what is left behind when git refuses. */
-  const discard = async (projectPath: string, path: string, branch: string): Promise<string> => {
-    const removed = await options.runGit(['worktree', 'remove', '--force', path], projectPath)
-    if (removed.code !== 0) return ` The worktree could not be removed and stays at ${path} on ${branch}.`
-    const deleted = await options.runGit(['branch', '-D', branch], projectPath)
-    return deleted.code === 0 ? '' : ` Its branch ${branch} could not be deleted.`
+  /** Removes a worktree only this spawn has seen, and says what came of it. */
+  const discard = async (projectPath: string, worktree: TicketAttempt): Promise<string> => {
+    const removed = await options.runGit(['worktree', 'remove', '--force', worktree.worktreePath], projectPath)
+    if (removed.code !== 0) {
+      return `the worktree could not be removed and stays at ${worktree.worktreePath} on ${worktree.branch}`
+    }
+    const deleted = await options.runGit(['branch', '-D', worktree.branch], projectPath)
+    return deleted.code === 0
+      ? 'the worktree and its branch were removed again'
+      : `the worktree was removed, but its branch ${worktree.branch} could not be deleted`
   }
 
-  const createWorktree = async (
-    request: TicketSpawnRequest
-  ): Promise<{ path: string; branch: string; baseRef: string } | { error: string }> => {
+  const createWorktree = async (request: TicketSpawnRequest): Promise<CreatedWorktree | { error: string }> => {
     // The names never run out, so this ends at the first free one or a failure that is no conflict.
     // They are scoped to the orchestration, so another one's ticket of the same id is no conflict.
     const scope = orchestrationBranchScope({
@@ -154,29 +189,32 @@ export function createTicketSpawner(options: TicketSpawnerOptions): TicketSpawne
     throw new Error('unreachable: ticket branch names are endless')
   }
 
-  const spawn = async (request: TicketSpawnRequest): Promise<TicketSpawnResult> => {
-    const project = await options.project(request.projectPath)
-    if (!project) return { ok: false, error: `the project ${request.projectPath} is not open in Toucan` }
-    const provider = orchestratorProvider(request.orchestrator)
-    const offered = options.offeredModels(provider)
-    if (offered.length > 0 && !offered.includes(request.model)) {
-      return { ok: false, error: `model "${request.model}" is not offered; the picker offers ${offered.join(', ')}` }
-    }
-    const efforts = options.offeredEfforts(provider, request.model)
-    if (efforts && efforts.length > 0 && !efforts.includes(request.effort)) {
-      return {
-        ok: false,
-        error: `effort "${request.effort}" is not offered for "${request.model}"; the picker offers ${efforts.join(', ')}`
-      }
-    }
-    const worktree = await createWorktree(request)
-    if ('error' in worktree) return { ok: false, error: worktree.error }
-    options.onWorktreeCreated(worktree.path)
+  /** What one admitted attempt's start knows while it runs, and what cancelling it reaches. */
+  interface StartControl {
+    cancelled: boolean
+    abort: AbortController
+    /** The node as far as the canvas has reported it, so a failure after that can stop its session. */
+    node?: TicketSessionProgress
+  }
 
-    const guarded = await options.installGuard(worktree.path)
-    if (!guarded.ok) {
-      const left = await discard(request.projectPath, worktree.path, worktree.branch)
-      return { ok: false, error: `${guarded.error}${left}` }
+  const stop = (nodeId: string | undefined): void => {
+    if (nodeId) options.canvas.cancelTicketSession?.(nodeId)
+  }
+
+  /** The setup command and the canvas, after `spawn` answered. */
+  const start = async (
+    request: TicketSpawnRequest,
+    project: { id: string; setupCommand?: string },
+    worktree: CreatedWorktree,
+    control: StartControl
+  ): Promise<TicketSpawnSettlement> => {
+    const provider = orchestratorProvider(request.orchestrator)
+    const stays = `the worktree stays at ${worktree.path} on ${worktree.branch}`
+    const cancelled: TicketSpawnSettlement = {
+      ok: false,
+      error: 'the start was cancelled',
+      cleanup: stays,
+      cancelled: true
     }
     const warnings: string[] = []
     const setupCommand = project.setupCommand?.trim()
@@ -186,12 +224,13 @@ export function createTicketSpawner(options: TicketSpawnerOptions): TicketSpawne
           "set its Setup command in the project's settings in Toucan, or install dependencies in the session"
       )
     } else {
-      const setup = await options.runSetup(setupCommand, worktree.path)
+      const setup = await options.runSetup(setupCommand, worktree.path, control.abort.signal)
+      if (control.cancelled) return cancelled
       if (!setup.ok) {
-        const left = await discard(request.projectPath, worktree.path, worktree.branch)
         return {
           ok: false,
-          error: `the setup command failed: ${setup.error}${left || ' The worktree was removed again.'}`
+          error: `the setup command failed: ${setup.error}`,
+          cleanup: await discard(request.projectPath, attemptOf(worktree))
         }
       }
     }
@@ -203,6 +242,7 @@ export function createTicketSpawner(options: TicketSpawnerOptions): TicketSpawne
       if (scratch.ok) scratchPath = scratch.path
       else warnings.push(`${scratch.error}; the session was not told where to save files for you`)
     }
+    if (control.cancelled) return cancelled
 
     const canvasRequest: TicketSessionCanvasRequest = {
       provider,
@@ -220,17 +260,10 @@ export function createTicketSpawner(options: TicketSpawnerOptions): TicketSpawne
       worktreePath: worktree.path,
       branch: worktree.branch
     })
-    /** The node as far as the canvas has reported it, so a failure after that can stop its session. */
-    let node: TicketSessionProgress | undefined
-    /** Whether the caller was answered `pending`, which hands the verdict to `onSettled`. */
-    let answeredPending = false
     // The caller's records of the session, in the order the canvas reported it: a verdict is
     // never reported before the link it settles.
     let linking: Promise<void> = Promise.resolve()
     let linkFailure: { error: unknown } | undefined
-    const stop = (nodeId: string | undefined): void => {
-      if (nodeId) options.canvas.cancelTicketSession?.(nodeId)
-    }
 
     // Confirmed, not requested: what the session reports is what the caller is told.
     const settle = (answer: { nodeId: string; conversationId: string }): TicketSpawnSettlement => {
@@ -256,59 +289,126 @@ export function createTicketSpawner(options: TicketSpawnerOptions): TicketSpawne
       }
     }
 
-    let started: TicketSessionCanvasResult
+    let verdict: TicketSessionCanvasResult
     try {
-      started = await options.canvas.startTicketSession(canvasRequest, {
-        ...(request.startTimeoutMs !== undefined ? { timeoutMs: request.startTimeoutMs } : {}),
-        progress: (progress) => {
-          node = progress
-          linking = linking
-            .then(() => request.onSession?.(linked(progress)))
-            .catch((error) => {
-              linkFailure ??= { error }
-            })
-        },
-        // What the canvas settles after the caller was told `pending`. Without that answer nobody
-        // is tracking the session, so one that comes up anyway is withdrawn rather than left working.
-        late: (result) => {
-          if (!answeredPending) {
-            if (result.ok) stop(result.nodeId)
-            return
-          }
-          void linking.then(() => {
-            if (linkFailure) {
-              stop(node?.nodeId)
-              request.onSettled?.({
-                ok: false,
-                error: `the session could not be recorded: ${errorMessage(linkFailure.error)}`
-              })
-            } else if (result.ok) request.onSettled?.(settle(result))
-            else request.onSettled?.({ ok: false, error: result.message })
-          })
+      verdict = await new Promise<TicketSessionCanvasResult>((resolve, reject) => {
+        // A wait that ran out with the node on the canvas is no verdict (#1): the start is still
+        // going, and the window's eventual answer arrives through `late`.
+        let awaitingLate = false
+        // The window may answer before the timed-out answer is read here; it is kept until then.
+        let answered = false
+        let early: TicketSessionCanvasResult | undefined
+        const withdraw = (result: TicketSessionCanvasResult | undefined): void => {
+          if (result?.ok) stop(result.nodeId)
         }
+        options.canvas
+          .startTicketSession(canvasRequest, {
+            ...(request.startTimeoutMs !== undefined ? { timeoutMs: request.startTimeoutMs } : {}),
+            progress: (progress) => {
+              control.node = progress
+              if (control.cancelled) {
+                stop(progress.nodeId)
+                return
+              }
+              linking = linking
+                .then(() => request.onSession?.(linked(progress)))
+                .catch((error) => {
+                  linkFailure ??= { error }
+                })
+            },
+            late: (result) => {
+              if (awaitingLate) resolve(result)
+              else if (!answered) early = result
+              // Given up on without a node, so nobody tracks it: one that comes up anyway is withdrawn.
+              else withdraw(result)
+            }
+          })
+          .then((result) => {
+            answered = true
+            if (!result.ok && 'pending' in result && (result.nodeId ?? control.node?.nodeId)) {
+              if (early) resolve(early)
+              else awaitingLate = true
+            } else {
+              resolve(result)
+              withdraw(early)
+            }
+          }, reject)
       })
       await linking
       if (linkFailure) throw linkFailure.error
     } catch (error) {
       // Toucan treats this start as failed, so its session is stopped, not only left in its worktree.
-      stop(node?.nodeId)
-      throw error
-    }
-    if (started.ok) return settle(started)
-    if ('pending' in started) {
-      const nodeId = started.nodeId ?? node?.nodeId
-      if (nodeId) {
-        answeredPending = true
-        return {
-          ok: false,
-          pending: true,
-          session: linked({ nodeId, conversationId: started.conversationId ?? node?.conversationId }),
-          error: started.message
-        }
+      stop(control.node?.nodeId)
+      return {
+        ok: false,
+        error: `Toucan could not start the ticket session: ${errorMessage(error)}`,
+        cleanup: control.node ? `${stays}; Toucan closed its session` : stays
       }
     }
+    if (control.cancelled) {
+      if (verdict.ok) stop(verdict.nodeId)
+      return cancelled
+    }
+    if (verdict.ok) return settle(verdict)
+    if ('pending' in verdict) {
+      return { ok: false, error: 'the canvas did not show the ticket session in time', cleanup: stays }
+    }
     // A failure verdict means the canvas has already dropped the session's prompt and shows why.
-    return { ok: false, error: `${started.message} The worktree stays at ${worktree.path} on ${worktree.branch}.` }
+    return {
+      ok: false,
+      error: verdict.message,
+      cleanup: control.node ? `${stays}, and its node stays on the canvas without the ticket prompt` : stays
+    }
+  }
+
+  const spawn = async (request: TicketSpawnRequest): Promise<TicketSpawnResult> => {
+    const project = await options.project(request.projectPath)
+    if (!project) return { ok: false, error: `the project ${request.projectPath} is not open in Toucan` }
+    const provider = orchestratorProvider(request.orchestrator)
+    const offered = options.offeredModels(provider)
+    if (offered.length > 0 && !offered.includes(request.model)) {
+      return { ok: false, error: `model "${request.model}" is not offered; the picker offers ${offered.join(', ')}` }
+    }
+    const efforts = options.offeredEfforts(provider, request.model)
+    if (efforts && efforts.length > 0 && !efforts.includes(request.effort)) {
+      return {
+        ok: false,
+        error: `effort "${request.effort}" is not offered for "${request.model}"; the picker offers ${efforts.join(', ')}`
+      }
+    }
+    const worktree = await createWorktree(request)
+    if ('error' in worktree) return { ok: false, error: worktree.error }
+    options.onWorktreeCreated(worktree.path)
+    const attempt = attemptOf(worktree)
+
+    const guarded = await options.installGuard(worktree.path)
+    if (!guarded.ok) return { ok: false, error: `${guarded.error}; ${await discard(request.projectPath, attempt)}` }
+    try {
+      await request.onAttempt?.(attempt)
+    } catch (error) {
+      return {
+        ok: false,
+        error: `the attempt could not be recorded: ${errorMessage(error)}; ${await discard(request.projectPath, attempt)}`
+      }
+    }
+
+    const control: StartControl = { cancelled: false, abort: new AbortController() }
+    const settled = start(request, project, worktree, control).catch((error): TicketSpawnSettlement => ({
+      ok: false,
+      error: `Toucan could not start the ticket session: ${errorMessage(error)}`,
+      cleanup: `the worktree stays at ${worktree.path} on ${worktree.branch}`
+    }))
+    return {
+      ok: true,
+      attempt,
+      settled,
+      cancel: () => {
+        if (control.cancelled) return
+        control.cancelled = true
+        control.abort.abort()
+        stop(control.node?.nodeId)
+      }
+    }
   }
 
   return {

@@ -29,7 +29,7 @@ export interface OrchestrationConfig {
   tiers: TierMapping
   /** What a ticket session's prompt opens with, before the ticket and the ticket contract. */
   implementationSkill: string
-  /** How long a spawn waits for its session to show life before answering `pending`; see `DEFAULT_START_TIMEOUT_SECONDS`. */
+  /** How long a start waits for the canvas to show its session before it fails; see `DEFAULT_START_TIMEOUT_SECONDS`. */
   startTimeoutSeconds?: number
 }
 
@@ -41,8 +41,9 @@ export interface ProviderOrchestrationConfigFile {
 }
 
 /**
- * How long a spawn waits for its ticket session to start (#1) when the project says nothing. Slow
- * setups - a Windows adapter launch, an engine's first import - used to outlast the 90 s it was.
+ * How long a ticket session's start waits for the canvas to show its node (#1) when the project says
+ * nothing; one whose node is shown is waited out. Slow launches - a Windows adapter, an engine's
+ * first import - used to outlast the 90 s it was.
  */
 export const DEFAULT_START_TIMEOUT_SECONDS = 300
 /** The bounds a configured start timeout must stay within, in seconds. */

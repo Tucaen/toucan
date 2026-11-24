@@ -52,6 +52,7 @@ import {
   type TicketRoute,
   type TicketRunState,
   type TicketSession,
+  type TicketStartWake,
   type UnresolvedAttempt
 } from '../shared/orchestration'
 import { questionOptionsFromDecision } from '../shared/orchestration-question-answer'
@@ -144,6 +145,8 @@ export interface OrchestratorEndpoint {
   pacingActivityChanged(provider: AgentProvider): void
   /** Retries a coalesced pacing wake when its orchestrator session becomes ready. */
   pacingSessionReady(nodeId: string): void
+  /** Settles once every spawn's start running so far has settled and been recorded; for tests. */
+  idle(): Promise<void>
   close(): Promise<void>
 }
 
@@ -225,10 +228,11 @@ export interface OrchestratorEndpointOptions {
   /** A start Toucan treated as failed was unlinked: the wake stops reporting that session. */
   onTicketAbandoned?(nodeId: string): void
   /**
-   * A spawn that answered `pending` has settled: the orchestrator is woken with how, since its
-   * `spawn` call returned long ago.
+   * A spawn's start has settled: the orchestrator is woken with how, since its `spawn` call
+   * answered as soon as the attempt was recorded (Tucaen/toucan#3). A cancelled start - its attempt
+   * replaced or discarded - is not reported.
    */
-  onTicketStartSettled?(binding: TicketBinding, outcome: { ok: true } | { ok: false; error: string }): void
+  onTicketStartSettled?(binding: TicketBinding, outcome: TicketStartWake): void
   /** A spawn wrote its session into the record or hit its budget; the orchestrator node's controls re-read it. */
   spawned?(record: OrchestrationRecord): void
   /** A question was pinned or resolved, by a command or a settled ticket; the pinned strip re-reads it. */
@@ -305,6 +309,11 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
   }
   const grants = new Set<LiveGrant>()
   let startedServer: Promise<HttpServer> | undefined
+  /**
+   * Starts still running after their `spawn` answered (Tucaen/toucan#3), by attempt branch - fresh
+   * for every attempt - so `--replace` and `discard` can cancel one that has no node yet.
+   */
+  const startsInFlight = new Map<string, { cancel(): void; settled: Promise<void> }>()
 
   const pacingEnforced = options.pacing?.enforce === true
   const pacingCoordinator: OrchestrationPacingCoordinator | undefined =
@@ -471,9 +480,27 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     return { route: { ...route, effort: request.effort ?? route.effort }, warnings: resolved.warnings }
   }
 
+  /**
+   * The live state of a ticket's recorded session. An attempt still `starting` with no node yet is
+   * one whose setup runs here - unless no start of this Toucan's is running it any more (Toucan
+   * was restarted mid-setup), which leaves it as dead as an exited session.
+   */
+  const liveSession = (ticket: OrchestrationTicket): { status: string } | undefined => {
+    const session = ticket.session
+    if (session?.nodeId) return options.ticketSessions?.state(session.nodeId)
+    const starting = ticket.runs?.[ticket.runs.length - 1]?.state === 'starting'
+    if (starting && !(session?.branch && startsInFlight.has(session.branch))) return { status: 'exited' }
+    return undefined
+  }
+
+  /** Cancels the start still running for this attempt branch, if one is. */
+  const cancelStart = (branch: string | undefined): void => {
+    if (branch) startsInFlight.get(branch)?.cancel()
+  }
+
   /** The ticket's latest attempt while it is unresolved (see `unresolvedAttempt`), read against the live session. */
   const duplicateAttempt = (ticket: OrchestrationTicket): UnresolvedAttempt | undefined =>
-    unresolvedAttempt(ticket, ticket.session?.nodeId ? options.ticketSessions?.state(ticket.session.nodeId) : undefined)
+    unresolvedAttempt(ticket, liveSession(ticket))
 
   const duplicateRefusal = (ticketId: string, attempt: UnresolvedAttempt): Reply => ({
     status: 409,
@@ -622,6 +649,8 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
         ...(location.conversationId ? { conversationId: location.conversationId } : {})
       }
     }
+    // A start still setting up is stopped before its worktree is removed under it.
+    cancelStart(target.branch)
     if (target.nodeId) {
       if (options.ticketSessions?.state(target.nodeId) || starting) {
         const stop = options.ticketSessions?.stop
@@ -744,16 +773,23 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     }
 
     let routed: SpawnRoute | undefined
+    // The admission holds its provisional active slot until the start settles, not only until
+    // `spawn` answers: the session it admitted is not in the live count before then.
+    let handedOff = false
     try {
       // `--replace` stops the old attempt before anything of the new one exists. Past admission, so
       // a spawn that is deferred or refused never costs the attempt it was meant to replace.
       if (request.replace) {
         const latest = (await options.records.read(key))?.tickets.find((candidate) => candidate.id === request.ticketId)
         const old = latest && duplicateAttempt(latest)
+        const stop = options.ticketSessions?.stop
+        if (old?.nodeId && !stop) {
+          return refused(501, 'this Toucan cannot stop ticket sessions, so it cannot replace an attempt')
+        }
+        // One still setting up is stopped there; its worktree stays, like any replaced attempt's.
+        cancelStart(old?.branch)
         if (old?.nodeId) {
-          const stop = options.ticketSessions?.stop
-          if (!stop) return refused(501, 'this Toucan cannot stop ticket sessions, so it cannot replace an attempt')
-          stop(old.nodeId, { starting: old.state === 'starting' })
+          stop!(old.nodeId, { starting: old.state === 'starting' })
           options.onTicketAbandoned?.(old.nodeId)
         }
       }
@@ -784,12 +820,14 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
       const reserved = reservation.record
       const ticket = reserved.tickets.find((candidate) => candidate.id === request.ticketId)!
       const { route: spawnedRoute, warnings: routeWarnings } = routed!
-      // The session is recorded the moment the canvas holds it, not once it is ready (#1): a start
-      // that outlasts its wait, or that Toucan then gives up on, must not be an unlinked session.
+      // The attempt is recorded as soon as its worktree exists (Tucaen/toucan#3), and its session as
+      // soon as the canvas holds it (#1): a start that is slow, or that Toucan then gives up on,
+      // must never be an unlinked attempt.
       const before = { session: ticket.session, runs: ticket.runs }
-      let recorded = false
-      let linkedNodeId: string | undefined
+      let recorded: { session: TicketSession; attempt: number } | undefined
       let linking: Promise<unknown> = Promise.resolve()
+      /** Set once the attempt was replaced or discarded: nothing more of it is recorded or reported. */
+      let cancelled = false
       const bindingFor = (session: TicketSession): TicketBinding => ({
         orchestratorNodeId: grant.nodeId,
         ticketId: ticket.id,
@@ -799,7 +837,7 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
       })
       const link = (session: TicketSession, state: TicketRunState): Promise<void> => {
         const write = async (): Promise<void> => {
-          linkedNodeId = session.nodeId
+          if (cancelled) return
           const written = await options.records.update(key, (current) => {
             const value =
               current &&
@@ -808,24 +846,29 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
                 : recordTicketSession(current, ticket.id, session, now(), spawnedRoute, state))
             return { value, result: value }
           })
-          recorded = true
+          const runs = written?.tickets.find((candidate) => candidate.id === ticket.id)?.runs
+          recorded = {
+            session: { ...recorded?.session, ...session },
+            attempt: recorded?.attempt ?? Math.max(runs?.length ?? 1, 1)
+          }
           if (written) options.spawned?.(written)
-          options.onTicketSpawned?.(session.nodeId!, bindingFor(session))
+          if (session.nodeId) options.onTicketSpawned?.(session.nodeId, bindingFor(session))
         }
-        // One write at a time, in the order the canvas reported them.
+        // One write at a time, in the order they were reported.
         const next = linking.then(write)
         linking = next.catch(() => undefined)
         return next
       }
-      const abandon = async (nodeId: string): Promise<void> => {
+      const abandon = async (): Promise<void> => {
         await linking
         if (!recorded) return
+        const attempt = recorded.session
         const restored = await options.records.update(key, (current) => {
-          const value = current && abandonTicketSession(current, ticket.id, nodeId, before, now())
+          const value = current && abandonTicketSession(current, ticket.id, attempt, before, now())
           return { value, result: value }
         })
         if (restored) options.spawned?.(restored)
-        options.onTicketAbandoned?.(nodeId)
+        if (attempt.nodeId) options.onTicketAbandoned?.(attempt.nodeId)
       }
       const spawned = await spawner.spawn({
         orchestrator: { nodeId: grant.nodeId, conversationId: key.conversationId, provider: grant.provider },
@@ -838,57 +881,75 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
         ...(configured.config?.startTimeoutSeconds !== undefined
           ? { startTimeoutMs: configured.config.startTimeoutSeconds * 1_000 }
           : {}),
-        onSession: (session) => link(session, 'starting'),
-        // The spawn call has long returned `pending`: what its start came to is recorded here and
-        // the orchestrator is woken with it.
-        onSettled: (outcome) => {
-          void (async () => {
-            if (outcome.ok) {
-              await link(outcome.session, 'started')
-              options.onTicketStartSettled?.(bindingFor(outcome.session), { ok: true })
-            } else if (linkedNodeId) {
-              await abandon(linkedNodeId)
-              options.onTicketStartSettled?.(bindingFor({}), outcome)
-            }
-          })().catch((error) => options.log?.(`could not settle the pending ticket session: ${errorMessage(error)}`))
-        }
+        onAttempt: (attempt) => link(attempt, 'starting'),
+        onSession: (session) => link(session, 'starting')
       })
       const spawnsLeft = spawnBudget(reserved) - (reserved.spawnCount ?? 0)
-      if ('pending' in spawned) {
-        return {
-          status: 202,
-          body: {
-            ok: false,
-            pending: true,
-            ticket: ticket.id,
-            session: spawned.session,
-            error: spawned.error,
-            spawnsLeft
-          }
-        }
-      }
       if (!spawned.ok) {
-        // Toucan stopped the session (or never had one): the ticket is free to spawn again.
-        if (linkedNodeId) await abandon(linkedNodeId)
+        // Nothing of the attempt is left to track: the ticket is free to spawn again.
+        await abandon()
         return { status: 502, body: { ok: false, error: spawned.error } }
       }
-      await link(spawned.session, 'started')
+
+      // What the start comes to is recorded, and the orchestrator woken with it, long after this
+      // call answered.
+      const branch = spawned.attempt.branch
+      let finished = false
+      const finish = (): void => {
+        if (finished) return
+        finished = true
+        if (startsInFlight.get(branch)?.settled === settling) startsInFlight.delete(branch)
+        if (admission?.admitted) admission.release()
+      }
+      const settling: Promise<void> = spawned.settled
+        .then(async (outcome) => {
+          if (cancelled) return
+          if (outcome.ok) {
+            await link(outcome.session, 'started')
+            options.onTicketStartSettled?.(bindingFor(outcome.session), {
+              kind: 'started',
+              ...(outcome.model ? { model: outcome.model } : {}),
+              ...(outcome.effort ? { effort: outcome.effort } : {}),
+              warnings: outcome.warnings
+            })
+          } else if (!outcome.cancelled) {
+            await abandon()
+            options.onTicketStartSettled?.(bindingFor({}), {
+              kind: 'start-failed',
+              reason: outcome.error,
+              cleanup: outcome.cleanup
+            })
+          }
+        })
+        .catch((error) => options.log?.(`could not settle the ticket session's start: ${errorMessage(error)}`))
+        .finally(finish)
+      startsInFlight.set(branch, {
+        settled: settling,
+        cancel: () => {
+          cancelled = true
+          spawned.cancel()
+          // A cancelled start may never answer, so its slot and its entry go now.
+          finish()
+        }
+      })
+      handedOff = true
+
       return {
         status: 200,
         body: {
           ok: true,
           ticket: ticket.id,
-          session: spawned.session,
-          model: spawned.model ?? null,
-          effort: spawned.effort ?? null,
-          warnings: [...routeWarnings, ...spawned.warnings],
+          state: 'starting',
+          attempt: recorded?.attempt ?? 1,
+          session: { ...spawned.attempt, ...recorded?.session },
           route: spawnedRoute,
+          warnings: routeWarnings,
           spawnsLeft,
           ...(forced ? { forced } : {})
         }
       }
     } finally {
-      if (admission?.admitted) admission.release()
+      if (admission?.admitted && !handedOff) admission.release()
     }
   }
 
@@ -1191,6 +1252,7 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     }
     const tickets = record.tickets.map((ticket) => {
       const live = ticket.session?.nodeId ? options.ticketSessions?.state(ticket.session.nodeId) : undefined
+      const dead = liveSession(ticket)?.status === 'exited' && !live
       return {
         id: ticket.id,
         title: ticket.title,
@@ -1199,11 +1261,11 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
         mergeStatus: ticket.mergeStatus,
         session: ticket.session ?? null,
         route: ticket.route ?? null,
-        // A session recorded while its canvas node is still coming up has no live status yet.
+        // An attempt still setting up, or whose canvas node is still coming up, has no live status yet.
         state: !ticket.session
           ? 'not spawned'
           : (live?.status ??
-            (ticket.runs?.[ticket.runs.length - 1]?.state === 'starting' ? 'starting' : 'not running')),
+            (ticket.runs?.[ticket.runs.length - 1]?.state === 'starting' && !dead ? 'starting' : 'not running')),
         permissionPrompt: live?.permission ? { title: live.permission.title, answeredBy: 'human' } : null,
         questions: live?.questions ?? []
       }
@@ -1598,6 +1660,9 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     },
     pacingSessionReady(nodeId) {
       pacingCoordinator?.ready(nodeId)
+    },
+    async idle() {
+      while (startsInFlight.size > 0) await Promise.all([...startsInFlight.values()].map((start) => start.settled))
     },
     async close() {
       pacingCoordinator?.close()

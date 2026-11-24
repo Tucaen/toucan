@@ -14,6 +14,7 @@ import type { TicketSpawner } from '../src/main/ticket-spawner'
 import type { AgentDecisionResponseContent, AgentPromptResult } from '../src/shared/agent'
 import { ORCHESTRATOR_TOKEN_ENV, ORCHESTRATOR_URL_ENV } from '../src/shared/orchestration'
 import type { SessionOutcomeIdentity, SessionOutcomeRecord } from '../src/shared/session-outcome'
+import { startedSpawn } from './helpers/fake-ticket-spawner'
 
 // The orchestrator's view of and reach into its ticket sessions (#35): `status`, `outcome` and
 // `followup`. A follow-up may answer a ticket session's question, never its tool-permission prompt.
@@ -28,18 +29,17 @@ const plan = {
 }
 
 const spawner: TicketSpawner = {
-  async spawn(request) {
-    return {
-      ok: true,
-      session: {
+  spawn: (request) =>
+    startedSpawn(
+      request,
+      {
         nodeId: `node-${request.ticket.id}`,
         conversationId: `conversation-${request.ticket.id}`,
         worktreePath: `D:\\project-${request.ticket.id}`,
         branch: `ticket/${request.ticket.id}`
       },
-      warnings: []
-    }
-  }
+      {}
+    )
 }
 
 const outcomeRecord = {

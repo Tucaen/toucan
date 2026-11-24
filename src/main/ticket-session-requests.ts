@@ -21,13 +21,13 @@ import {
 const START_TIMEOUT_MS = DEFAULT_START_TIMEOUT_SECONDS * 1_000
 
 /**
- * What a spawn that outlasted its wait reports (#1). The session is not failed and not closed: the
- * node stays linked to its ticket and Toucan wakes the orchestrator when its start settles.
+ * What a start that outlasted its wait is answered with (#1). It is not failed and not closed: the
+ * spawner keeps waiting for the window's verdict on a node the canvas shows, and gives up on one
+ * it never showed.
  *
  * @internal exported for tests
  */
-export const TICKET_SESSION_TIMEOUT_MESSAGE =
-  'The ticket session is still starting. It stays linked to its ticket, and Toucan wakes you once it is up or has failed to start; do not spawn the ticket again.'
+export const TICKET_SESSION_TIMEOUT_MESSAGE = 'The ticket session is still starting.'
 
 export type TicketSessionRequestsOptions = Partial<
   Pick<WindowRequestsOptions<TicketSessionCanvasResult, TicketSessionProgress>, 'timeoutMs' | 'requestId' | 'schedule'>

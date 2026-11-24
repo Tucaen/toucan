@@ -280,10 +280,10 @@ test('wakes that two deliveries both left undelivered are retried in the order t
   assert.ok(delivered[2].indexOf('#12') < delivered[2].indexOf('#13'), delivered[2])
 })
 
-// Issue #1: a spawn that answered pending reports how its start settled, and a session Toucan
-// stopped and unlinked stops being the orchestrator's news.
+// Issue #1 and Tucaen/toucan#3: every spawn reports how its start settled after `spawn` answered,
+// and a session Toucan stopped and unlinked stops being the orchestrator's news.
 
-test('a start that settled after spawn answered pending wakes the orchestrator with how', async () => {
+test('a settled start wakes the orchestrator with how', async () => {
   const { waker, delivered, fold } = harness()
   waker.report(bindings['ticket-a'], { kind: 'started' })
   waker.report(bindings['ticket-b'], { kind: 'start-failed', reason: 'The ticket session could not be started.' })
@@ -292,6 +292,32 @@ test('a start that settled after spawn answered pending wakes the orchestrator w
   assert.match(delivered[0].text, /#12 finished starting/)
   assert.match(delivered[0].text, /#13 could not be started: The ticket session could not be started\./)
   assert.match(delivered[0].text, /spawn the ticket again/)
+})
+
+test('a started wake names the model, effort and warnings; a failed one says what was cleaned up', async () => {
+  const { waker, delivered, fold } = harness()
+  waker.report(bindings['ticket-a'], {
+    kind: 'started',
+    model: 'claude-opus-5-5',
+    effort: 'high',
+    warnings: ['the project has no setup command']
+  })
+  const longReason = `"npm ci" failed ${'x'.repeat(400)}`
+  waker.report(bindings['ticket-b'], {
+    kind: 'start-failed',
+    reason: longReason,
+    cleanup: 'the worktree and its branch were removed again'
+  })
+  await fold()
+  const text = delivered[0].text
+  assert.match(text, /#12 finished starting on claude-opus-5-5 at effort high/)
+  assert.match(text, /warnings: the project has no setup command/)
+  // The cause is cut short, never what was left behind.
+  assert.match(
+    text,
+    /#13 could not be started: "npm ci" failed x+\.\.\. - the worktree and its branch were removed again/
+  )
+  assert.ok(!text.includes('x'.repeat(200)))
 })
 
 test('an unlinked session raises nothing for its orchestrator', async () => {

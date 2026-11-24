@@ -21,6 +21,7 @@ import {
   stopOrchestration
 } from '../src/shared/orchestration'
 import { BURN_RATE_MIN_SPAN_MS, usageBurnRate, usageOutlook } from '../src/shared/orchestration-pacing'
+import { startedSpawn } from './helpers/fake-ticket-spawner'
 
 // `spawn --force --reason`: the orchestrator starts a ticket regardless of the usage limits, when
 // the user asks or when the outlook shows the remaining usage suffices. Toucan always honours it,
@@ -47,18 +48,12 @@ function fakeSpawner(): TicketSpawner & { calls: TicketSpawnRequest[] } {
     calls,
     async spawn(request) {
       calls.push(request)
-      return {
-        ok: true,
-        session: {
-          nodeId: `node-${calls.length}`,
-          conversationId: `ticket-conversation-${calls.length}`,
-          worktreePath: `D:\\project-ticket-${request.ticket.id}`,
-          branch: `ticket/${request.ticket.id}`
-        },
-        model: request.model,
-        effort: request.effort,
-        warnings: []
-      }
+      return startedSpawn(request, {
+        nodeId: `node-${calls.length}`,
+        conversationId: `ticket-conversation-${calls.length}`,
+        worktreePath: `D:\\project-ticket-${request.ticket.id}`,
+        branch: `ticket/${request.ticket.id}`
+      })
     }
   }
 }

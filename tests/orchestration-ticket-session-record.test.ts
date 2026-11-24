@@ -41,18 +41,44 @@ describe('a ticket session recorded while it starts', () => {
     const retry = recordTicketSession(first, '1', early, 'b', undefined, 'starting')
     expect(retry.tickets[0].runs).toHaveLength(2)
 
-    const abandoned = abandonTicketSession(retry, '1', 'node-1', before, 'c')
+    const abandoned = abandonTicketSession(retry, '1', early, before, 'c')
     expect(abandoned.tickets[0].session).toEqual(before.session)
     expect(abandoned.tickets[0].runs).toEqual(before.runs)
 
     const fresh = abandonTicketSession(
       recordTicketSession(base(), '1', early, 'b', undefined, 'starting'),
       '1',
-      'node-1',
+      early,
       {},
       'c'
     )
     expect(fresh.tickets[0]).not.toHaveProperty('session')
     expect(fresh.tickets[0]).not.toHaveProperty('runs')
+  })
+
+  // Tucaen/toucan#3: the attempt is recorded once its worktree exists, before the canvas holds a node.
+  const attempt = { worktreePath: 'D:\wt', branch: 'ticket/1' }
+
+  it('is recorded by its branch before it has a node, and the node fills in later', () => {
+    const recorded = recordTicketSession(base(), '1', attempt, 'now', undefined, 'starting')
+    expect(recorded.tickets[0].runs).toEqual([{ state: 'starting', provider: 'claude', ...attempt }])
+
+    const linked = updateTicketSession(recorded, '1', early, 'later', 'starting')
+    expect(linked.tickets[0].session).toEqual(early)
+    expect(linked.tickets[0].runs).toEqual([{ state: 'starting', provider: 'claude', ...early }])
+
+    // Another attempt's branch is not this one, node or not.
+    const other = updateTicketSession(recorded, '1', { ...early, branch: 'ticket/1-2' }, 'later', 'started')
+    expect(other.tickets).toEqual(recorded.tickets)
+  })
+
+  it('is taken back by its branch when it fails before it has a node', () => {
+    const recorded = recordTicketSession(base(), '1', attempt, 'now', undefined, 'starting')
+    const abandoned = abandonTicketSession(recorded, '1', attempt, {}, 'later')
+    expect(abandoned.tickets[0]).not.toHaveProperty('session')
+    expect(abandoned.tickets[0]).not.toHaveProperty('runs')
+
+    const elsewhere = abandonTicketSession(recorded, '1', { branch: 'ticket/1-2' }, {}, 'later')
+    expect(elsewhere.tickets).toEqual(recorded.tickets)
   })
 })

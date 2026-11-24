@@ -9,7 +9,7 @@ import type { ShellLaunch, TerminalShell } from './terminal-shell'
  * A project's setup command, run to completion without a terminal (#34). On the canvas the setup
  * command is typed into a worktree's terminal on request; a ticket session's worktree has to be set
  * up *before* its chat starts, so it runs here, in the same shell a terminal would have used, and
- * the spawn waits for it.
+ * the ticket's start waits for it - in the background, since `spawn` has long answered.
  */
 
 /** Long, because a setup command is typically a full dependency install; bounded, because it is awaited. */
@@ -42,26 +42,38 @@ const tail = (text: string): string => {
 export function createSetupCommandRunner(options: {
   shell: TerminalShell
   timeoutMs?: number
-}): (command: string, cwd: string) => Promise<SetupCommandResult> {
+}): (command: string, cwd: string, signal?: AbortSignal) => Promise<SetupCommandResult> {
   const timeout = options.timeoutMs ?? SETUP_TIMEOUT_MS
-  return (command, cwd) =>
+  return (command, cwd, signal) =>
     new Promise<SetupCommandResult>((resolve) => {
+      const cancelled: SetupCommandResult = { ok: false, error: `"${command}" was cancelled` }
+      if (signal?.aborted) {
+        resolve(cancelled)
+        return
+      }
       const launch = setupCommandLaunch(options.shell.resolveLaunch(), command)
       let settled = false
       const settle = (result: SetupCommandResult): void => {
         if (settled) return
         settled = true
         clearTimeout(timer)
+        signal?.removeEventListener('abort', cancel)
         resolve(result)
       }
       let child: ReturnType<typeof execFile> | undefined
       // Own timer rather than execFile's `timeout`, which kills only the shell: an `npm install`
       // below it would keep the pipes open and the callback - and the waiting spawn - unanswered.
-      const timer = setTimeout(() => {
+      const stop = (result: SetupCommandResult): void => {
         // The shell and everything it started; a tree that is already gone is the goal anyway.
         if (child) void killProcessTree(child, 'SIGKILL')
-        settle({ ok: false, error: `"${command}" timed out after ${Math.round(timeout / 1000)}s` })
-      }, timeout)
+        settle(result)
+      }
+      const timer = setTimeout(
+        () => stop({ ok: false, error: `"${command}" timed out after ${Math.round(timeout / 1000)}s` }),
+        timeout
+      )
+      const cancel = (): void => stop(cancelled)
+      signal?.addEventListener('abort', cancel, { once: true })
       try {
         // The callback is the child's `'error'` listener too: a shell that cannot start lands here.
         child = execFile(

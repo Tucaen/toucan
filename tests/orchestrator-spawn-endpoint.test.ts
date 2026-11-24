@@ -16,6 +16,7 @@ import {
   stopOrchestration,
   type OrchestrationRecord
 } from '../src/shared/orchestration'
+import { startedSpawn } from './helpers/fake-ticket-spawner'
 
 // `spawn` on the orchestrator endpoint (#34): who may spawn, what is refused before anything is
 // created, and that the session lands on its ticket in the record. The spawner itself - worktree,
@@ -37,18 +38,12 @@ function fakeSpawner(outcome: 'ok' | 'fail' = 'ok'): TicketSpawner & { calls: Ti
     async spawn(request) {
       calls.push(request)
       if (outcome === 'fail') return { ok: false, error: 'git worktree add failed' }
-      return {
-        ok: true,
-        session: {
-          nodeId: `node-${calls.length}`,
-          conversationId: `ticket-conversation-${calls.length}`,
-          worktreePath: `D:\\project-ticket-${request.ticket.id}`,
-          branch: `ticket/${request.ticket.id}`
-        },
-        model: request.model,
-        effort: request.effort,
-        warnings: []
-      }
+      return startedSpawn(request, {
+        nodeId: `node-${calls.length}`,
+        conversationId: `ticket-conversation-${calls.length}`,
+        worktreePath: `D:\\project-ticket-${request.ticket.id}`,
+        branch: `ticket/${request.ticket.id}`
+      })
     }
   }
 }
@@ -238,8 +233,10 @@ test('a Codex orchestrator spawns its own provider with the same authorization a
     await call(grant, 'ticket update', { id: '33', fields: { mergeStatus: 'merged' } })
     const reply = await call(grant, 'spawn', args)
     assert.equal(reply.status, 200)
-    assert.equal(reply.body.model, 'gpt-6')
-    assert.equal(reply.body.effort, 'xhigh')
+    // The model and effort the session reports come with the started wake (Tucaen/toucan#3).
+    assert.equal(reply.body.state, 'starting')
+    const route = reply.body.route as { model: string; effort: string }
+    assert.deepEqual([route.model, route.effort], ['gpt-6', 'xhigh'])
     assert.deepEqual(spawner.calls[0].orchestrator, {
       nodeId: 'codex-orchestrator',
       conversationId: key.conversationId,

@@ -665,11 +665,7 @@ void app.whenReady().then(async () => {
     onTicketSpawned: (nodeId, binding) => orchestrationWaker.bind(nodeId, binding),
     onTicketAbandoned: (nodeId) => orchestrationWaker.unbind(nodeId),
     // A failed start's session is unbound by then, so the wake is addressed by its own binding.
-    onTicketStartSettled: (binding, outcome) =>
-      orchestrationWaker.report(
-        binding,
-        outcome.ok ? { kind: 'started' } : { kind: 'start-failed', reason: outcome.error }
-      ),
+    onTicketStartSettled: (binding, outcome) => orchestrationWaker.report(binding, outcome),
     spawned: publishOrchestrationState,
     questionsChanged: publishOrchestrationState,
     resumePaused: (key, orchestratorNodeId) => orchestrationController.resumeForForce(key, orchestratorNodeId),

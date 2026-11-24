@@ -22,21 +22,24 @@ import type { TicketSessionCanvasRequest } from '../src/shared/ticket-session-sp
 
 /** Ticket 1's first branch, under this test orchestration's scope. */
 const BRANCH = `ticket/${orchestrationBranchScope({ provider: 'claude', conversationId: 'conversation-1' })}/1`
+const WORKTREE = `D:\\project-${BRANCH}`
 
 /**
- * Issue #1, end to end through the real parts: an orchestrator's `spawn` whose ticket session is
- * slow to come up. The wait running out is not a failure - the ticket keeps its session link,
- * `status` shows it starting and then working, and the orchestrator is woken when the session
- * settles, however long after `spawn` answered. A start Toucan does treat as failed is stopped.
+ * Tucaen/toucan#3 (and issue #1 before it), end to end through the real parts: an orchestrator's
+ * `spawn` answers as soon as the attempt is recorded, while the setup command and the canvas still
+ * run. The ticket keeps its attempt, `status` shows it starting, a second plain spawn is refused,
+ * and the orchestrator is woken with `started` or `start-failed` however long after `spawn` answered.
  */
 
 const NODE = 'ticket-node'
 const CONVERSATION = 'ticket-conversation'
 
+type SetupResult = { ok: true } | { ok: false; error: string }
+
 function harness() {
   const records = createOrchestrationStore({ directory: mkdtempSync(join(tmpdir(), 'toucan-spawn-pending-')) })
 
-  // The wait runs out when the test says so.
+  // The canvas wait runs out when the test says so.
   let expire: (() => void) | null = null
   let requestCount = 0
   const requests = createTicketSessionRequests({
@@ -61,6 +64,14 @@ function harness() {
   const cancelled: string[] = []
   const stopped: string[] = []
   const killed: Array<{ nodeId: string; starting: boolean }> = []
+  const git: string[][] = []
+
+  /** Setup commands finish at once unless the test holds them; held ones wait for `finish`. */
+  const setup = {
+    hold: false,
+    result: { ok: true } as SetupResult,
+    held: [] as Array<{ signal?: AbortSignal; finish(result?: SetupResult): void }>
+  }
 
   const delivered: string[] = []
   const timers: Array<() => void> = []
@@ -92,19 +103,33 @@ function harness() {
     return delivered.splice(0)
   }
 
+  const branches = new Set<string>()
   const spawner = createTicketSpawner({
     worktrees: {
+      // Like git: a branch a kept worktree still has is taken.
       async create(worktree) {
+        if (branches.has(worktree.branch)) return { ok: false, conflict: true, message: 'Branch exists' }
+        branches.add(worktree.branch)
         return {
           ok: true,
           worktree: { path: `D:\\project-${worktree.branch}`, branch: worktree.branch, baseRef: 'main' }
         }
       }
     },
-    runGit: async () => ({ code: 0, stdout: '', stderr: '' }),
+    runGit: async (args) => {
+      git.push(args)
+      return { code: 0, stdout: '', stderr: '' }
+    },
     installGuard: async () => ({ ok: true }),
     project: async () => ({ id: 'project-1', setupCommand: 'npm ci' }),
-    runSetup: async () => ({ ok: true }),
+    runSetup: (_command, _cwd, signal) =>
+      setup.hold
+        ? new Promise((resolve) => {
+            const finish = (result: SetupResult = setup.result) => resolve(result)
+            signal?.addEventListener('abort', () => finish({ ok: false, error: '"npm ci" was cancelled' }))
+            setup.held.push({ signal, finish })
+          })
+        : Promise.resolve(setup.result),
     canvas: {
       startTicketSession: (request, observer) => requests.request(request, observer),
       cancelTicketSession: (nodeId) => {
@@ -118,45 +143,51 @@ function harness() {
     onWorktreeCreated: () => undefined
   })
 
-  const endpoint = createOrchestratorEndpoint({
-    records,
-    spawner,
-    ticketSessions: {
-      state: (nodeId) => {
-        const session = live.get(nodeId)
-        return session && ({ status: session.status, questions: [] } as never)
+  /** An endpoint over the same records; a second one is Toucan after a restart. */
+  const endpointOver = () =>
+    createOrchestratorEndpoint({
+      records,
+      spawner,
+      ticketSessions: {
+        state: (nodeId) => {
+          const session = live.get(nodeId)
+          return session && ({ status: session.status, questions: [] } as never)
+        },
+        startPrompt: () => ({ ok: true }),
+        promptWhenIdle: async () => ({ ok: true }),
+        answerQuestion: () => ({ ok: true }),
+        outcome: async () => undefined,
+        stop: (nodeId, options) => {
+          killed.push({ nodeId, ...options })
+          live.delete(nodeId)
+        }
       },
-      startPrompt: () => ({ ok: true }),
-      promptWhenIdle: async () => ({ ok: true }),
-      answerQuestion: () => ({ ok: true }),
-      outcome: async () => undefined,
-      stop: (nodeId, options) => {
-        killed.push({ nodeId, ...options })
-        live.delete(nodeId)
-      }
-    },
-    onTicketSpawned: (nodeId, binding) => waker.bind(nodeId, binding),
-    onTicketAbandoned: (nodeId) => {
-      stopped.push(nodeId)
-      waker.unbind(nodeId)
-    },
-    onTicketStartSettled: (binding, outcome) =>
-      waker.report(binding, outcome.ok ? { kind: 'started' } : { kind: 'start-failed', reason: outcome.error }),
-    now: () => '2026-11-05T12:00:00.000Z'
-  })
+      onTicketSpawned: (nodeId, binding) => waker.bind(nodeId, binding),
+      onTicketAbandoned: (nodeId) => {
+        stopped.push(nodeId)
+        waker.unbind(nodeId)
+      },
+      onTicketStartSettled: (binding, outcome) => waker.report(binding, outcome),
+      now: () => '2026-11-05T12:00:00.000Z'
+    })
   return {
     records,
-    endpoint,
+    endpoint: endpointOver(),
+    endpointOver,
     requests,
     sent,
     live,
     cancelled,
     stopped,
     killed,
+    git,
+    setup,
     waker,
     wake,
     expire: () => expire?.(),
-    /** The renderer's side of the conversation; `request` is the one-based spawn it answers. */
+    /** How many ticket sessions the canvas was asked to start. */
+    starts: () => sent.filter((message) => message.channel === ORCHESTRATOR_CHANNELS.startTicketSession).length,
+    /** The renderer's side of the conversation; `request` is the one-based start it answers. */
     renderer: {
       requestOf: () =>
         sent.find((message) => message.channel === ORCHESTRATOR_CHANNELS.startTicketSession)!
@@ -183,8 +214,12 @@ async function call(grant: OrchestratorGrant, command: string, args?: unknown) {
 
 async function planned() {
   const world = harness()
-  const grant = (await world.endpoint.grant('orchestrator-1', { provider: 'claude', projectPath: 'D:\\project' }))!
-  grant.setConversation('conversation-1')
+  const granted = async (endpoint: typeof world.endpoint): Promise<OrchestratorGrant> => {
+    const grant = (await endpoint.grant('orchestrator-1', { provider: 'claude', projectPath: 'D:\\project' }))!
+    grant.setConversation('conversation-1')
+    return grant
+  }
+  const grant = await granted(world.endpoint)
   await call(grant, 'plan set', {
     task: 'Ship it',
     targetBranch: 'main',
@@ -193,44 +228,60 @@ async function planned() {
   const read = async (): Promise<OrchestrationRecord> =>
     (await world.records.read({ provider: 'claude', conversationId: 'conversation-1' }))!
   const ticketOf = async (): Promise<OrchestrationTicket> => (await read()).tickets[0]
-  const status = async () =>
-    ((await call(grant, 'status')).body.tickets as Array<{ state: string; session: unknown }>)[0]
-  return { ...world, grant, read, ticketOf, status }
+  const status = async (as = grant) =>
+    ((await call(as, 'status')).body.tickets as Array<{ state: string; session: unknown }>)[0]
+  return { ...world, grant, granted, read, ticketOf, status }
 }
 
 const spawn = { ticket: '1', model: 'claude-opus-5-5', effort: 'high' }
 
-test('a wait that runs out keeps the session linked, shows it starting, and wakes the orchestrator when it is up', async () => {
+/** Spawns, and has the canvas show the node; the session is still launching. */
+async function spawnToCanvas(world: Awaited<ReturnType<typeof planned>>, request = 1) {
+  const reply = await call(world.grant, 'spawn', spawn)
+  assert.equal(reply.status, 200)
+  await waitFor(() => world.starts() === request)
+  world.renderer.reportNode(request === 1 ? NODE : `node-${request}`, `conversation-${request}`, request)
+  await waitFor(async () => (await world.ticketOf()).session?.nodeId === (request === 1 ? NODE : `node-${request}`))
+  return reply
+}
+
+test('spawn answers with the attempt starting, and the orchestrator is woken when its session is up', async () => {
   const world = await planned()
+  world.setup.hold = true
   try {
-    const spawning = call(world.grant, 'spawn', spawn)
-    // The canvas has the node and the session is still launching: nothing has answered yet.
-    await waitFor(() => world.sent.length === 1)
+    const reply = await call(world.grant, 'spawn', spawn)
+    // Answered with the setup command still running: the attempt, but no session yet.
+    assert.equal(reply.status, 200)
+    assert.equal(reply.body.ok, true)
+    assert.equal(reply.body.ticket, '1')
+    assert.equal(reply.body.state, 'starting')
+    assert.equal(reply.body.attempt, 1)
+    assert.deepEqual(reply.body.session, { worktreePath: WORKTREE, branch: BRANCH })
+    assert.equal((reply.body.route as { model: string }).model, 'claude-opus-5-5')
+    assert.equal(world.starts(), 0)
+
+    // Recorded as a run that is still starting, which status shows.
+    const early = await world.ticketOf()
+    assert.deepEqual(early.session, { worktreePath: WORKTREE, branch: BRANCH })
+    assert.equal(early.runs?.at(-1)?.state, 'starting')
+    assert.equal((await world.status()).state, 'starting')
+
+    // The setup command finishes and the canvas shows the node, still launching.
+    world.setup.held[0].finish()
+    await waitFor(() => world.starts() === 1)
     world.renderer.reportNode()
     await waitFor(async () => (await world.ticketOf()).session?.nodeId === NODE)
-
-    // Recorded before the session is ready, as a run that is still starting.
-    const early = await world.ticketOf()
-    assert.deepEqual(early.session, {
+    assert.deepEqual((await world.ticketOf()).session, {
       nodeId: NODE,
       conversationId: CONVERSATION,
-      worktreePath: `D:\\project-${BRANCH}`,
+      worktreePath: WORKTREE,
       branch: BRANCH
     })
-    assert.equal(early.runs?.at(-1)?.state, 'starting')
 
+    // The canvas wait running out with the node shown is no verdict: nothing is closed, no wake.
     world.expire()
-    const reply = await spawning
-    assert.equal(reply.status, 202)
-    assert.equal(reply.body.ok, false)
-    assert.equal(reply.body.pending, true)
-    assert.equal(reply.body.ticket, '1')
-    assert.deepEqual(reply.body.session, early.session)
-    assert.match(String(reply.body.error), /still starting/)
-
-    // Not a failure: nothing is closed, the ticket keeps its link, and status says it is starting.
+    assert.deepEqual(await world.wake(false), [])
     assert.deepEqual(world.cancelled, [])
-    assert.equal((await world.ticketOf()).session?.nodeId, NODE)
     assert.equal((await world.status()).state, 'starting')
 
     // It comes up and starts working: status follows the live session, and the orchestrator is woken.
@@ -239,7 +290,7 @@ test('a wait that runs out keeps the session linked, shows it starting, and wake
     assert.equal((await world.status()).state, 'working')
     await waitFor(async () => (await world.ticketOf()).runs?.at(-1)?.state === undefined)
     const [startWake] = await world.wake()
-    assert.match(startWake, /#1 finished starting/)
+    assert.match(startWake, /#1 finished starting on claude-opus-5-5 at effort high/)
 
     // And when the session finishes its turn, the normal wake follows.
     const complete: AgentEvent = { type: 'turn_complete', stopReason: 'end_turn' }
@@ -251,16 +302,37 @@ test('a wait that runs out keeps the session linked, shows it starting, and wake
   }
 })
 
-test('a pending session that then fails is unlinked, and the orchestrator is told to spawn the ticket again', async () => {
+test('a failing setup command removes the worktree, unlinks the attempt and wakes the orchestrator', async () => {
+  const world = await planned()
+  world.setup.result = { ok: false, error: 'npm ERR! missing script' }
+  try {
+    const before = await world.ticketOf()
+    assert.equal((await call(world.grant, 'spawn', spawn)).status, 200)
+
+    const [wake] = await world.wake()
+    assert.match(wake, /#1 could not be started: the setup command failed: npm ERR! missing script/)
+    assert.match(wake, /the worktree and its branch were removed again/)
+    // Nothing is left before the canvas opens.
+    assert.equal(world.starts(), 0)
+    assert.deepEqual(world.git, [
+      ['worktree', 'remove', '--force', WORKTREE],
+      ['branch', '-D', BRANCH]
+    ])
+    const after = await world.ticketOf()
+    assert.equal(after.session, before.session)
+    assert.equal(after.runs, before.runs)
+    assert.equal((await world.status()).state, 'not spawned')
+  } finally {
+    await world.endpoint.close()
+  }
+})
+
+test('a session that fails after the canvas showed it is unlinked, its node kept, and the orchestrator told', async () => {
   const world = await planned()
   try {
     const before = await world.ticketOf()
-    const spawning = call(world.grant, 'spawn', spawn)
-    await waitFor(() => world.sent.length === 1)
-    world.renderer.reportNode()
-    await waitFor(async () => (await world.ticketOf()).session?.nodeId === NODE)
+    await spawnToCanvas(world)
     world.expire()
-    assert.equal((await spawning).body.pending, true)
 
     world.renderer.answer({ ok: false, message: 'The ticket session could not be started on the desktop.' })
     // The record is written before the abandon hook runs, so wait for both.
@@ -271,8 +343,12 @@ test('a pending session that then fails is unlinked, and the orchestrator is tol
     assert.equal(after.runs, before.runs)
     assert.equal((await world.status()).state, 'not spawned')
     assert.deepEqual(world.stopped, [NODE])
+    // The worktree and the node stay for the human.
+    assert.deepEqual(world.git, [])
     const [wake] = await world.wake()
-    assert.match(wake, /#1 could not be started: The ticket session could not be started/)
+    assert.match(wake, /#1 could not be started: The ticket session could not be started on the desktop\./)
+    assert.match(wake, /its node stays on the canvas without the ticket prompt/)
+    assert.match(wake, /spawn the ticket again/)
 
     // The dead session's events are no longer the orchestrator's news.
     world.waker.observe(NODE, { type: 'turn_failed', message: 'adapter exited' } as AgentEvent)
@@ -282,38 +358,16 @@ test('a pending session that then fails is unlinked, and the orchestrator is tol
   }
 })
 
-test('a start that fails outright unlinks the session it recorded early and leaves the ticket spawnable', async () => {
+test('a session that comes up after the canvas gave up without a node is withdrawn, not left working', async () => {
   const world = await planned()
   try {
-    const spawning = call(world.grant, 'spawn', spawn)
-    await waitFor(() => world.sent.length === 1)
-    world.renderer.reportNode()
-    await waitFor(async () => (await world.ticketOf()).session?.nodeId === NODE)
-
-    world.renderer.answer({ ok: false, message: 'The ticket session could not be started on the desktop.' })
-    const reply = await spawning
-    assert.equal(reply.status, 502)
-    assert.equal(reply.body.pending, undefined)
-
-    const ticket = await world.ticketOf()
-    assert.equal(ticket.session, undefined)
-    assert.equal(ticket.runs, undefined)
-    assert.deepEqual(world.stopped, [NODE])
-  } finally {
-    await world.endpoint.close()
-  }
-})
-
-test('a session that comes up after the spawn was refused is withdrawn, not left working the ticket', async () => {
-  const world = await planned()
-  try {
-    // The window never reports the node, so there is nothing to link when the wait runs out.
-    const spawning = call(world.grant, 'spawn', spawn)
-    await waitFor(() => world.sent.length === 1)
+    assert.equal((await call(world.grant, 'spawn', spawn)).status, 200)
+    // The window never reports the node, so there is nothing to keep when the wait runs out.
+    await waitFor(() => world.starts() === 1)
     world.expire()
-    const reply = await spawning
-    assert.equal(reply.status, 502)
-    assert.equal(reply.body.pending, undefined)
+    const [wake] = await world.wake()
+    assert.match(wake, /#1 could not be started: the canvas did not show the ticket session in time/)
+    assert.equal((await world.ticketOf()).session, undefined)
 
     world.renderer.answer({ ok: true, nodeId: NODE, conversationId: CONVERSATION })
     assert.deepEqual(world.cancelled, [NODE])
@@ -322,20 +376,29 @@ test('a session that comes up after the spawn was refused is withdrawn, not left
   }
 })
 
-/** Spawns once and lets the wait run out, leaving the ticket linked to a session that is still starting. */
-async function pendingSpawn(world: Awaited<ReturnType<typeof planned>>) {
-  const spawning = call(world.grant, 'spawn', spawn)
-  await waitFor(() => world.sent.length === 1)
-  world.renderer.reportNode()
-  await waitFor(async () => (await world.ticketOf()).session?.nodeId === NODE)
-  world.expire()
-  assert.equal((await spawning).body.pending, true)
-}
+test('a second plain spawn while the first attempt is still in setup is refused and names that attempt', async () => {
+  const world = await planned()
+  world.setup.hold = true
+  try {
+    assert.equal((await call(world.grant, 'spawn', spawn)).status, 200)
+    const spawnsBefore = (await world.read()).spawnCount
 
-test('a second plain spawn while the first attempt is still starting is refused and names that attempt', async () => {
+    const reply = await call(world.grant, 'spawn', spawn)
+    assert.equal(reply.status, 409)
+    assert.equal(reply.body.duplicate, true)
+    assert.deepEqual(reply.body.attempt, { attempt: 1, branch: BRANCH, worktreePath: WORKTREE, state: 'starting' })
+    assert.match(String(reply.body.error), /--replace/)
+    assert.equal((await world.read()).spawnCount, spawnsBefore)
+    assert.equal(world.setup.held.length, 1)
+  } finally {
+    await world.endpoint.close()
+  }
+})
+
+test('a second plain spawn while the first session is still coming up is refused and names that attempt', async () => {
   const world = await planned()
   try {
-    await pendingSpawn(world)
+    await spawnToCanvas(world)
     const spawnsBefore = (await world.read()).spawnCount
 
     const reply = await call(world.grant, 'spawn', spawn)
@@ -346,16 +409,14 @@ test('a second plain spawn while the first attempt is still starting is refused 
       attempt: 1,
       nodeId: NODE,
       branch: BRANCH,
-      worktreePath: `D:\\project-${BRANCH}`,
+      worktreePath: WORKTREE,
       state: 'starting'
     })
-    assert.ok(
-      String(reply.body.error).includes(`attempt 1, branch ${BRANCH}, worktree D:\\project-${BRANCH}, state starting`)
-    )
+    assert.ok(String(reply.body.error).includes(`attempt 1, branch ${BRANCH}, worktree ${WORKTREE}, state starting`))
     assert.match(String(reply.body.error), /--replace/)
 
     // Nothing was created or counted, and the first attempt is untouched.
-    assert.equal(world.sent.length, 1)
+    assert.equal(world.starts(), 1)
     assert.equal((await world.read()).spawnCount, spawnsBefore)
     assert.deepEqual(world.killed, [])
     assert.equal((await world.ticketOf()).session?.nodeId, NODE)
@@ -364,10 +425,26 @@ test('a second plain spawn while the first attempt is still starting is refused 
   }
 })
 
+test('an attempt a restart interrupted in setup reads as not running and does not block a spawn', async () => {
+  const world = await planned()
+  world.setup.hold = true
+  const restarted = world.endpointOver()
+  try {
+    assert.equal((await call(world.grant, 'spawn', spawn)).status, 200)
+    // Toucan restarts: nothing is setting that attempt up any more.
+    const grant = await world.granted(restarted)
+    assert.equal((await world.status(grant)).state, 'not running')
+    assert.equal((await call(grant, 'spawn', spawn)).status, 200)
+  } finally {
+    await world.endpoint.close()
+    await restarted.close()
+  }
+})
+
 test('a settled session awaiting review still blocks a plain spawn; an exited one does not', async () => {
   const world = await planned()
   try {
-    await pendingSpawn(world)
+    await spawnToCanvas(world)
     world.renderer.answer({ ok: true, nodeId: NODE, conversationId: CONVERSATION })
     await waitFor(async () => (await world.ticketOf()).runs?.at(-1)?.state === undefined)
 
@@ -377,12 +454,7 @@ test('a settled session awaiting review still blocks a plain spawn; an exited on
     assert.equal((refused.body.attempt as { state: string }).state, 'ready')
 
     world.live.set(NODE, { status: 'exited' })
-    const second = call(world.grant, 'spawn', spawn)
-    await waitFor(() => world.sent.length === 2)
-    world.live.set('node-2', { status: 'working' })
-    world.renderer.reportNode('node-2', 'conversation-2', 2)
-    world.renderer.answer({ ok: true, nodeId: 'node-2', conversationId: 'conversation-2' }, 2)
-    assert.equal((await second).status, 200)
+    assert.equal((await call(world.grant, 'spawn', spawn)).status, 200)
     assert.deepEqual(world.killed, [])
   } finally {
     await world.endpoint.close()
@@ -392,25 +464,59 @@ test('a settled session awaiting review still blocks a plain spawn; an exited on
 test('--replace stops the old attempt first, then spawns the new one', async () => {
   const world = await planned()
   try {
-    await pendingSpawn(world)
+    await spawnToCanvas(world)
 
-    const replacing = call(world.grant, 'spawn', { ...spawn, replace: true })
-    await waitFor(() => world.sent.length === 2)
+    const reply = await call(world.grant, 'spawn', { ...spawn, replace: true })
+    assert.equal(reply.status, 200)
     // The old session was stopped (and closed on the canvas, being unreported) before the new one began.
     assert.deepEqual(world.killed, [{ nodeId: NODE, starting: true }])
     assert.deepEqual(world.stopped, [NODE])
 
+    await waitFor(() => world.starts() === 2)
     world.live.set('node-2', { status: 'working' })
     world.renderer.reportNode('node-2', 'conversation-2', 2)
     world.renderer.answer({ ok: true, nodeId: 'node-2', conversationId: 'conversation-2' }, 2)
-    const reply = await replacing
-    assert.equal(reply.status, 200)
+    await waitFor(async () => (await world.ticketOf()).runs?.at(-1)?.state === undefined)
 
     const ticket = await world.ticketOf()
     assert.equal(ticket.session?.nodeId, 'node-2')
     assert.equal(ticket.runs?.length, 2)
     assert.equal(ticket.runs?.at(-1)?.conversationId, 'conversation-2')
     assert.equal((await world.read()).spawnCount, 2)
+    // Only the new attempt's start is the orchestrator's news.
+    const wakes = await world.wake()
+    assert.equal(wakes.length, 1)
+    assert.match(wakes[0], /#1 finished starting/)
+    assert.doesNotMatch(wakes[0], /could not be started/)
+  } finally {
+    await world.endpoint.close()
+  }
+})
+
+test('--replace stops an attempt still in setup, and that attempt is not reported', async () => {
+  const world = await planned()
+  world.setup.hold = true
+  try {
+    assert.equal((await call(world.grant, 'spawn', spawn)).status, 200)
+    const reply = await call(world.grant, 'spawn', { ...spawn, replace: true })
+    assert.equal(reply.status, 200)
+    assert.equal(world.setup.held[0].signal?.aborted, true)
+    // Nothing of the first attempt reached the canvas, and its worktree stays.
+    assert.deepEqual(world.killed, [])
+    assert.deepEqual(world.git, [])
+
+    world.setup.held[1].finish()
+    await waitFor(() => world.starts() === 1)
+    world.live.set(NODE, { status: 'working' })
+    world.renderer.reportNode()
+    world.renderer.answer({ ok: true, nodeId: NODE, conversationId: CONVERSATION })
+    await waitFor(async () => (await world.ticketOf()).runs?.at(-1)?.state === undefined)
+    const ticket = await world.ticketOf()
+    assert.equal(ticket.session?.branch, `${BRANCH}-2`)
+    assert.equal(ticket.runs?.length, 2)
+    const wakes = await world.wake()
+    assert.equal(wakes.length, 1)
+    assert.doesNotMatch(wakes[0], /could not be started/)
   } finally {
     await world.endpoint.close()
   }
@@ -419,12 +525,12 @@ test('--replace stops the old attempt first, then spawns the new one', async () 
 test('--replace with nothing unresolved just spawns, and a refused replace does not stop the old attempt', async () => {
   const world = await planned()
   try {
-    const first = call(world.grant, 'spawn', { ...spawn, replace: true })
-    await waitFor(() => world.sent.length === 1)
+    assert.equal((await call(world.grant, 'spawn', { ...spawn, replace: true })).status, 200)
+    await waitFor(() => world.starts() === 1)
     world.live.set(NODE, { status: 'working' })
     world.renderer.reportNode()
     world.renderer.answer({ ok: true, nodeId: NODE, conversationId: CONVERSATION })
-    assert.equal((await first).status, 200)
+    await waitFor(async () => (await world.ticketOf()).session?.nodeId === NODE)
     assert.deepEqual(world.killed, [])
 
     // A replace that fails its own validation leaves the working attempt alone.

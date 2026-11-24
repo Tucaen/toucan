@@ -14,6 +14,7 @@ import type { TicketSpawner, TicketSpawnRequest } from '../src/main/ticket-spawn
 import type { AgentProvider } from '../src/shared/agent-provider'
 import { ORCHESTRATOR_TOKEN_ENV, ORCHESTRATOR_URL_ENV, type TicketRoute } from '../src/shared/orchestration'
 import { DEFAULT_ORCHESTRATION_CONFIG, type OrchestrationConfig } from '../src/shared/orchestration-routing'
+import { startedSpawn } from './helpers/fake-ticket-spawner'
 
 // Routing on the orchestrator endpoint (#36): `route` asks Jev for every unrouted ticket and resolves
 // each tier through the tier mapping, `escalate` moves one tier up, and `spawn` accepts a tier or
@@ -49,18 +50,12 @@ function fakeSpawner(): TicketSpawner & { calls: TicketSpawnRequest[] } {
     calls,
     async spawn(request) {
       calls.push(request)
-      return {
-        ok: true,
-        session: {
-          nodeId: `node-${calls.length}`,
-          conversationId: `ticket-${calls.length}`,
-          worktreePath: `D:\\w${calls.length}`,
-          branch: `ticket/${request.ticket.id}`
-        },
-        model: request.model,
-        effort: request.effort,
-        warnings: []
-      }
+      return startedSpawn(request, {
+        nodeId: `node-${calls.length}`,
+        conversationId: `ticket-${calls.length}`,
+        worktreePath: `D:\\w${calls.length}`,
+        branch: `ticket/${request.ticket.id}`
+      })
     }
   }
 }

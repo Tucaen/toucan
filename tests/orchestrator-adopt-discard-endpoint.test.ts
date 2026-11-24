@@ -19,24 +19,24 @@ import {
   parseSpawnInput,
   type OrchestrationRecord
 } from '../src/shared/orchestration'
+import { startedSpawn } from './helpers/fake-ticket-spawner'
 
 // `spawn --adopt` links an unrecorded worktree to a ticket; `discard` throws an attempt away (#4).
 
 const plan = { task: 'Adopt and discard', targetBranch: 'main', tickets: [{ id: '4', title: 'Adopt' }] }
 
 const spawner: TicketSpawner = {
-  async spawn(request) {
-    return {
-      ok: true,
-      session: {
+  spawn: (request) =>
+    startedSpawn(
+      request,
+      {
         nodeId: `node-${request.ticket.id}`,
         conversationId: `conversation-${request.ticket.id}`,
         worktreePath: `D:\\project-${request.ticket.id}`,
         branch: `ticket/${request.ticket.id}`
       },
-      warnings: []
-    }
-  }
+      {}
+    )
 }
 
 async function call(grant: OrchestratorGrant, command: string, args?: unknown) {
