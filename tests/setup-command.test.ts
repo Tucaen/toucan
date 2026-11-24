@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'vitest'
@@ -64,13 +64,18 @@ test.runIf(process.platform === 'win32')('a cancelled setup command is killed an
   const controller = new AbortController()
   const started = Date.now()
   const running = run('ping -n 30 127.0.0.1 > held.txt', cwd, controller.signal)
-  setTimeout(() => controller.abort(), 300)
+  // Cancelled once ping writes, so the tree it kills holds the file.
+  const held = join(cwd, 'held.txt')
+  while (!existsSync(held) || readFileSync(held, 'utf8').length === 0) {
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  controller.abort()
   const result = await running
   assert.equal(result.ok, false)
   assert.match(!result.ok ? result.error : '', /cancelled/)
   assert.ok(Date.now() - started < 10_000, 'answered at the cancel, not when the child finished')
   // Answered once the tree is gone: the worktree a discard removes next is no longer held open.
-  rmSync(join(cwd, 'held.txt'), { force: true })
+  rmSync(held)
 
   const aborted = new AbortController()
   aborted.abort()

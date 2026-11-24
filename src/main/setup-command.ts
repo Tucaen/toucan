@@ -16,6 +16,8 @@ import type { ShellLaunch, TerminalShell } from './terminal-shell'
 const SETUP_TIMEOUT_MS = 15 * 60 * 1000
 const OUTPUT_TAIL_CHARACTERS = 2000
 const SETUP_MAX_BUFFER = 16 * 1024 * 1024
+/** How long a stopped command's tree may take to let go of its pipes - and the worktree - after the kill. */
+const KILL_GRACE_MS = 5_000
 
 /**
  * How the terminal's shell runs one command and exits: PowerShell by `-Command`, `cmd.exe` by
@@ -69,8 +71,23 @@ export function createSetupCommandRunner(options: {
         if (stopping) return
         stopping = true
         clearTimeout(timer)
+        const running = child
+        if (running?.pid === undefined) {
+          settle(result)
+          return
+        }
+        // The pipes close once nothing of the tree holds them any more.
+        const closed = new Promise<void>((resolve) => {
+          const grace = setTimeout(resolve, KILL_GRACE_MS)
+          running.once('close', () => {
+            clearTimeout(grace)
+            resolve()
+          })
+        })
         // The shell and everything it started; a tree that is already gone is the goal anyway.
-        void (child ? killProcessTree(child, 'SIGKILL') : Promise.resolve()).then(() => settle(result))
+        void killProcessTree(running, 'SIGKILL')
+          .then(() => closed)
+          .then(() => settle(result))
       }
       const timer = setTimeout(
         () => stop({ ok: false, error: `"${command}" timed out after ${Math.round(timeout / 1000)}s` }),
