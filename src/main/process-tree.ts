@@ -1,5 +1,5 @@
 /**
- * Ending what an agent session started (#2). A session's adapter runs a provider CLI, which runs
+ * Ending what an agent session started. A session's adapter runs a provider CLI, which runs
  * tool shells, which start dev servers, watchers and build nodes. Killing the adapter alone ends
  * none of them on Windows, where a child never dies with its parent, so two mechanisms share this
  * module:
@@ -39,6 +39,14 @@ const SNAPSHOT_MAX_BUFFER = 16 * 1024 * 1024
 const TASKKILL_BATCH = 200
 /** How long a teardown may block on its one process listing or `taskkill`. */
 const TEARDOWN_TIMEOUT_MS = 10_000
+/** Every process with its parent, as `ps` lists it outside Windows and Linux's `/proc`. */
+const PS_PARENT_LINKS = ['-A', '-o', 'pid=,ppid=']
+
+/**
+ * Ends whatever still runs in a folder about to be deleted - `releaseFolder` below, injected
+ * where a folder is deleted so a test can watch the order.
+ */
+export type FolderRelease = (folder: string) => Promise<unknown>
 
 /**
  * Whether `child` can have been started by `parent`. A PID names a parent only while that parent
@@ -205,6 +213,7 @@ export function parseWindowsSnapshot(output: string): ProcessRecord[] {
   return records
 }
 
+/** Rejects on a non-zero exit with what the command printed still on the error, as `stdout`. */
 function run(file: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
@@ -212,7 +221,9 @@ function run(file: string, args: string[]): Promise<string> {
       args,
       hiddenProcessOptions({ timeout: SNAPSHOT_TIMEOUT_MS, maxBuffer: SNAPSHOT_MAX_BUFFER }),
       (error, stdout, stderr) =>
-        error ? reject(new Error(String(stderr).trim() || error.message)) : resolve(String(stdout))
+        error
+          ? reject(Object.assign(new Error(String(stderr).trim() || error.message), { stdout: String(stdout) }))
+          : resolve(String(stdout))
     )
   })
 }
@@ -266,7 +277,7 @@ async function linuxSnapshot(): Promise<ProcessRecord[]> {
 }
 
 async function macSnapshot(): Promise<ProcessRecord[]> {
-  const records = parentLinks(await run('ps', ['-A', '-o', 'pid=,ppid=']))
+  const records = parentLinks(await run('ps', PS_PARENT_LINKS))
   // `-F pn` prints a `p<pid>` line, then an `n<path>` line for the cwd that `-d cwd` selects.
   // lsof exits 1 when some process could not be read, yet still prints the rest.
   const listing = await run('lsof', ['-a', '-d', 'cwd', '-F', 'pn', '-w']).catch(
@@ -296,22 +307,38 @@ function snapshotProcesses(): Promise<ProcessRecord[]> {
   return macSnapshot()
 }
 
-/** Ends `pids` outright; one that has already exited is what was wanted anyway. */
+/** Runs one kill; a process that has already exited is what was wanted anyway. */
+function ignoringExited(kill: () => unknown): void {
+  try {
+    kill()
+  } catch {
+    // Already exited.
+  }
+}
+
+/** `/PID` pairs for `taskkill`, which takes one per process. */
+const taskkillTargets = (pids: readonly number[]): string[] => pids.flatMap((pid) => ['/PID', String(pid)])
+
+/** Runs `taskkill` and answers whether it reported success; never rejects. */
+function taskkill(args: string[]): Promise<boolean> {
+  return new Promise((resolve) => {
+    try {
+      execFile('taskkill', args, hiddenProcessOptions({}), (error) => resolve(!error))
+    } catch {
+      resolve(false)
+    }
+  })
+}
+
+/** Ends `pids` outright. */
 async function terminate(pids: readonly number[]): Promise<void> {
   if (process.platform === 'win32') {
     for (let start = 0; start < pids.length; start += TASKKILL_BATCH) {
-      const args = ['/F', ...pids.slice(start, start + TASKKILL_BATCH).flatMap((pid) => ['/PID', String(pid)])]
-      await new Promise<void>((done) => execFile('taskkill', args, hiddenProcessOptions({}), () => done()))
+      await taskkill(['/F', ...taskkillTargets(pids.slice(start, start + TASKKILL_BATCH))])
     }
     return
   }
-  for (const pid of pids) {
-    try {
-      process.kill(pid, 'SIGKILL')
-    } catch {
-      // Already exited.
-    }
-  }
+  for (const pid of pids) ignoringExited(() => process.kill(pid, 'SIGKILL'))
 }
 
 /**
@@ -356,13 +383,7 @@ export async function releaseFolder(folder: string, log?: (message: string) => v
  * link to. Answers whether taskkill reported success; never rejects.
  */
 export function taskkillTree(pid: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    try {
-      execFile('taskkill', ['/PID', String(pid), '/T', '/F'], hiddenProcessOptions({}), (error) => resolve(!error))
-    } catch {
-      resolve(false)
-    }
-  })
+  return taskkill([...taskkillTargets([pid]), '/T', '/F'])
 }
 
 /** What `killProcessTree` needs of a child: its PID, and its own kill as the fallback. */
@@ -371,31 +392,23 @@ export interface KillableProcess {
   kill(signal?: NodeJS.Signals): boolean
 }
 
-/** Signals `child`, which may already have exited. */
-function signal(child: KillableProcess, name: NodeJS.Signals): void {
-  try {
-    child.kill(name)
-  } catch {
-    // Already exited.
-  }
-}
-
 /**
- * Ends `child` and everything below it, in the background. On Windows `taskkill /T` walks the
- * tree from the live root itself, so the root must still be alive when it starts: it is never
- * killed first. Not for a path Toucan exits right after: Node ties every direct child to a job that
- * ends with Toucan, the root among them, and a walk that starts after that finds nothing below it -
- * `killProcessTreesNow` is for teardown.
+ * Ends `child` and everything below it without blocking, settling once done; never rejects. The
+ * tree is read from the live root, so the root is never killed first. Not for a path Toucan exits
+ * right after: Node ties every direct child to a job that ends with Toucan, the root among them,
+ * and a walk that starts after that finds nothing below it - `killProcessTreesNow` is for teardown.
  */
-export function killProcessTree(child: KillableProcess, name: NodeJS.Signals = 'SIGTERM'): void {
-  if (process.platform !== 'win32' || child.pid === undefined) {
-    killProcessTreesNow([child], name)
-    return
+export async function killProcessTree(child: KillableProcess, name: NodeJS.Signals = 'SIGTERM'): Promise<void> {
+  if (child.pid !== undefined && process.platform === 'win32') {
+    // `taskkill /T` walks the tree itself. A failure is usually a root that has already exited;
+    // its own kill below is then a no-op.
+    if (await taskkillTree(child.pid)) return
+  } else if (child.pid !== undefined) {
+    // Read before anything is signalled: a killed parent's children are re-parented at once.
+    const table = await run('ps', PS_PARENT_LINKS).then(parentLinks, () => [])
+    for (const pid of descendantsOf(table, [child.pid])) ignoringExited(() => process.kill(pid, name))
   }
-  // A failure is usually a root that has already exited; its own kill is then a no-op.
-  void taskkillTree(child.pid).then((ended) => {
-    if (!ended) signal(child, name)
-  })
+  ignoringExited(() => child.kill(name))
 }
 
 /**
@@ -410,7 +423,7 @@ export function killProcessTreesNow(children: readonly KillableProcess[], name: 
     try {
       execFileSync(
         'taskkill',
-        ['/T', '/F', ...pids.flatMap((pid) => ['/PID', String(pid)])],
+        ['/T', '/F', ...taskkillTargets(pids)],
         hiddenProcessOptions({ stdio: 'ignore', timeout: TEARDOWN_TIMEOUT_MS })
       )
     } catch {
@@ -421,20 +434,14 @@ export function killProcessTreesNow(children: readonly KillableProcess[], name: 
     try {
       const listing = execFileSync(
         'ps',
-        ['-A', '-o', 'pid=,ppid='],
+        PS_PARENT_LINKS,
         hiddenProcessOptions({ encoding: 'utf8', timeout: TEARDOWN_TIMEOUT_MS })
       )
       descendants = descendantsOf(parentLinks(listing), pids)
     } catch {
       // No process listing: the roots alone are what can still be ended.
     }
-    for (const descendant of descendants) {
-      try {
-        process.kill(descendant, name)
-      } catch {
-        // Already exited.
-      }
-    }
+    for (const descendant of descendants) ignoringExited(() => process.kill(descendant, name))
   }
-  for (const child of children) signal(child, name)
+  for (const child of children) ignoringExited(() => child.kill(name))
 }

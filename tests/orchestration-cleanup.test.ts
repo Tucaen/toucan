@@ -722,7 +722,7 @@ async function holdDirectory(path: string): Promise<ChildProcess> {
 }
 
 test(
-  'a dev server a retired session left running in its worktree is ended and the worktree removed (#2)',
+  'a dev server a retired session left running in its worktree is ended and the worktree removed',
   async () => {
     const context = await fixture()
     await mergeTicketOne(context)

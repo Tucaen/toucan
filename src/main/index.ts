@@ -405,7 +405,7 @@ void app.whenReady().then(async () => {
   // One manager for every git question main asks: the delete confirmation asks git the same thing
   // worktree discovery does, and the outcome index reads HEAD through it, so none of them shells out
   // on its own.
-  // A worktree is deleted only once whatever a session left running in it has been ended (#2).
+  // A worktree is deleted only once whatever a session left running in it has been ended.
   const releaseWorktreeFolder = (path: string) => releaseFolder(path, mainLog('worktree processes'))
   const worktrees = createWorktreeManager({ releaseFolder: releaseWorktreeFolder })
   // The main checkout behind a worktree directory, so a worktree session's record files under

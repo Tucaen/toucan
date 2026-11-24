@@ -103,12 +103,15 @@ function sleeper(cwd: string, child?: { cwd: string; detached?: boolean }): Chil
   const inner = child
     ? `const c = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { cwd: ${JSON.stringify(child.cwd)}, stdio: 'ignore', detached: ${Boolean(child.detached)}, windowsHide: true }); c.unref(); process.stdout.write(String(c.pid) + '\\n');`
     : `process.stdout.write('0\\n');`
-  return spawn(process.execPath, ['-e', `${inner} setInterval(() => {}, 1000)`], {
+  const started = spawn(process.execPath, ['-e', `${inner} setInterval(() => {}, 1000)`], {
     cwd,
     stdio: ['ignore', 'pipe', 'ignore'],
     windowsHide: true,
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }
   })
+  // A kill in the cleanup may race the test's own; neither is the thing under test.
+  started.on('error', () => {})
+  return started
 }
 
 const firstLine = (child: ChildProcess): Promise<number> =>
@@ -142,11 +145,10 @@ async function waitUntil(condition: () => boolean, ms = 10_000): Promise<boolean
 test('killing a session tree takes the grandchildren a parent kill alone would leave behind', async () => {
   const folder = realpathSync(mkdtempSync(join(tmpdir(), 'toucan-tree-')))
   const parent = sleeper(folder, { cwd: folder })
-  parent.on('error', () => {})
   const grandchild = await firstLine(parent)
   try {
     assert.ok(alive(grandchild))
-    killProcessTree(parent)
+    await killProcessTree(parent)
     assert.ok(await waitUntil(() => !alive(grandchild)), 'the grandchild outlived its tree')
     assert.ok(await waitUntil(() => parent.exitCode !== null || parent.signalCode !== null))
   } finally {
@@ -159,10 +161,8 @@ test('killing a session tree takes the grandchildren a parent kill alone would l
 test('a teardown ends every tree before returning, even beside a root that has already exited', async () => {
   const folder = realpathSync(mkdtempSync(join(tmpdir(), 'toucan-teardown-')))
   const parents = [sleeper(folder, { cwd: folder }), sleeper(folder, { cwd: folder })]
-  for (const parent of parents) parent.on('error', () => {})
   const grandchildren = await Promise.all(parents.map(firstLine))
   const gone = sleeper(folder)
-  gone.on('error', () => {})
   await firstLine(gone)
   const goneExited = new Promise((done) => gone.once('exit', done))
   gone.kill()
@@ -183,10 +183,8 @@ test('releasing a folder ends an orphan working inside it and spares a process w
   const elsewhere = realpathSync(mkdtempSync(join(tmpdir(), 'toucan-elsewhere-')))
   // The parent starts the orphan-to-be and is then killed alone, so nothing links it to a session.
   const parent = sleeper(elsewhere, { cwd: folder, detached: true })
-  parent.on('error', () => {})
   const orphan = await firstLine(parent)
   const bystander = sleeper(elsewhere)
-  bystander.on('error', () => {})
   await firstLine(bystander)
   try {
     parent.kill()

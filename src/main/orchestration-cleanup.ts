@@ -17,6 +17,7 @@ import { pathIdentity } from '../shared/paths'
 import { errorMessage } from '../shared/text'
 import { parseWorktreeList } from '../shared/worktree'
 import type { GitRunner, WorktreeManager } from './git-worktree'
+import type { FolderRelease } from './process-tree'
 import type { WorkspaceContainment } from './workspace-containment'
 import { describeRemovalFailure, inspectLeftover, removeTree } from './worktree-leftover'
 
@@ -83,11 +84,8 @@ export function createOrchestrationCleanup(options: {
    * given; absent, a later sweep is the retry.
    */
   folderRetry?: { schedule(retry: () => Promise<void>, ms: number): void; delaysMs?: readonly number[] }
-  /**
-   * Ends whatever still runs in a leftover worktree folder before it is deleted; the worktree
-   * manager does the same for a registered worktree. Absent, nothing is ended.
-   */
-  releaseFolder?(path: string): Promise<unknown>
+  /** For a leftover folder; the worktree manager releases a registered worktree itself. */
+  releaseFolder?: FolderRelease
   /** The live agent sessions and where they run; absent, no unrecorded attempt reads as live. */
   liveSessions?(): LiveSessionLocation[]
   log?(message: string): void

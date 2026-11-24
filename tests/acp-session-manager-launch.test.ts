@@ -16,8 +16,6 @@ test('the node identity is part of the environment an agent process is built for
 })
 
 test('a ticket session builds without MSBuild worker nodes that would outlive it', () => {
-  // Reused nodes idle for minutes after a build, working in the ticket's worktree; another ticket's
-  // build could pick one up just before that worktree's removal ends it (#2).
   assert.equal(agentProcessEnvironment({}, 'node-1', { orchestrated: true }).MSBUILDDISABLENODEREUSE, '1')
   assert.equal(agentProcessEnvironment({}, 'node-1').MSBUILDDISABLENODEREUSE, undefined)
   assert.equal(

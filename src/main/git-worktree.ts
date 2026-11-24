@@ -35,6 +35,7 @@ import {
 import type { GitDiffRequest, GitDiffSummary, GitFileDiff, GitFileDiffRequest } from '../shared/git-diff'
 import { changedFilesFromGit, parseUnifiedDiff } from '../shared/git-diff'
 import { describeRemovalFailure, detachLinks, removeTree } from './worktree-leftover'
+import type { FolderRelease } from './process-tree'
 
 export interface GitResult {
   /** A git exit status, or `GIT_LAUNCH_FAILED` when git never ran at all. */
@@ -92,11 +93,8 @@ export type GitRunner = (args: string[], cwd: string) => Promise<GitResult>
 export interface WorktreeManagerOptions {
   runGit?: GitRunner
   pathExists?(path: string): boolean
-  /**
-   * Ends whatever still runs in a worktree about to be deleted (`releaseFolder` in
-   * `process-tree.ts`); absent, nothing is ended.
-   */
-  releaseFolder?(path: string): Promise<unknown>
+  /** Absent, nothing still running in a removed worktree is ended. */
+  releaseFolder?: FolderRelease
 }
 
 export interface WorktreeManager {

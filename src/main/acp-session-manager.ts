@@ -1337,8 +1337,8 @@ export function agentProcessEnvironment(
   } = environment
   return {
     // A ticket session's builds leave no MSBuild worker nodes idling in its worktree for minutes,
-    // where another ticket's build could pick one up just before the worktree's removal ends it
-    // (#2). A value the user set themselves still wins.
+    // where another ticket's build could pick one up just before the worktree's removal ends it.
+    // A value the user set themselves still wins.
     ...(launch.orchestrated ? { MSBUILDDISABLENODEREUSE: '1' } : {}),
     ...inherited,
     TOUCAN_NODE_ID: nodeId,
@@ -2022,7 +2022,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
   }
 
   /** `terminate` ends the adapter's process tree; teardown collects them to end all at once. */
-  const stop = (id: string, terminate: (child: KillableProcess) => void = killProcessTree): void => {
+  const stop = (id: string, terminate: (child: KillableProcess) => unknown = killProcessTree): void => {
     stopCounts.set(id, (stopCounts.get(id) ?? 0) + 1)
     // Unconditional: an unexpectedly exited agent is already out of `agents`, but its channel
     // (snapshot and subscribers, the owner's forwarding among them) must still be retired, or the
@@ -2042,10 +2042,12 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
     running.authentication?.dispose()
     running.orchestratorGrant?.revoke()
     running.messagingGrant?.revoke()
-    running.connection.close()
     // The whole tree, not the adapter alone: the dev servers and watchers its tool shells started
-    // would otherwise outlive the session, on Windows even while their parents still run (#2).
-    terminate(running.process)
+    // would otherwise outlive the session, on Windows even while their parents still run. Ended
+    // before the pipe closes: an adapter that exits on its closed input takes its CLI with it, and
+    // the shells below are then orphans no walk from the adapter reaches.
+    const connection = running.connection
+    void Promise.resolve(terminate(running.process)).finally(() => connection.close())
     agents.delete(id)
   }
 
