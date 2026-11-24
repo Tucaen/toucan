@@ -18,7 +18,7 @@ Every call prints exactly one JSON line on stdout.
 | 1    | Toucan refused (its reply, `ok: false`, `error` says why), could not be reached, or answered with something other than JSON.                                |
 | 2    | The CLI refused before sending: a missing environment variable, an unknown command, a bad flag, or unreadable JSON input. `error` ends with the usage line. |
 
-Read `error` and act on it; a refusal writes nothing to the record. One exit 1 is not a refusal: a `spawn` reply with `pending: true` (see [Spawn pending](#spawn-pending)) left a session running, so read `pending` before treating any exit 1 from `spawn` as a failure.
+Read `error` and act on it; a refusal writes nothing to the record. A `spawn` answers before its session has started: how the start ends comes later as a wake (see [Spawn pending](#spawn-pending)).
 
 ## usage
 
@@ -83,9 +83,9 @@ When Jev is unavailable (no `TYPESAFE_API_KEY`, a timeout, an error), `route` ex
 {
   "ok": true,
   "ticket": "1",
-  "session": { "nodeId": "...", "conversationId": "...", "worktreePath": "...", "branch": "ticket/k3x9a0/1" },
-  "model": "claude-opus-5-5",
-  "effort": "high",
+  "state": "starting",
+  "attempt": 1,
+  "session": { "worktreePath": "...", "branch": "ticket/k3x9a0/1" },
   "warnings": [],
   "route": {
     "tier": "high",
@@ -103,22 +103,23 @@ When Jev is unavailable (no `TYPESAFE_API_KEY`, a timeout, an error), `route` ex
 - With only `--ticket`, the session runs on the ticket's recorded route, which is the usual case after `route` or `escalate`. If the picker has dropped the recorded model since, it is resolved again. `--tier` resolves that tier through the mapping instead and records it as your own route. `--model` and `--effort` bypass the mapping entirely. `--effort` overrides a resolved effort. A ticket with no route and neither flag is refused, without counting a spawn.
 - The reply's `route` is what was recorded; `warnings` includes any model fallback.
 - The session's first prompt is the configured implementation skill (default `/implement`) with the ticket, then the ticket contract.
-- Toucan creates a worktree on a fresh `ticket/<scope>/<id>` branch from `targetBranch` (a retry gets `ticket/<scope>/<id>-2`, and so on; the folder is `ticket-<scope>-<id>`), runs the project's setup command there (up to 15 minutes), and then opens the session on the canvas with the ticket as its first prompt. The call returns once the session is up, so expect it to take minutes. A session that is slow to come up returns [pending](#spawn-pending) instead.
-- `model` and `effort` are what the running session reports, `null` when it reports none. When they differ from what you asked for, `warnings` says so: treat the session as running on the reported values.
+- Toucan creates a worktree on a fresh `ticket/<scope>/<id>` branch from `targetBranch` (a retry gets `ticket/<scope>/<id>-2`, and so on; the folder is `ticket-<scope>-<id>`), records the attempt and answers within seconds: `state` is `starting`, `attempt` the one-based position in the ticket's `runs`, and `session` the attempt's `worktreePath` and `branch`. Then it runs the project's setup command there (up to 15 minutes) and opens the session on the canvas with the ticket as its first prompt. End your turn and wait for the [wake](#spawn-pending); never wait for the start inside a command.
+- The model and effort the running session reports come with the `started` wake, and `status` shows the session once it is up. When they differ from what you asked for, the wake says so: treat the session as running on the reported values.
 - Orchestrations are provider-homogeneous: the ticket session runs on your own provider, so a Claude orchestrator spawns Claude sessions and a Codex orchestrator Codex sessions, each routed through that provider's own tier mapping. `--provider` may only name your own provider, and `--project` only the orchestrator's own project.
 - Ticket sessions commit to their branch and cannot push: a hook refuses it. Land each branch in `targetBranch` with `merge`.
 - An orchestration has a spawn budget of 20 per checkpoint. Each call counts before anything is created, so failed spawns, retries and escalations count too. At the budget, spawn is refused with `{ ok: false, budgetReached: true, error }` (HTTP 429, no `deferred`): it is a checkpoint, not a failure and not the end of the orchestration. The node shows it as waiting on the human with **Continue (+20)**. End your turn and do not retry, poll or sleep: when the human presses Continue, Toucan raises the budget by another 20 for this same orchestration and wakes you (a `[Toucan: user pressed Continue (+20)]` message); then reread `status` and `plan show` and retry the refused spawn. Never tell the user to start a new orchestrator or migrate your context.
 - Before that count or any Git, setup or canvas work, Toucan atomically checks fresh provider usage against provider-wide active ticket work. A pacing refusal is `{ ok: false, deferred: true, provider, state, reason, retryAt?, outlook }`; it consumes no spawn and leaves no artifact. Weigh `outlook` (see `usage`): when the window will not run out before its reset with one more session working, spawn again with `--force --reason`. Otherwise end the turn with the deferral recorded. Repeating `spawn` while it remains deferred only returns the same refusal; it does not force a usage read or hasten the timer. Toucan owns reset rechecks and wakes you when the gate reopens; then reread `usage`, `status` and `plan show` before one retry. Waiting happens through that wake, never through a shell sleep or polling loop.
 - `--force --reason <why>` starts the ticket regardless of the usage limits: it skips pacing, reads no usage, and resumes an orchestration paused by a provider usage limit (its interrupted ticket sessions are told to continue, as with Resume now). Toucan always honours it; `--reason` is required and states why: the user asked (they pressed **Start now** on your node, and Toucan then tells you to run it), or the `outlook` numbers that show the remaining usage suffices. The spawn budget (a checkpoint needing the human's Continue), `blockedBy`, a stopped orchestration, Git and setup work still apply. A forced spawn clears this orchestration's pending pacing deferral, so no reopen wake follows for it, records `pacing.forced: { ticketId, by, at, reason }` (`by` is your node id) and returns it as `forced`. A provider that refuses the session's turns pauses the orchestration as usual.
-- A failure before the canvas opens the session removes the new worktree and branch again, and the ticket is free to spawn again: the retry gets a fresh worktree on the next branch name. After the canvas has the session, a failed start is unlinked again, Toucan closes the session so it cannot work the ticket beside your retry, and a spawn the canvas reports as failed keeps its node for the human, without the ticket prompt.
+- A failure before the canvas opens the session removes the new worktree and branch again, and the ticket is free to spawn again: the retry gets a fresh worktree on the next branch name. After the canvas has the session, a failed start is unlinked again, Toucan closes the session so it cannot work the ticket beside your retry, and a start the canvas reports as failed keeps its node for the human, without the ticket prompt. Only a failure before the attempt is recorded is the reply's `error`; every later one is a `start-failed` wake that says what was cleaned up.
+- `--replace` and `discard` stop an attempt that is still starting: its setup command is stopped, its session closed if the canvas holds one, and no wake follows for it.
 
 ### Spawn pending
 
-A session that is slow to start is not a failed one. When the start wait runs out with the session already on the canvas, `spawn` replies HTTP 202 `{ "ok": false, "pending": true, "ticket", "session", "error", "spawnsLeft" }`. The CLI exits 1 on it, like any `ok: false`, so check `pending` before reading the exit code as a failure.
+Every `spawn` that answers `ok: true` is a pending start: the attempt is recorded, and its setup and session start are still running.
 
-- The session stays linked to the ticket and open, and its `runs` entry is `starting`. `status` shows the ticket as `starting` until the session reports in.
-- Do not spawn it again: a second `spawn` is refused as a [duplicate](#duplicate-spawns). End your turn. Toucan wakes you with `started` when the session is up, or `start-failed` when its start failed; a failed start is unlinked and the ticket may then be spawned again.
-- The wait is a quiet period: any output or progress from the session restarts it. Its length is `startTimeoutSeconds` (10 to 3600, default 300) in the provider's entry of the orchestration configuration, in the user file or the project file; the project file wins. Do not lengthen it per call; report a start that keeps timing out to the human.
+- The ticket keeps the attempt, and its `runs` entry is `starting`. `status` shows the ticket as `starting` until the session reports in, or `not running` when a Toucan restart interrupted its start.
+- Do not spawn it again: a second `spawn` is refused as a [duplicate](#duplicate-spawns). End your turn. Toucan wakes you with `started` when the session is up, or `start-failed` with the reason and what was cleaned up; a failed start is unlinked and the ticket may then be spawned again.
+- A session the canvas shows is waited for however long it takes to come up. A start the canvas has not shown a session for within `startTimeoutSeconds` (10 to 3600, default 300; any progress restarts it) fails. Set it in the provider's entry of the orchestration configuration, in the user file or the project file; the project file wins. Do not lengthen it per call; report a start that keeps timing out to the human.
 
 ### Duplicate spawns
 
@@ -161,7 +162,14 @@ Never wait for a ticket session inside a tool call - a ticket can take an hour. 
 
 `completed (background work pending: N tasks)` means the turn ended with background work it started still running - a backgrounded shell or subagent. That work's result arrives in a further turn, which wakes you again; until then the outcome record is not final.
 
-A ticket whose `spawn` answered [pending](#spawn-pending) wakes you once more when its start is settled: `started` (the session is up and working the ticket) or `start-failed` (Toucan gave up on the start and unlinked the session, so the ticket may be spawned again).
+Every spawn wakes you once its start is settled:
+
+```
+- #15 finished starting on claude-opus-5-5 at effort high - its session is up and works the ticket; wait for its next wake
+- #16 could not be started: the setup command failed: ... - the worktree and its branch were removed again - Toucan unlinked the attempt; spawn the ticket again
+```
+
+`started` names the model, effort and any warnings the session came up with. `start-failed` names the reason and what was cleaned up: before the canvas opened the session, nothing is left; after it, the worktree and branch stay, and so does the node for the human.
 
 Events that arrive close together come as one message. The message names the event and where to read more; it never carries a ticket session's transcript. A message that arrives while you are working reaches you at your next safe boundary. A provider-pacing reopen wake explicitly asks you to reread `usage`, `status` and `plan show`; it is the retry signal for a deferred spawn. When the human resolves a pinned question in the UI, the wake is `[Toucan: user resolved Q<n>]` with their note, if any; reread `question list` and `status`, then continue the work that waited on it.
 
