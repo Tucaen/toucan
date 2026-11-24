@@ -92,6 +92,11 @@ export type GitRunner = (args: string[], cwd: string) => Promise<GitResult>
 export interface WorktreeManagerOptions {
   runGit?: GitRunner
   pathExists?(path: string): boolean
+  /**
+   * Ends whatever still runs in a worktree about to be deleted (`releaseFolder` in
+   * `process-tree.ts`); absent, nothing is ended.
+   */
+  releaseFolder?(path: string): Promise<unknown>
 }
 
 export interface WorktreeManager {
@@ -410,7 +415,10 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
         const refused = request.force ? blockers.filter((blocker) => !isForcibleBlocker(blocker)) : blockers
         if (refused.length > 0) return { ok: false, blockers: refused }
 
-        // Past every blocker check: git for Windows would follow a junction into its target.
+        // Past every blocker check: a dev server or watcher a session left behind there would hold
+        // the folder open on Windows, and keep running from a deleted checkout elsewhere.
+        await options.releaseFolder?.(request.path)
+        // Git for Windows would follow a junction into its target.
         detachLinks(request.path)
         const removed = await runGit(
           ['worktree', 'remove', ...(request.force ? ['--force'] : []), request.path],

@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import { basename } from 'node:path'
 import { errorMessage } from '../shared/text'
 import { hiddenProcessOptions } from './background-process'
+import { killProcessTree } from './process-tree'
 import type { ShellLaunch, TerminalShell } from './terminal-shell'
 
 /**
@@ -57,7 +58,8 @@ export function createSetupCommandRunner(options: {
       // Own timer rather than execFile's `timeout`, which kills only the shell: an `npm install`
       // below it would keep the pipes open and the callback - and the waiting spawn - unanswered.
       const timer = setTimeout(() => {
-        if (child?.pid !== undefined) killTree(child.pid)
+        // The shell and everything it started; a tree that is already gone is the goal anyway.
+        if (child) killProcessTree(child, 'SIGKILL')
         settle({ ok: false, error: `"${command}" timed out after ${Math.round(timeout / 1000)}s` })
       }, timeout)
       try {
@@ -88,17 +90,4 @@ ${output}`
         settle({ ok: false, error: `"${command}" could not start: ${errorMessage(error)}` })
       }
     })
-}
-
-/** The shell and everything it started. Best-effort: a tree that is already gone is the goal anyway. */
-function killTree(pid: number): void {
-  if (process.platform === 'win32') {
-    execFile('taskkill', ['/pid', String(pid), '/T', '/F'], hiddenProcessOptions({}), () => undefined)
-    return
-  }
-  try {
-    process.kill(pid, 'SIGKILL')
-  } catch {
-    // Already exited.
-  }
 }

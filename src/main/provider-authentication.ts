@@ -1,4 +1,4 @@
-import { execFile, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import type { Writable } from 'node:stream'
 import type { CreateElicitationResponse } from '@agentclientprotocol/sdk'
 import type { AgentAuthMethod, AgentCreateResult, AgentEvent, AgentPromptResult, AgentProvider } from '../shared/agent'
@@ -9,7 +9,7 @@ import {
   type ProviderAuthenticationState
 } from '../shared/provider-authentication'
 import { normalizeTerminalOutput } from '../shared/terminal-output'
-import { hiddenProcessOptions } from './background-process'
+import { taskkillTree } from './process-tree'
 
 interface AuthenticationOptions {
   provider: AgentProvider
@@ -80,17 +80,7 @@ export function createProviderAuthentication(options: AuthenticationOptions): Pr
     // addressing only this owned helper's pid; never kill the long-running adapter or provider by name.
     if (child?.pid !== undefined && process.platform === 'win32') {
       if (stoppingHelper) return
-      const pid = child.pid
-      stoppingHelper = new Promise((resolve) => {
-        try {
-          const killer = execFile('taskkill', ['/pid', String(pid), '/T', '/F'], hiddenProcessOptions({}), (error) =>
-            resolve(!error)
-          )
-          killer.on('error', () => resolve(false))
-        } catch {
-          resolve(false)
-        }
-      })
+      stoppingHelper = taskkillTree(child.pid)
       return
     }
     // The permanent error listener below also handles a refused kill (exit need not follow error).

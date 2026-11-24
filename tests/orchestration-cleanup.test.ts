@@ -15,6 +15,7 @@ import { join } from 'node:path'
 import { afterEach, test } from 'vitest'
 import { createWorktreeManager, runGitWithExecFile, type GitRunner } from '../src/main/git-worktree'
 import { createOrchestrationCleanup } from '../src/main/orchestration-cleanup'
+import { releaseFolder } from '../src/main/process-tree'
 import { createWorkspaceContainment } from '../src/main/workspace-containment'
 import {
   applyPlan,
@@ -718,6 +719,76 @@ async function holdDirectory(path: string): Promise<ChildProcess> {
   child.on('error', () => {})
   await new Promise<void>((started) => child.once('spawn', () => started()))
   return child
+}
+
+test(
+  'a dev server a retired session left running in its worktree is ended and the worktree removed (#2)',
+  async () => {
+    const context = await fixture()
+    await mergeTicketOne(context)
+    const path = ticketSession(context).worktreePath!
+    const elsewhere = await holdDirectory(context.root)
+    const leftBehind = await holdDirectory(path)
+    const exited = new Promise((done) => leftBehind.once('exit', done))
+    const cleanup = createOrchestrationCleanup({
+      containment: createWorkspaceContainment({ roots: () => [context.root] }),
+      runGit: runGitWithExecFile,
+      worktrees: createWorktreeManager({ releaseFolder }),
+      releaseFolder,
+      canvas: async () => ({ ok: true })
+    })
+    try {
+      const result = await cleanup.run(context.record, '1')
+      assert.deepEqual(result.retained, [])
+      assert.deepEqual(
+        result.removed.map((entry) => entry.ticket),
+        ['1']
+      )
+      await exited
+      assert.equal(existsSync(path), false)
+      assert.equal(elsewhere.exitCode, null, 'a process outside the worktree was ended')
+    } finally {
+      leftBehind.kill()
+      elsewhere.kill()
+    }
+  },
+  GIT_FIXTURE_TIMEOUT
+)
+
+test(
+  'a leftover folder is released before it is deleted, by the sweep and by a discard',
+  async () => {
+    const context = await fixture()
+    const path = await publishWithIgnoredOutput(context)
+    await halfRemove(context, path)
+    const released: string[] = []
+    const cleanup = createOrchestrationCleanup({
+      containment: createWorkspaceContainment({ roots: () => [context.root] }),
+      runGit: runGitWithExecFile,
+      worktrees: createWorktreeManager(),
+      releaseFolder: async (folder) => void released.push(`${folder}:${existsSync(folder)}`),
+      canvas: async () => ({ ok: true })
+    })
+    assert.deepEqual(
+      (await cleanup.run(context.record, '1')).removed.map((entry) => entry.ticket),
+      ['1']
+    )
+    assert.deepEqual(released, [`${path}:true`])
+
+    const second = ticketSessionOf(context, '2')
+    rmSync(join(second, '.git'))
+    await context.git(['worktree', 'prune'])
+    released.length = 0
+    const discarded = await cleanup.discard(context.record, { ticket: '2', branch: 'ticket/2', worktreePath: second })
+    assert.equal(discarded.ok, true)
+    assert.deepEqual(released, [`${second}:true`])
+    assert.equal(existsSync(second), false)
+  },
+  GIT_FIXTURE_TIMEOUT
+)
+
+function ticketSessionOf(context: Context, id: string): string {
+  return context.record.tickets.find((ticket) => ticket.id === id)!.session!.worktreePath!
 }
 
 test.skipIf(process.platform !== 'win32')(

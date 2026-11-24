@@ -128,6 +128,7 @@ import { createProjectAvatarStore } from './project-avatar-store'
 import { registerProjectIpc } from './project-ipc'
 import { createProjectPrettier } from './project-prettier'
 import { createWorktreeManager, runGitWithExecFile } from './git-worktree'
+import { releaseFolder } from './process-tree'
 import { createWorkspaceFileIndex } from './workspace-file-index'
 import { createWorkspaceStore } from './workspace-store'
 import { projectFor, ticketsDirectoryFor, ticketsRelativeDirectoryFor } from './ticket-directory'
@@ -404,7 +405,9 @@ void app.whenReady().then(async () => {
   // One manager for every git question main asks: the delete confirmation asks git the same thing
   // worktree discovery does, and the outcome index reads HEAD through it, so none of them shells out
   // on its own.
-  const worktrees = createWorktreeManager()
+  // A worktree is deleted only once whatever a session left running in it has been ended (#2).
+  const releaseWorktreeFolder = (path: string) => releaseFolder(path, mainLog('worktree processes'))
+  const worktrees = createWorktreeManager({ releaseFolder: releaseWorktreeFolder })
   // The main checkout behind a worktree directory, so a worktree session's record files under
   // the project name a reader will glob for (Tucaen/toucan#18), and an orchestrator's grant is
   // scoped to its project rather than to the directory it happens to run in. A directory that is
@@ -954,6 +957,7 @@ void app.whenReady().then(async () => {
       return result
     },
     liveSessions: () => agentManager.liveSessions(),
+    releaseFolder: releaseWorktreeFolder,
     // A killed agent's shells and installs can keep their cwd in the folder for minutes.
     folderRetry: { schedule: (retry, ms) => void setTimeout(() => void retry(), ms) },
     log: mainLog('orchestration cleanup')

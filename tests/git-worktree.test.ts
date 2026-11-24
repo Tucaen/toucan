@@ -173,6 +173,39 @@ test('a clean, merged worktree is removed and pruned', async () => {
   assert.ok(calls.some((args) => args[1] === 'prune'))
 })
 
+test('what still runs in a worktree is ended before git deletes it, and only once removal is allowed', async () => {
+  const calls: string[][] = []
+  const manager = createWorktreeManager({
+    runGit: gitStub([], calls),
+    pathExists: () => true,
+    releaseFolder: async (path) => void calls.push(['release', path])
+  })
+
+  await manager.remove({ projectPath: PROJECT, path: WORKTREE, branch: 'feature/login', baseRef: 'main' })
+  const release = calls.findIndex((args) => args[0] === 'release')
+  assert.deepEqual(calls[release], ['release', WORKTREE])
+  assert.ok(release < calls.findIndex((args) => args[1] === 'remove'), 'released after git removed the folder')
+
+  const blocked: string[][] = []
+  const refusing = createWorktreeManager({
+    runGit: gitStub([(args) => (args[0] === 'rev-list' ? ok('2\n') : undefined)], blocked),
+    pathExists: () => true,
+    releaseFolder: async (path) => void blocked.push(['release', path])
+  })
+  const refused = await refusing.remove({
+    projectPath: PROJECT,
+    path: WORKTREE,
+    branch: 'feature/login',
+    baseRef: 'main'
+  })
+  assert.equal(refused.ok, false)
+  assert.equal(
+    blocked.some((args) => args[0] === 'release'),
+    false,
+    'a worktree that is kept had its processes ended'
+  )
+})
+
 test('removal is refused with named blockers while unique work is present', async () => {
   const calls: string[][] = []
   const manager = createWorktreeManager({

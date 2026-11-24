@@ -96,6 +96,7 @@ import {
   type CommandGuardSettings
 } from './command-guard'
 import { createPromptWakeGate, type PromptWakeGate } from './prompt-wake-gate'
+import { killProcessTree, killProcessTreesNow, type KillableProcess } from './process-tree'
 import type { TerminalContextMcp } from './terminal-context-mcp'
 import type { OrchestratorEndpoint, OrchestratorGrant } from './orchestrator-endpoint'
 import type { ScratchDirectoryResult } from './scratch-directory'
@@ -1318,6 +1319,8 @@ export function agentProcessEnvironment(
     messaging?: MessagingGrant['environment']
     /** The project's main checkout (`PROJECT_DIRECTORY_ENV`); the session's cwd may be a worktree. */
     projectDirectory?: string
+    /** A ticket session an orchestrator spawned (`AgentStartRequest.orchestrated`). */
+    orchestrated?: boolean
   } = {}
 ): NodeJS.ProcessEnv {
   // Removed first, always: a Toucan started from an orchestrator's own shell (a dev build under
@@ -1333,6 +1336,10 @@ export function agentProcessEnvironment(
     ...inherited
   } = environment
   return {
+    // A ticket session's builds leave no MSBuild worker nodes idling in its worktree for minutes,
+    // where another ticket's build could pick one up just before the worktree's removal ends it
+    // (#2). A value the user set themselves still wins.
+    ...(launch.orchestrated ? { MSBUILDDISABLENODEREUSE: '1' } : {}),
     ...inherited,
     TOUCAN_NODE_ID: nodeId,
     ...(launch.projectDirectory ? { [PROJECT_DIRECTORY_ENV]: launch.projectDirectory } : {}),
@@ -2014,7 +2021,8 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
     }
   }
 
-  const stop = (id: string): void => {
+  /** `terminate` ends the adapter's process tree; teardown collects them to end all at once. */
+  const stop = (id: string, terminate: (child: KillableProcess) => void = killProcessTree): void => {
     stopCounts.set(id, (stopCounts.get(id) ?? 0) + 1)
     // Unconditional: an unexpectedly exited agent is already out of `agents`, but its channel
     // (snapshot and subscribers, the owner's forwarding among them) must still be retired, or the
@@ -2035,7 +2043,9 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
     running.orchestratorGrant?.revoke()
     running.messagingGrant?.revoke()
     running.connection.close()
-    running.process.kill()
+    // The whole tree, not the adapter alone: the dev servers and watchers its tool shells started
+    // would otherwise outlive the session, on Windows even while their parents still run (#2).
+    terminate(running.process)
     agents.delete(id)
   }
 
@@ -2259,7 +2269,8 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       const baseEnvironment = agentProcessEnvironment(environment, request.id, {
         orchestrator: orchestratorGrant?.environment,
         messaging: messagingGrant?.environment,
-        projectDirectory
+        projectDirectory,
+        orchestrated: request.orchestrated
       })
       const delegatingEnvironment =
         request.provider === 'codex' && delegation?.status === 'configured'
@@ -2906,12 +2917,18 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       void running.context.notify(methods.agent.session.cancel, { sessionId: running.sessionId })
     },
 
-    kill: stop,
+    kill: (id) => stop(id),
+    // Teardown: a closing window or a quitting Toucan runs nothing after this, so the trees are
+    // ended before it returns rather than in the background (`killProcessTreesNow`).
     killOwned(owner): void {
-      for (const [id, running] of agents) if (running.owner === owner) stop(id)
+      const children: KillableProcess[] = []
+      for (const [id, running] of agents) if (running.owner === owner) stop(id, (child) => children.push(child))
+      killProcessTreesNow(children)
     },
     killAll(): void {
-      for (const id of [...agents.keys()]) stop(id)
+      const children: KillableProcess[] = []
+      for (const id of [...agents.keys()]) stop(id, (child) => children.push(child))
+      killProcessTreesNow(children)
     }
   }
 }

@@ -15,6 +15,17 @@ test('the node identity is part of the environment an agent process is built for
   assert.equal(environment.PATH, '/usr/bin')
 })
 
+test('a ticket session builds without MSBuild worker nodes that would outlive it', () => {
+  // Reused nodes idle for minutes after a build, working in the ticket's worktree; another ticket's
+  // build could pick one up just before that worktree's removal ends it (#2).
+  assert.equal(agentProcessEnvironment({}, 'node-1', { orchestrated: true }).MSBUILDDISABLENODEREUSE, '1')
+  assert.equal(agentProcessEnvironment({}, 'node-1').MSBUILDDISABLENODEREUSE, undefined)
+  assert.equal(
+    agentProcessEnvironment({ MSBUILDDISABLENODEREUSE: '0' }, 'node-1', { orchestrated: true }).MSBUILDDISABLENODEREUSE,
+    '0'
+  )
+})
+
 /** An app directory with an installed adapter, which is all `create` checks before spawning. */
 function appWithAdapter(): string {
   const appPath = mkdtempSync(join(tmpdir(), 'toucan-acp-launch-'))

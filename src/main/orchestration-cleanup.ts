@@ -83,6 +83,11 @@ export function createOrchestrationCleanup(options: {
    * given; absent, a later sweep is the retry.
    */
   folderRetry?: { schedule(retry: () => Promise<void>, ms: number): void; delaysMs?: readonly number[] }
+  /**
+   * Ends whatever still runs in a leftover worktree folder before it is deleted; the worktree
+   * manager does the same for a registered worktree. Absent, nothing is ended.
+   */
+  releaseFolder?(path: string): Promise<unknown>
   /** The live agent sessions and where they run; absent, no unrecorded attempt reads as live. */
   liveSessions?(): LiveSessionLocation[]
   log?(message: string): void
@@ -279,6 +284,7 @@ export function createOrchestrationCleanup(options: {
           if (!result.ok) folderFailure = result.message || 'git worktree remove failed'
         } else if (leftover) {
           try {
+            await options.releaseFolder?.(worktreePath)
             await removeTree(worktreePath)
           } catch (error) {
             folderFailure = await describeRemovalFailure(worktreePath, errorMessage(error))
@@ -431,6 +437,7 @@ export function createOrchestrationCleanup(options: {
           removedWorktree = true
         } else if (worktreePath && existsSync(worktreePath)) {
           // Git no longer lists the folder (a half-failed removal, or one deleted by hand).
+          await options.releaseFolder?.(worktreePath)
           await removeTree(worktreePath)
           removedWorktree = true
         }
