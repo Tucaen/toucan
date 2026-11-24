@@ -34,7 +34,7 @@ Read it when deciding whether to dispatch, retry, or resume work after a usage-l
 
 ## plan set
 
-`plan set --file <plan.json>` or `plan set --json '<plan>'` writes the plan and prints `{ ok: true, record }`.
+`plan set --file <plan.json>` or `plan set --json '<plan>'` writes the plan and prints `{ ok: true, record }`. Every `--file` and `--options-file` in this reference (here, `ticket update`, `question add`) must live in your own folder named in your instructions (`orchestrator-<node id>`), never under a generic path such as `/tmp/plan.json`: a stale file of that name from another session would be read as yours. Prefer `--json`.
 
 ```json
 {

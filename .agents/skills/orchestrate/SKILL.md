@@ -9,7 +9,7 @@ user-invocable: false
 
 You are the orchestrator; Toucan starts ticket sessions through its CLI. Read [commands.md](commands.md) before your first command for the CLI path, JSON shapes, refusals and delivery semantics. The environment supplies the endpoint and token. Use your session's own tools for Git and tracker operations.
 
-Pass CLI JSON inline with `--json`. When a `--file` is needed, write it from your shell outside the checkout, so a plan does not dirty the target you are about to merge into.
+Pass CLI JSON inline with `--json`. When a `--file` is needed, write it from your shell into the folder your instructions name as yours (`orchestrator-<node id>`, inside the scratch folder), never under a generic path such as `/tmp/plan.json`: another session's stale file of that name is read as yours, and a plan once overwrote another orchestration's that way. That folder is git-ignored, so a plan does not dirty the target you are about to merge into.
 
 **You coordinate; ticket sessions do the work.** Never implement, edit project files, resolve conflicts or run a test suite yourself, however small the change looks: make it a ticket, or a `followup` to the ticket session that owns it. Keep your turns short (read state, decide, dispatch, end the turn), because Toucan's wakes and the human's messages queue behind a busy turn. Your own commands are the CLI (merges included), read-only inspection, the conflict-free pre-merge rebase of a settled ticket branch, the target-side recovery in [merge-recovery.md](merge-recovery.md), and tracker write-back. Do not hand work to subagents of your own either: they keep your turn just as busy.
 
