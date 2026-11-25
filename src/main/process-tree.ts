@@ -1,18 +1,24 @@
 /**
  * Ending what an agent session started. A session's adapter runs a provider CLI, which runs
  * tool shells, which start dev servers, watchers and build nodes. Killing the adapter alone ends
- * none of them on Windows, where a child never dies with its parent, so two mechanisms share this
- * module:
+ * none of them on Windows, where a child never dies with its parent, so three mechanisms share
+ * this module:
  *
  * - `killProcessTree` ends a live process and every descendant it still has a parent link to:
  *   what a session's stop does while its adapter is alive and the chain below it intact.
+ * - `endOwnedProcesses` ends every process whose environment carries a launch's owner mark
+ *   (`PROCESS_OWNER_ENV`): the orphans whose ancestors already died, wherever they work, proven to
+ *   be the session's because only its adapter's descendants inherit that mark. What a ticket
+ *   session's stop runs after the tree kill, in the background, whether or not a worktree goes.
  * - `releaseFolder` ends every process working in, or running a binary from, a folder about to be
- *   deleted, with its descendants: the orphans whose ancestors already died, which no parent link
- *   reaches any more. On Windows such a process is also what makes the deletion fail, since its
- *   working directory holds the folder open, so this is the same cause a removal stumbles over.
+ *   deleted, with its descendants. On Windows such a process is what makes the deletion fail,
+ *   since its working directory holds the folder open, so this is the same cause a removal
+ *   stumbles over. It matches by folder, not by owner, on purpose: a removal must free the folder
+ *   whoever holds it, the user's own shell there included, or it fails half-way; the owner sweep
+ *   at the session's stop has already ended what the session left, so this catches the rest.
  *
- * Neither touches a process outside its root's tree or the folder, and `releaseFolder` never ends
- * Toucan itself or anything Toucan runs under.
+ * None touches a process outside its root's tree, the owner's marks or the folder, and neither
+ * sweep ever ends Toucan itself; `releaseFolder` spares anything Toucan runs under too.
  */
 import { execFile, execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'

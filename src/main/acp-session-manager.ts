@@ -96,7 +96,15 @@ import {
   type CommandGuardSettings
 } from './command-guard'
 import { createPromptWakeGate, type PromptWakeGate } from './prompt-wake-gate'
-import { killProcessTree, killProcessTreesNow, type KillableProcess } from './process-tree'
+import {
+  endOwnedProcesses,
+  killProcessTree,
+  killProcessTreesNow,
+  newProcessOwner,
+  PROCESS_OWNER_ENV,
+  type KillableProcess,
+  type OwnedProcessesEnd
+} from './process-tree'
 import type { TerminalContextMcp } from './terminal-context-mcp'
 import type { OrchestratorEndpoint, OrchestratorGrant } from './orchestrator-endpoint'
 import type { ScratchDirectoryResult } from './scratch-directory'
@@ -685,6 +693,11 @@ interface RunningAgent {
    */
   messagingGrant?: MessagingGrant
   /**
+   * The mark (`PROCESS_OWNER_ENV`) this launch's processes inherit - only a ticket session's
+   * adapter has one, fresh per launch - by which its stop finds what it left running (#4).
+   */
+  processOwner?: string
+  /**
    * The command guard files this agent was created with, or null when it runs unguarded: the node
    * opted out (`request.commandGuard === false`, ticket 04) or the user switched the guard off for
    * every new session (ticket 03). Either one wins, so a globally-off guard is never turned back on
@@ -1191,6 +1204,8 @@ export interface AcpSessionManagerOptions {
   commandGuard?: { launch(): Promise<CommandGuardFiles | null> }
   /** Seam for tests to observe adapter and terminal-auth helper launches. */
   spawnAgent?: (launch: AgentProcessLaunch) => ChildProcessWithoutNullStreams
+  /** Ends what a stopped ticket session's launches left running; `endOwnedProcesses` when absent. */
+  endOwnedProcesses?: OwnedProcessesEnd
   /**
    * The fan-out every session publishes its `AgentEvent`s to. The creating renderer is only
    * subscriber #1; injecting the broker lets other hosts (the remote server) subscribe to the
@@ -1321,18 +1336,22 @@ export function agentProcessEnvironment(
     projectDirectory?: string
     /** A ticket session an orchestrator spawned (`AgentStartRequest.orchestrated`). */
     orchestrated?: boolean
+    /** This launch's owner mark (`PROCESS_OWNER_ENV`), for a session whose stop sweeps by it. */
+    processOwner?: string
   } = {}
 ): NodeJS.ProcessEnv {
   // Removed first, always: a Toucan started from an orchestrator's own shell (a dev build under
   // test) inherits that orchestrator's token, and must never hand it to an ordinary session - nor
   // the messaging token of whichever session started it, which would let it speak as that node,
-  // nor the project that session ran in.
+  // nor the project that session ran in, nor the owner mark of the session Toucan itself runs
+  // under, which would make this session's processes that one's to end.
   const {
     [ORCHESTRATOR_URL_ENV]: _inheritedUrl,
     [ORCHESTRATOR_TOKEN_ENV]: _inheritedToken,
     [MESSAGING_URL_ENV]: _inheritedMessagingUrl,
     [MESSAGING_TOKEN_ENV]: _inheritedMessagingToken,
     [PROJECT_DIRECTORY_ENV]: _inheritedProjectDirectory,
+    [PROCESS_OWNER_ENV]: _inheritedProcessOwner,
     ...inherited
   } = environment
   return {
@@ -1343,6 +1362,7 @@ export function agentProcessEnvironment(
     ...inherited,
     TOUCAN_NODE_ID: nodeId,
     ...(launch.projectDirectory ? { [PROJECT_DIRECTORY_ENV]: launch.projectDirectory } : {}),
+    ...(launch.processOwner ? { [PROCESS_OWNER_ENV]: launch.processOwner } : {}),
     ...launch.orchestrator,
     ...launch.messaging
   }
@@ -1528,6 +1548,12 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
   const agents = new Map<string, RunningAgent>()
   /** Bumped by every `stop`, so a launch awaiting its orchestrator grant can tell it was closed meanwhile. */
   const stopCounts = new Map<string, number>()
+  const endOwned: OwnedProcessesEnd = options.endOwnedProcesses ?? ((owners) => endOwnedProcesses(owners, options.log))
+  /**
+   * The owner marks of a node's launches whose adapter exited on its own: whatever their shells
+   * left running is still the session's, and the node's next stop ends it.
+   */
+  const exitedOwners = new Map<string, string[]>()
   /**
    * The model list the last Claude session advertised. The Claude worker has to be named before
    * `session/new` answers with the models, so the previous session's list is the only pre-launch
@@ -2021,15 +2047,28 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
     }
   }
 
-  /** `terminate` ends the adapter's process tree; teardown collects them to end all at once. */
-  const stop = (id: string, terminate: (child: KillableProcess) => unknown = killProcessTree): void => {
+  /**
+   * `terminate` ends the adapter's process tree; teardown collects them to end all at once. Then a
+   * ticket session's marked processes are ended in the background (`endOwnedProcesses`): the
+   * orphans no walk from the adapter reaches, whether or not a worktree is removed - unless
+   * `sweep` is false, for a quit after which the sweep could not finish.
+   */
+  const stop = (id: string, terminate: (child: KillableProcess) => unknown = killProcessTree, sweep = true): void => {
     stopCounts.set(id, (stopCounts.get(id) ?? 0) + 1)
     // Unconditional: an unexpectedly exited agent is already out of `agents`, but its channel
     // (snapshot and subscribers, the owner's forwarding among them) must still be retired, or the
     // renderer's kill-then-recreate cycle would stack a second owner subscription per restart.
     broker.close(id)
     const running = agents.get(id)
-    if (!running) return
+    const owners = [...(exitedOwners.get(id) ?? []), ...(running?.processOwner ? [running.processOwner] : [])]
+    exitedOwners.delete(id)
+    const endLeftovers = (): void => {
+      if (sweep && owners.length > 0) void endOwned(owners).catch(() => undefined)
+    }
+    if (!running) {
+      endLeftovers()
+      return
+    }
     running.wakeGate?.dispose()
     running.stopping = true
     clearBackgroundTasks(running)
@@ -2047,7 +2086,9 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
     // before the pipe closes: an adapter that exits on its closed input takes its CLI with it, and
     // the shells below are then orphans no walk from the adapter reaches.
     const connection = running.connection
-    void Promise.resolve(terminate(running.process)).finally(() => connection.close())
+    void Promise.resolve(terminate(running.process))
+      .finally(() => connection.close())
+      .finally(endLeftovers)
     agents.delete(id)
   }
 
@@ -2268,11 +2309,13 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         messagingGrant?.revoke()
         return { ok: false, status: 'error', message: 'The session was stopped while it was starting.' }
       }
+      const processOwner = request.orchestrated ? newProcessOwner() : undefined
       const baseEnvironment = agentProcessEnvironment(environment, request.id, {
         orchestrator: orchestratorGrant?.environment,
         messaging: messagingGrant?.environment,
         projectDirectory,
-        orchestrated: request.orchestrated
+        orchestrated: request.orchestrated,
+        processOwner
       })
       const delegatingEnvironment =
         request.provider === 'codex' && delegation?.status === 'configured'
@@ -2510,6 +2553,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         // The very environment the adapter was launched with, so a terminal sign-in re-launch
         // and the running adapter cannot disagree about who this node is.
         environment: agentEnvironment,
+        ...(processOwner ? { processOwner } : {}),
         ...(delegation ? { routineDelegation: delegation } : {}),
         ...(orchestratorGrant ? { orchestratorGrant } : {}),
         ...(scratchPath ? { scratchPath } : {}),
@@ -2606,6 +2650,9 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         // A token outlives nothing: no process, no orchestrator to act for, no session to speak as.
         running.orchestratorGrant?.revoke()
         running.messagingGrant?.revoke()
+        if (!running.stopping && running.processOwner) {
+          exitedOwners.set(request.id, [...(exitedOwners.get(request.id) ?? []), running.processOwner])
+        }
         // An adapter that fell over on its own retires no broker channel, so this is the only
         // place the index hears that the session is over. `stop` reaches the same call through
         // `broker.close`, and finalizing twice rewrites the same record.
@@ -2929,7 +2976,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
     },
     killAll(): void {
       const children: KillableProcess[] = []
-      for (const id of [...agents.keys()]) stop(id, (child) => children.push(child))
+      for (const id of [...agents.keys()]) stop(id, (child) => children.push(child), false)
       killProcessTreesNow(children)
     }
   }
