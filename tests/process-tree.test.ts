@@ -5,10 +5,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'vitest'
 import {
+  PROCESS_OWNER_ENV,
   descendantsOf,
+  endOwnedProcesses,
+  environmentOwnedBy,
   killProcessTree,
   killProcessTreesNow,
   parseWindowsSnapshot,
+  newProcessOwner,
+  ownedInPsListing,
   processesInside,
   releaseFolder,
   type ProcessRecord
@@ -98,16 +103,23 @@ test('the Windows snapshot parses tab-separated rows and leaves unreadable field
   ])
 })
 
-/** A process that stays alive until killed, started in `cwd`; its own child too when `child`. */
-function sleeper(cwd: string, child?: { cwd: string; detached?: boolean }): ChildProcess {
+/**
+ * A process that stays alive until killed, started in `cwd` with `env` added to its environment;
+ * its own child too when `child`, which inherits that environment. `args` only ride its command line.
+ */
+function sleeper(
+  cwd: string,
+  child?: { cwd: string; detached?: boolean },
+  extra: { env?: NodeJS.ProcessEnv; args?: string[] } = {}
+): ChildProcess {
   const inner = child
     ? `const c = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { cwd: ${JSON.stringify(child.cwd)}, stdio: 'ignore', detached: ${Boolean(child.detached)}, windowsHide: true }); c.unref(); process.stdout.write(String(c.pid) + '\\n');`
     : `process.stdout.write('0\\n');`
-  const started = spawn(process.execPath, ['-e', `${inner} setInterval(() => {}, 1000)`], {
+  const started = spawn(process.execPath, ['-e', `${inner} setInterval(() => {}, 1000)`, ...(extra.args ?? [])], {
     cwd,
     stdio: ['ignore', 'pipe', 'ignore'],
     windowsHide: true,
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', ...extra.env }
   })
   // A kill in the cleanup may race the test's own; neither is the thing under test.
   started.on('error', () => {})
@@ -199,5 +211,73 @@ test('releasing a folder ends an orphan working inside it and spares a process w
     bystander.kill()
     rmSync(folder, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })
     rmSync(elsewhere, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })
+  }
+}, 120_000)
+
+test('every launch gets its own process owner', () => {
+  const owners = new Set(Array.from({ length: 50 }, newProcessOwner))
+  assert.equal(owners.size, 50)
+  for (const owner of owners) assert.match(owner, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+})
+
+test('only an exact marker entry in its environment proves a process is owned', () => {
+  const owner = newProcessOwner()
+  const mark = `${PROCESS_OWNER_ENV}=${owner}`
+  assert.equal(environmentOwnedBy(['PATH=/usr/bin', mark], [owner]), true)
+  assert.equal(environmentOwnedBy(['PATH=/usr/bin'], [owner]), false)
+  // Another session's process.
+  assert.equal(environmentOwnedBy([`${PROCESS_OWNER_ENV}=${newProcessOwner()}`], [owner]), false)
+  // The owner merely appearing somewhere is no proof.
+  assert.equal(environmentOwnedBy([`${mark}0`, `X${mark}`, `OTHER=${owner}`, owner], [owner]), false)
+  assert.equal(environmentOwnedBy([mark], []), false)
+})
+
+test('a ps listing with environments yields the processes carrying one of the markers, never self', () => {
+  const owner = newProcessOwner()
+  const other = newProcessOwner()
+  const listing = [
+    `  101 node server.js TERM=xterm ${PROCESS_OWNER_ENV}=${owner} PATH=/bin`,
+    `  102 node other.js ${PROCESS_OWNER_ENV}=${other}`,
+    `  103 node ${PROCESS_OWNER_ENV}=${owner}0`,
+    `  104 zsh HOME=/Users/me`,
+    `  105 node ${PROCESS_OWNER_ENV}=${owner}`,
+    'garbage',
+    ''
+  ].join('\n')
+  assert.deepEqual(ownedInPsListing(listing, [owner], { self: 105 }), [101])
+  assert.deepEqual(ownedInPsListing(listing, [owner, other], { self: 1 }), [101, 102, 105])
+})
+
+test('ending a session without owners looks at nothing', async () => {
+  assert.deepEqual(await endOwnedProcesses([]), [])
+})
+
+test("ending a session's own processes takes its orphans and spares every process without its marker", async () => {
+  const folder = realpathSync(mkdtempSync(join(tmpdir(), 'toucan-owned-')))
+  const owner = newProcessOwner()
+  // The adapter starts the orphan-to-be and is then killed alone, so no parent link reaches it.
+  const adapter = sleeper(folder, { cwd: folder, detached: true }, { env: { [PROCESS_OWNER_ENV]: owner } })
+  const orphan = await firstLine(adapter)
+  const bystanders = [
+    // The user's own dev server, working in the same worktree.
+    sleeper(folder),
+    // Another session's process.
+    sleeper(folder, undefined, { env: { [PROCESS_OWNER_ENV]: newProcessOwner() } }),
+    // The marker on its command line only: the proof is read from the environment. `ps` prints
+    // both on one line, so macOS cannot tell them apart.
+    ...(process.platform === 'darwin' ? [] : [sleeper(folder, undefined, { args: [`${PROCESS_OWNER_ENV}=${owner}`] })])
+  ]
+  await Promise.all(bystanders.map(firstLine))
+  try {
+    adapter.kill()
+    await waitUntil(() => adapter.exitCode !== null || adapter.signalCode !== null)
+    assert.ok(alive(orphan))
+    assert.deepEqual(await endOwnedProcesses([owner]), [orphan])
+    assert.ok(await waitUntil(() => !alive(orphan)), 'the orphan outlived its session')
+    for (const bystander of bystanders) assert.ok(alive(bystander.pid!), `${bystander.pid} was ended without proof`)
+  } finally {
+    if (alive(orphan)) process.kill(orphan)
+    for (const bystander of bystanders) bystander.kill()
+    rmSync(folder, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })
   }
 }, 120_000)

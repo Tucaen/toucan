@@ -15,6 +15,7 @@
  * Toucan itself or anything Toucan runs under.
  */
 import { execFile, execFileSync } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import { readdir, readFile, readlink } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -138,24 +139,72 @@ public static class ToucanProcessSnapshot {
   [DllImport("ntdll.dll")] static extern int NtQueryInformationProcess(IntPtr process, int informationClass, ref BasicInformation information, int length, out int returned);
   [DllImport("kernel32.dll")] static extern IntPtr OpenProcess(int access, bool inherit, int pid);
   [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
+  [DllImport("kernel32.dll")] static extern bool TerminateProcess(IntPtr process, uint exitCode);
   [DllImport("kernel32.dll")] static extern bool ReadProcessMemory(IntPtr process, IntPtr address, byte[] buffer, IntPtr size, out IntPtr read);
   [DllImport("kernel32.dll")] static extern bool GetProcessTimes(IntPtr process, out long created, out long exited, out long kernel, out long user);
   [DllImport("kernel32.dll")] static extern bool IsWow64Process(IntPtr process, out bool wow64);
   [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern bool QueryFullProcessImageName(IntPtr process, int flags, StringBuilder name, ref int size);
-  const int QueryLimitedInformation = 0x1000, VmRead = 0x0010;
+  const int QueryLimitedInformation = 0x1000, VmRead = 0x0010, Terminate = 0x0001, MaxEnvironment = 16 * 1024 * 1024;
   static byte[] Read(IntPtr process, long address, int size) {
     var buffer = new byte[size]; IntPtr read;
     if (!ReadProcessMemory(process, new IntPtr(address), buffer, new IntPtr(size), out read) || read.ToInt64() != size) return null;
     return buffer;
   }
-  static string WorkingDirectory(IntPtr process, long peb) {
+  static bool Basic(IntPtr process, out BasicInformation information) {
+    information = new BasicInformation(); int returned;
+    return NtQueryInformationProcess(process, 0, ref information, Marshal.SizeOf(information), out returned) == 0;
+  }
+  /** The address of the process's RTL_USER_PROCESS_PARAMETERS, or 0 when it cannot be read. */
+  static long Parameters(IntPtr process, long peb) {
     bool wow64;
-    if (IntPtr.Size != 8 || !IsWow64Process(process, out wow64) || wow64) return "";
-    var parameters = Read(process, peb + 0x20, 8); if (parameters == null) return "";
-    var directory = Read(process, BitConverter.ToInt64(parameters, 0) + 0x38, 16); if (directory == null) return "";
+    if (IntPtr.Size != 8 || !IsWow64Process(process, out wow64) || wow64) return 0;
+    var parameters = Read(process, peb + 0x20, 8);
+    return parameters == null ? 0 : BitConverter.ToInt64(parameters, 0);
+  }
+  static string WorkingDirectory(IntPtr process, long peb) {
+    long parameters = Parameters(process, peb); if (parameters == 0) return "";
+    var directory = Read(process, parameters + 0x38, 16); if (directory == null) return "";
     int length = BitConverter.ToUInt16(directory, 0); if (length == 0) return "";
     var text = Read(process, BitConverter.ToInt64(directory, 8), length);
     return text == null ? "" : Encoding.Unicode.GetString(text);
+  }
+  /** Whether one variable of the process's environment block is exactly one of the marks. */
+  static bool Marked(IntPtr process, long peb, string[] marks) {
+    long parameters = Parameters(process, peb); if (parameters == 0) return false;
+    var address = Read(process, parameters + 0x80, 8); var size = Read(process, parameters + 0x3F0, 8);
+    if (address == null || size == null) return false;
+    long length = BitConverter.ToInt64(size, 0); if (length <= 0 || length > MaxEnvironment) return false;
+    var block = Read(process, BitConverter.ToInt64(address, 0), (int)length); if (block == null) return false;
+    foreach (var variable in Encoding.Unicode.GetString(block).Split((char)0))
+      foreach (var mark in marks) if (string.Equals(variable, mark, StringComparison.OrdinalIgnoreCase)) return true;
+    return false;
+  }
+  /**
+   * Ends every process whose environment carries one of the marks, but never the spared one nor this
+   * PowerShell, and answers their PIDs. The check and the kill use one handle, which keeps the PID
+   * from being given to another process in between. Passes repeat while they find something, for
+   * what a process ended in the pass before had started meanwhile.
+   */
+  public static string EndMarked(string[] marks, int spared) {
+    var output = new StringBuilder();
+    int self = Process.GetCurrentProcess().Id;
+    for (int pass = 0; pass < 3; pass++) {
+      bool ended = false;
+      foreach (var listed in Process.GetProcesses()) {
+        int pid = listed.Id; listed.Dispose();
+        if (pid == 0 || pid == self || pid == spared) continue;
+        IntPtr process = OpenProcess(QueryLimitedInformation | VmRead | Terminate, false, pid);
+        if (process == IntPtr.Zero) continue;
+        try {
+          BasicInformation information;
+          if (Basic(process, out information) && Marked(process, information.PebBaseAddress.ToInt64(), marks) && TerminateProcess(process, 1)) {
+            output.Append(pid).Append((char)10); ended = true;
+          }
+        } finally { CloseHandle(process); }
+      }
+      if (!ended) break;
+    }
+    return output.ToString();
   }
   public static string Snapshot() {
     var output = new StringBuilder();
@@ -168,8 +217,8 @@ public static class ToucanProcessSnapshot {
       if (!readable) process = OpenProcess(QueryLimitedInformation, false, pid);
       if (process == IntPtr.Zero) continue;
       try {
-        var information = new BasicInformation(); int returned;
-        if (NtQueryInformationProcess(process, 0, ref information, Marshal.SizeOf(information), out returned) != 0) continue;
+        BasicInformation information;
+        if (!Basic(process, out information)) continue;
         long created, exited, kernel, user;
         if (!GetProcessTimes(process, out created, out exited, out kernel, out user)) created = 0;
         var image = new StringBuilder(32768); int size = image.Capacity;
@@ -184,13 +233,15 @@ public static class ToucanProcessSnapshot {
 }
 `
 
-const WINDOWS_SNAPSHOT_SCRIPT = [
-  "$ErrorActionPreference = 'Stop'",
-  "Add-Type -TypeDefinition @'",
-  WINDOWS_SNAPSHOT_SOURCE.trim(),
-  "'@",
-  '[Console]::Out.Write([ToucanProcessSnapshot]::Snapshot())'
-].join('\n')
+/** Compiles the helper above and prints what `call`, an expression on it, returns. */
+const windowsHelperScript = (call: string): string =>
+  [
+    "$ErrorActionPreference = 'Stop'",
+    "Add-Type -TypeDefinition @'",
+    WINDOWS_SNAPSHOT_SOURCE.trim(),
+    "'@",
+    `[Console]::Out.Write([ToucanProcessSnapshot]::${call})`
+  ].join('\n')
 
 /**
  * Rows of `pid ppid created executable cwd`, tab-separated: Windows forbids tabs and line breaks
@@ -228,8 +279,9 @@ function run(file: string, args: string[]): Promise<string> {
   })
 }
 
-async function windowsSnapshot(): Promise<ProcessRecord[]> {
-  // By full path: the snapshot runs code, so a `powershell.exe` earlier on PATH must not be it.
+/** Runs `call` on the compiled helper and answers what it printed. */
+function runWindowsHelper(call: string): Promise<string> {
+  // By full path: the helper runs code, so a `powershell.exe` earlier on PATH must not be it.
   const powershell = join(
     process.env.SystemRoot ?? 'C:\\Windows',
     'System32',
@@ -237,18 +289,20 @@ async function windowsSnapshot(): Promise<ProcessRecord[]> {
     'v1.0',
     'powershell.exe'
   )
-  const encoded = Buffer.from(WINDOWS_SNAPSHOT_SCRIPT, 'utf16le').toString('base64')
-  return parseWindowsSnapshot(
-    await run(powershell, [
-      '-NoLogo',
-      '-NoProfile',
-      '-NonInteractive',
-      '-ExecutionPolicy',
-      'Bypass',
-      '-EncodedCommand',
-      encoded
-    ])
-  )
+  const encoded = Buffer.from(windowsHelperScript(call), 'utf16le').toString('base64')
+  return run(powershell, [
+    '-NoLogo',
+    '-NoProfile',
+    '-NonInteractive',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-EncodedCommand',
+    encoded
+  ])
+}
+
+async function windowsSnapshot(): Promise<ProcessRecord[]> {
+  return parseWindowsSnapshot(await runWindowsHelper('Snapshot()'))
 }
 
 async function linuxSnapshot(): Promise<ProcessRecord[]> {
@@ -374,6 +428,125 @@ export async function releaseFolder(folder: string, log?: (message: string) => v
     return pids
   } catch (error) {
     log?.(`could not look for processes running in ${folder}: ${errorMessage(error)}`)
+    return []
+  }
+}
+
+/**
+ * The variable that marks what one adapter launch started. Set on the adapter alone, it is
+ * inherited by every process below it - an orphan whose parents died included - and by nothing
+ * the user starts. Its value is fresh per launch, so a relaunch never carries an earlier one's.
+ */
+export const PROCESS_OWNER_ENV = 'TOUCAN_PROCESS_OWNER'
+
+const PROCESS_OWNER_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
+/** How often a sweep looks again after ending something, for what that had started meanwhile. */
+const OWNED_SWEEP_PASSES = 3
+
+/** A fresh owner for one adapter launch, the value of its `PROCESS_OWNER_ENV`. */
+export function newProcessOwner(): string {
+  return randomUUID()
+}
+
+/**
+ * Ends whatever still carries one of the owners' marks - `endOwnedProcesses` below, injected
+ * where a session stops so a test can watch it.
+ */
+export type OwnedProcessesEnd = (owners: readonly string[]) => Promise<unknown>
+
+const marksOf = (owners: readonly string[]): Set<string> =>
+  new Set(owners.map((owner) => `${PROCESS_OWNER_ENV}=${owner}`))
+
+/**
+ * Whether one of a process's environment `variables` is exactly the mark of one of `owners`.
+ * @internal exported for tests
+ */
+export function environmentOwnedBy(variables: Iterable<string>, owners: readonly string[]): boolean {
+  const marks = marksOf(owners)
+  for (const variable of variables) if (marks.has(variable)) return true
+  return false
+}
+
+/**
+ * The PIDs in a `ps -A -wwwE -o pid=,command=` listing whose line holds one of the owners' marks
+ * as a whole word - never `self`. `ps` prints the environment after the command line, so a mark
+ * typed as an argument cannot be told apart; only the session's own processes know its value.
+ * @internal exported for tests
+ */
+export function ownedInPsListing(listing: string, owners: readonly string[], options: { self: number }): number[] {
+  const marks = marksOf(owners)
+  const pids: number[] = []
+  for (const line of listing.split('\n')) {
+    const [pid, ...words] = line.trim().split(/\s+/)
+    if (/^\d+$/.test(pid) && Number(pid) !== options.self && words.some((word) => marks.has(word)))
+      pids.push(Number(pid))
+  }
+  return pids
+}
+
+/** Linux: each process's environment from `/proc`, read right before its kill. */
+async function linuxOwnedPass(owners: readonly string[]): Promise<number[]> {
+  const ended: number[] = []
+  for (const name of await readdir('/proc')) {
+    if (!/^\d+$/.test(name) || Number(name) === process.pid) continue
+    try {
+      if (!environmentOwnedBy((await readFile(`/proc/${name}/environ`, 'utf8')).split('\0'), owners)) continue
+      process.kill(Number(name), 'SIGKILL')
+      ended.push(Number(name))
+    } catch {
+      // Exited meanwhile, or another user's: unreadable is unproven.
+    }
+  }
+  return ended
+}
+
+/** macOS: every process's environment through `ps -E`, which shows the user's own processes'. */
+async function macOwnedPass(owners: readonly string[]): Promise<number[]> {
+  const listing = await run('ps', ['-A', '-wwwE', '-o', 'pid=,command='])
+  const pids = ownedInPsListing(listing, owners, { self: process.pid })
+  for (const pid of pids) ignoringExited(() => process.kill(pid, 'SIGKILL'))
+  return pids
+}
+
+async function posixOwned(owners: readonly string[]): Promise<number[]> {
+  const ended: number[] = []
+  for (let pass = 0; pass < OWNED_SWEEP_PASSES; pass++) {
+    const found = await (process.platform === 'linux' ? linuxOwnedPass(owners) : macOwnedPass(owners))
+    ended.push(...found)
+    if (found.length === 0) break
+  }
+  return ended
+}
+
+/** Windows: the helper checks each environment and terminates through the one handle it read it with. */
+async function windowsOwned(owners: readonly string[]): Promise<number[]> {
+  const marks = [...marksOf(owners)].map((mark) => `'${mark}'`).join(',')
+  const output = await runWindowsHelper(`EndMarked(@(${marks}), ${process.pid})`)
+  return output
+    .split(/\r?\n/)
+    .filter((line) => /^\d+$/.test(line))
+    .map(Number)
+}
+
+/**
+ * Ends every process whose environment carries the mark of one of `owners` - what one session's
+ * adapter launches started, wherever it works and whatever became of its parents - and answers
+ * their PIDs. A process without that proof is never ended, nor is Toucan itself. The proof is
+ * read from each live process, never from a PID remembered earlier; on Windows the check and the
+ * kill share one process handle, so the PID cannot be reused in between. Elsewhere the gap is the
+ * one between reading a process's environment and signalling it. Never throws.
+ */
+export async function endOwnedProcesses(owners: readonly string[], log?: (message: string) => void): Promise<number[]> {
+  // Spliced into the helper's source on Windows: only what `newProcessOwner` makes gets there.
+  const valid = owners.filter((owner) => PROCESS_OWNER_PATTERN.test(owner))
+  if (valid.length === 0) return []
+  try {
+    const pids = await (process.platform === 'win32' ? windowsOwned(valid) : posixOwned(valid))
+    if (pids.length > 0) log?.(`ended ${pids.length} process(es) a stopped session left running: ${pids.join(', ')}`)
+    return pids
+  } catch (error) {
+    log?.(`could not look for processes a stopped session left running: ${errorMessage(error)}`)
     return []
   }
 }
