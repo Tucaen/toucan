@@ -2051,9 +2051,15 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
    * `terminate` ends the adapter's process tree; teardown collects them to end all at once. Then a
    * ticket session's marked processes are ended in the background (`endOwnedProcesses`): the
    * orphans no walk from the adapter reaches, whether or not a worktree is removed - unless
-   * `sweep` is false, for a quit after which the sweep could not finish.
+   * `sweep` is false, for a quit after which the sweep could not finish. A quit therefore leaves
+   * such orphans, as does a restart for those of launches before it: the marks live in memory
+   * only, so the worktree's removal (`releaseFolder`) is what ends them then.
    */
-  const stop = (id: string, terminate: (child: KillableProcess) => unknown = killProcessTree, sweep = true): void => {
+  const stop = (
+    id: string,
+    terminate: (child: KillableProcess) => unknown = killProcessTree,
+    { sweep = true }: { sweep?: boolean } = {}
+  ): void => {
     stopCounts.set(id, (stopCounts.get(id) ?? 0) + 1)
     // Unconditional: an unexpectedly exited agent is already out of `agents`, but its channel
     // (snapshot and subscribers, the owner's forwarding among them) must still be retired, or the
@@ -2976,7 +2982,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
     },
     killAll(): void {
       const children: KillableProcess[] = []
-      for (const id of [...agents.keys()]) stop(id, (child) => children.push(child), false)
+      for (const id of [...agents.keys()]) stop(id, (child) => children.push(child), { sweep: false })
       killProcessTreesNow(children)
     }
   }

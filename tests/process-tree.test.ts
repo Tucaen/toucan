@@ -281,3 +281,23 @@ test("ending a session's own processes takes its orphans and spares every proces
     rmSync(folder, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })
   }
 }, 120_000)
+
+test("stops that come together share one sweep, which ends every one of their sessions' orphans", async () => {
+  const folder = realpathSync(mkdtempSync(join(tmpdir(), 'toucan-owned-batch-')))
+  const owners = [newProcessOwner(), newProcessOwner()]
+  const adapters = owners.map((owner) =>
+    sleeper(folder, { cwd: folder, detached: true }, { env: { [PROCESS_OWNER_ENV]: owner } })
+  )
+  const orphans = await Promise.all(adapters.map(firstLine))
+  try {
+    for (const adapter of adapters) adapter.kill()
+    await waitUntil(() => adapters.every((adapter) => adapter.exitCode !== null || adapter.signalCode !== null))
+    const [first, second] = await Promise.all(owners.map((owner) => endOwnedProcesses([owner])))
+    assert.deepEqual(first, second, 'each stop started its own sweep')
+    assert.deepEqual([...first].sort(), [...orphans].sort())
+    assert.ok(await waitUntil(() => orphans.every((pid) => !alive(pid))), 'an orphan outlived its session')
+  } finally {
+    for (const pid of orphans) if (alive(pid)) process.kill(pid)
+    rmSync(folder, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })
+  }
+}, 120_000)

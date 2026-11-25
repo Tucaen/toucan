@@ -28,6 +28,7 @@ import { join } from 'node:path'
 import { pathWithinRoot } from '../shared/paths'
 import { errorMessage } from '../shared/text'
 import { hiddenProcessOptions } from './background-process'
+import { createSerialQueue } from './serial-queue'
 
 export interface ProcessRecord {
   pid: number
@@ -40,8 +41,8 @@ export interface ProcessRecord {
   executable?: string
 }
 
-const SNAPSHOT_TIMEOUT_MS = 60_000
-const SNAPSHOT_MAX_BUFFER = 16 * 1024 * 1024
+const PROCESS_QUERY_TIMEOUT_MS = 60_000
+const PROCESS_QUERY_MAX_BUFFER = 16 * 1024 * 1024
 /** `taskkill` takes one `/PID` pair per process; this keeps one command line well inside 32 767 characters. */
 const TASKKILL_BATCH = 200
 /** How long a teardown may block on its one process listing or `taskkill`. */
@@ -132,14 +133,16 @@ export function processesInside(table: readonly ProcessRecord[], folder: string,
  * API, compiled once per call by PowerShell. A working directory lives only in the process's own
  * memory (its PEB), which neither WMI nor any shipped tool reports; reading it needs the same
  * rights the user has over their own processes and yields nothing for anyone else's. The offsets
- * are those of a 64-bit process, so a 32-bit one reports no working directory.
+ * are those of a 64-bit process, so a 32-bit one reports no working directory. The same memory
+ * holds its environment, which `EndMarked` reads to end the processes carrying an owner mark; a
+ * 32-bit process shows none, so it is never proven owned.
  */
-const WINDOWS_SNAPSHOT_SOURCE = `
+const WINDOWS_PROCESS_HELPER_SOURCE = `
 using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
-public static class ToucanProcessSnapshot {
+public static class ToucanProcesses {
   [StructLayout(LayoutKind.Sequential)]
   struct BasicInformation { public IntPtr ExitStatus; public IntPtr PebBaseAddress; public IntPtr AffinityMask; public IntPtr BasePriority; public IntPtr UniqueProcessId; public IntPtr InheritedFromUniqueProcessId; }
   [DllImport("ntdll.dll")] static extern int NtQueryInformationProcess(IntPtr process, int informationClass, ref BasicInformation information, int length, out int returned);
@@ -188,13 +191,13 @@ public static class ToucanProcessSnapshot {
   /**
    * Ends every process whose environment carries one of the marks, but never the spared one nor this
    * PowerShell, and answers their PIDs. The check and the kill use one handle, which keeps the PID
-   * from being given to another process in between. Passes repeat while they find something, for
-   * what a process ended in the pass before had started meanwhile.
+   * from being given to another process in between. Up to the given passes, repeated while one
+   * ends something.
    */
-  public static string EndMarked(string[] marks, int spared) {
+  public static string EndMarked(string[] marks, int spared, int passes) {
     var output = new StringBuilder();
     int self = Process.GetCurrentProcess().Id;
-    for (int pass = 0; pass < 3; pass++) {
+    for (int pass = 0; pass < passes; pass++) {
       bool ended = false;
       foreach (var listed in Process.GetProcesses()) {
         int pid = listed.Id; listed.Dispose();
@@ -244,9 +247,9 @@ const windowsHelperScript = (call: string): string =>
   [
     "$ErrorActionPreference = 'Stop'",
     "Add-Type -TypeDefinition @'",
-    WINDOWS_SNAPSHOT_SOURCE.trim(),
+    WINDOWS_PROCESS_HELPER_SOURCE.trim(),
     "'@",
-    `[Console]::Out.Write([ToucanProcessSnapshot]::${call})`
+    `[Console]::Out.Write([ToucanProcesses]::${call})`
   ].join('\n')
 
 /**
@@ -276,7 +279,7 @@ function run(file: string, args: string[]): Promise<string> {
     execFile(
       file,
       args,
-      hiddenProcessOptions({ timeout: SNAPSHOT_TIMEOUT_MS, maxBuffer: SNAPSHOT_MAX_BUFFER }),
+      hiddenProcessOptions({ timeout: PROCESS_QUERY_TIMEOUT_MS, maxBuffer: PROCESS_QUERY_MAX_BUFFER }),
       (error, stdout, stderr) =>
         error
           ? reject(Object.assign(new Error(String(stderr).trim() || error.message), { stdout: String(stdout) }))
@@ -507,12 +510,22 @@ async function linuxOwnedPass(owners: readonly string[]): Promise<number[]> {
   return ended
 }
 
-/** macOS: every process's environment through `ps -E`, which shows the user's own processes'. */
+/**
+ * macOS: every process's environment through `ps -E`, which shows the user's own processes'. Each
+ * candidate is listed once more right before its kill, so the gap a reused PID could slip into is
+ * one process's, not the whole listing's.
+ */
 async function macOwnedPass(owners: readonly string[]): Promise<number[]> {
   const listing = await run('ps', ['-A', '-wwwE', '-o', 'pid=,command='])
-  const pids = ownedInPsListing(listing, owners, { self: process.pid })
-  for (const pid of pids) ignoringExited(() => process.kill(pid, 'SIGKILL'))
-  return pids
+  const ended: number[] = []
+  for (const pid of ownedInPsListing(listing, owners, { self: process.pid })) {
+    const again = await run('ps', ['-wwwE', '-p', String(pid), '-o', 'pid=,command=']).catch(() => '')
+    if (ownedInPsListing(again, owners, { self: process.pid }).includes(pid)) {
+      ignoringExited(() => process.kill(pid, 'SIGKILL'))
+      ended.push(pid)
+    }
+  }
+  return ended
 }
 
 async function posixOwned(owners: readonly string[]): Promise<number[]> {
@@ -528,33 +541,54 @@ async function posixOwned(owners: readonly string[]): Promise<number[]> {
 /** Windows: the helper checks each environment and terminates through the one handle it read it with. */
 async function windowsOwned(owners: readonly string[]): Promise<number[]> {
   const marks = [...marksOf(owners)].map((mark) => `'${mark}'`).join(',')
-  const output = await runWindowsHelper(`EndMarked(@(${marks}), ${process.pid})`)
+  const output = await runWindowsHelper(`EndMarked(@(${marks}), ${process.pid}, ${OWNED_SWEEP_PASSES})`)
   return output
     .split(/\r?\n/)
     .filter((line) => /^\d+$/.test(line))
     .map(Number)
 }
 
-/**
- * Ends every process whose environment carries the mark of one of `owners` - what one session's
- * adapter launches started, wherever it works and whatever became of its parents - and answers
- * their PIDs. A process without that proof is never ended, nor is Toucan itself. The proof is
- * read from each live process, never from a PID remembered earlier; on Windows the check and the
- * kill share one process handle, so the PID cannot be reused in between. Elsewhere the gap is the
- * one between reading a process's environment and signalling it. Never throws.
- */
-export async function endOwnedProcesses(owners: readonly string[], log?: (message: string) => void): Promise<number[]> {
-  // Spliced into the helper's source on Windows: only what `newProcessOwner` makes gets there.
-  const valid = owners.filter((owner) => PROCESS_OWNER_PATTERN.test(owner))
-  if (valid.length === 0) return []
+/** One sweep for every owner gathered while it waited. */
+async function sweepOwned(owners: readonly string[], log?: (message: string) => void): Promise<number[]> {
   try {
-    const pids = await (process.platform === 'win32' ? windowsOwned(valid) : posixOwned(valid))
+    const pids = await (process.platform === 'win32' ? windowsOwned(owners) : posixOwned(owners))
     if (pids.length > 0) log?.(`ended ${pids.length} process(es) a stopped session left running: ${pids.join(', ')}`)
     return pids
   } catch (error) {
     log?.(`could not look for processes a stopped session left running: ${errorMessage(error)}`)
     return []
   }
+}
+
+/** One sweep at a time, Windows compiling its helper for each. */
+const enqueueSweep = createSerialQueue()
+/** The sweep still waiting for its turn, which owners asked for meanwhile join. */
+let waitingSweep: { owners: Set<string>; done: Promise<number[]> } | undefined
+
+/**
+ * Ends every process whose environment carries the mark of one of `owners` - what one session's
+ * adapter launches started, wherever it works and whatever became of its parents - and answers
+ * the PIDs the sweep that covered them ended. A process without that proof is never ended, nor is
+ * Toucan itself. The proof is read from each live process, never from a PID remembered earlier;
+ * on Windows the check and the kill share one process handle, so the PID cannot be reused in
+ * between. Elsewhere the gap is the one between re-reading a process's environment and signalling
+ * it. Sweeps run one at a time, and the owners of stops that come meanwhile share the next one,
+ * so a window closing on many sessions starts one or two, not one each. Never rejects.
+ */
+export function endOwnedProcesses(owners: readonly string[], log?: (message: string) => void): Promise<number[]> {
+  // Spliced into the helper's source on Windows: only what `newProcessOwner` makes gets there.
+  const valid = owners.filter((owner) => PROCESS_OWNER_PATTERN.test(owner))
+  if (valid.length === 0) return Promise.resolve([])
+  if (!waitingSweep) {
+    const gathered = new Set<string>()
+    const done = enqueueSweep(() => {
+      if (waitingSweep?.owners === gathered) waitingSweep = undefined
+      return sweepOwned([...gathered], log)
+    })
+    waitingSweep = { owners: gathered, done }
+  }
+  for (const owner of valid) waitingSweep.owners.add(owner)
+  return waitingSweep.done
 }
 
 /**
