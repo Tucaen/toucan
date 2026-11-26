@@ -15,6 +15,7 @@ import {
 } from '../../src/shared/orchestration-question-answer'
 import type { RemoteChatSummary } from '../../src/shared/remote-access'
 import type { OrchestrationOpenQuestion } from '../../src/shared/ticket-session-spawn'
+import { decisionContext } from '../../src/shared/decision-context'
 import { isToucanOriginText } from '../../src/shared/toucan-origin'
 import {
   activityBodyStale,
@@ -393,7 +394,7 @@ export default function ChatScreen({
 
       {/* One decision at a time, and while it stands the plain composer is gone rather than
           disabled: free text must not be able to bypass the channel the agent is waiting on. */}
-      {pending && <PendingRequestCard key={pending.id} pending={pending} connection={connection} />}
+      {pending && <PendingRequestCard key={pending.id} pending={pending} connection={connection} host={host} />}
       {!composerHidden(connection) && <Composer connection={connection} host={host} />}
     </main>
   )
@@ -621,6 +622,7 @@ function QuestionsView({
                 <div id="question-answer-body" className="pending-request-body" hidden={collapsed}>
                   <DecisionCard
                     request={decision}
+                    host={host}
                     busy={pendingId === question.id}
                     onAnswer={(content) => void resolve(question.id, pinnedQuestionNote(content))}
                   />
@@ -790,10 +792,12 @@ function SessionUsageRow({
  */
 function PendingRequestCard({
   pending,
-  connection
+  connection,
+  host
 }: {
   pending: PendingRequest
   connection: ChatConnection
+  host: SavedHost
 }): JSX.Element {
   const failure = answerFailure(connection)
   const busy = answerInFlight(connection)
@@ -807,7 +811,7 @@ function PendingRequestCard({
       {pending.kind === 'approval' ? (
         <ApprovalCard pending={pending} busy={busy} onApprove={connection.onApprove} />
       ) : (
-        <DecisionCard request={pending.request} busy={busy} onAnswer={connection.onAnswerDecision} />
+        <DecisionCard request={pending.request} host={host} busy={busy} onAnswer={connection.onAnswerDecision} />
       )}
     </section>
   )
@@ -854,13 +858,19 @@ function ApprovalCard({
  * A question set, one question on screen at a time - the desktop's rule, and on a phone the only
  * readable one. Answers accumulate locally and are submitted as a single response, because that is
  * what the elicitation is: one form, not a question per turn.
+ *
+ * The message and the question are Markdown like the transcript, so a screenshot gate's file links
+ * open the shot from the desktop here too; the message is left out when it only repeats the one
+ * question (`decisionContext`), which Claude's adapter does for every single AskUserQuestion.
  */
 function DecisionCard({
   request,
+  host,
   busy,
   onAnswer
 }: {
   request: AgentDecisionRequest
+  host: SavedHost
   busy: boolean
   onAnswer(content?: AgentDecisionResponseContent): void
 }): JSX.Element {
@@ -877,18 +887,25 @@ function DecisionCard({
   }
 
   if (!question) return <p className="empty">This question set is empty.</p>
+  const context = decisionContext(request)
 
   return (
     <>
       <header className="pending-request-head">
         <strong>{question.title ?? 'Decision questions'}</strong>
-        <small>{request.message}</small>
+        {context && (
+          <div className="decision-context">
+            <ChatMarkdown host={host} text={context} />
+          </div>
+        )}
       </header>
       <p className="decision-progress">
         Question {active + 1} of {request.questions.length} · {answeredCount(request, answers)} answered
         {question.required && <span className="decision-required">Required</span>}
       </p>
-      <p className="decision-question">{question.question}</p>
+      <div className="decision-question">
+        <ChatMarkdown host={host} text={question.question} />
+      </div>
 
       {question.input === 'select' && (
         <div className="pending-request-options" role="group" aria-label={question.question}>

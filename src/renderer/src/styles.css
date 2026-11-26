@@ -2693,7 +2693,7 @@ button.global-status-chip:hover {
   gap: 9px;
 }
 
-.structured-decision-heading p {
+.structured-decision-context {
   margin: 3px 0 0;
   color: #9ca6b4;
   font-size: 11px;
@@ -2780,11 +2780,16 @@ button.global-status-chip:hover {
   font-size: 14px;
 }
 
-.structured-decision-question > p {
-  margin: 0;
+.structured-decision-text {
   color: #d8dee7;
   font-size: 13px;
   line-height: 1.45;
+}
+
+/* The context and the question are Markdown (a screenshot gate lists its shots); keep them compact. */
+.structured-decision-context p,
+.structured-decision-text p {
+  margin: 0 0 6px;
 }
 
 .structured-decision-progress {

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import ChatScreen from '../mobile/src/ChatScreen'
 import type { SavedHost } from '../mobile/src/hosts'
@@ -227,6 +227,75 @@ describe('answering a structured question set from the phone', () => {
     const sent = socket.lastSent()
     expect(sent).toMatchObject({ type: 'decision', decisionId: 'd1' })
     expect(sent.content).toBeUndefined()
+  })
+})
+
+describe('a screenshot gate asked from a ticket session', () => {
+  // Claude's adapter sends a single AskUserQuestion with the question's own text as the message.
+  const gateText = [
+    'Screenshot gate, ticket 08: the quest tracker on the Factory Layer.',
+    '',
+    '- [layer_step_hint.png](file:///D:/Shots/layer_step_hint.png)',
+    '- [layer_miner_open.png](file:///D:/Shots/layer_miner_open.png)',
+    '',
+    'Do you OK these shots?'
+  ].join('\n')
+  const GATE: AgentEvent = {
+    type: 'decision_request',
+    request: {
+      id: 'gate',
+      message: gateText,
+      questions: [
+        {
+          id: 'gate',
+          title: 'Gate',
+          question: gateText,
+          options: [
+            { value: 'OK, approved', label: 'OK, approved' },
+            { value: 'Changes needed', label: 'Changes needed' }
+          ],
+          input: 'select',
+          multiSelect: false
+        }
+      ]
+    }
+  }
+
+  test('shows the question once, with each screenshot as a link that opens it', () => {
+    open([GATE])
+
+    const card = screen.getByRole('region', { name: 'Pending request' })
+    expect(within(card).getAllByText(/Screenshot gate, ticket 08/)).toHaveLength(1)
+    // Not the raw Markdown: the links are rendered, as buttons that fetch the shot from the desktop.
+    expect(card).not.toHaveTextContent('file:///')
+    expect(within(card).getAllByRole('listitem')).toHaveLength(2)
+    expect(within(card).getByRole('button', { name: /layer_step_hint\.png/ })).toBeInTheDocument()
+    expect(within(card).getByRole('button', { name: /layer_miner_open\.png/ })).toBeInTheDocument()
+  })
+
+  test('a message that adds to the question stays above it', () => {
+    open([
+      {
+        type: 'decision_request',
+        request: {
+          id: 'gate',
+          message: 'Ticket 08 is waiting on the human.',
+          questions: [
+            {
+              id: 'q',
+              title: 'Gate',
+              question: 'Do you OK these shots?',
+              options: [],
+              input: 'text',
+              multiSelect: false
+            }
+          ]
+        }
+      }
+    ])
+    const card = screen.getByRole('region', { name: 'Pending request' })
+    expect(within(card).getByText('Ticket 08 is waiting on the human.')).toBeInTheDocument()
+    expect(within(card).getByText('Do you OK these shots?')).toBeInTheDocument()
   })
 })
 

@@ -9,6 +9,7 @@
 import { useId, useLayoutEffect, useRef, useState } from 'react'
 import { Check, ListChecks } from 'lucide-react'
 import type { AgentDecisionRequest, AgentDecisionResponseContent } from '../../shared/agent'
+import { decisionContext } from '../../shared/decision-context'
 import {
   allRequiredAnswered,
   decisionAnswered,
@@ -18,6 +19,7 @@ import {
   withCustomAnswer,
   withNumberAnswer
 } from './decision-form'
+import MarkdownMessage from './MarkdownMessage'
 
 export interface StructuredDecisionPanelProps {
   decisionRequest?: AgentDecisionRequest | null
@@ -42,6 +44,7 @@ export default function StructuredDecisionPanel(props: StructuredDecisionPanelPr
   const question = request.questions[active]
   if (!question) return null
   const currentAnswer = answers[question.id]
+  const context = decisionContext(request)
   const requiredComplete = allRequiredAnswered(request.questions, answers)
   const requiredRemaining = requiredAnswersRemaining(request.questions, answers)
   const questionLabel = (item: AgentDecisionRequest['questions'][number], index: number): string =>
@@ -69,7 +72,7 @@ export default function StructuredDecisionPanel(props: StructuredDecisionPanelPr
     <section
       className="structured-decision nodrag nopan"
       aria-labelledby={headingId}
-      aria-describedby={`${headingId}-context`}
+      aria-describedby={context ? `${headingId}-context` : undefined}
     >
       <header className="structured-decision-header">
         <div className="structured-decision-heading">
@@ -78,7 +81,11 @@ export default function StructuredDecisionPanel(props: StructuredDecisionPanelPr
           </span>
           <div>
             <strong id={headingId}>Decision questions</strong>
-            <p id={`${headingId}-context`}>{request.message}</p>
+            {context && (
+              <div id={`${headingId}-context`} className="structured-decision-context">
+                <MarkdownMessage text={context} />
+              </div>
+            )}
           </div>
         </div>
         <span className="structured-decision-count">
@@ -130,7 +137,9 @@ export default function StructuredDecisionPanel(props: StructuredDecisionPanelPr
           {question.required && <span className="structured-decision-required">Required</span>}
         </div>
         {question.title && <strong>{question.title}</strong>}
-        <p id={`${headingId}-question`}>{question.question}</p>
+        <div id={`${headingId}-question`} className="structured-decision-text">
+          <MarkdownMessage text={question.question} />
+        </div>
         {question.input === 'select' && (
           <div className="structured-decision-options" role="group" aria-labelledby={`${headingId}-question`}>
             {question.options.map((option) => {

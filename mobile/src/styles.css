@@ -1155,6 +1155,13 @@ body {
   overflow-wrap: anywhere;
 }
 
+.decision-context {
+  color: var(--ink-dim);
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 /*
  * One option per row rather than a row of small chips: an approval is a decision with consequences,
  * and a mis-tap on a 40px-wide "Reject" is exactly the mistake worth designing out.
@@ -1226,10 +1233,27 @@ body {
 }
 
 .decision-question {
-  margin: 0;
   font-size: 14px;
   line-height: 1.45;
   overflow-wrap: anywhere;
+}
+
+/* Both are Markdown: a gate lists its screenshots, and the outer edges stay flush with the card. */
+.decision-context > :first-child,
+.decision-question > :first-child {
+  margin-top: 0;
+}
+
+.decision-context > :last-child,
+.decision-question > :last-child {
+  margin-bottom: 0;
+}
+
+.decision-context ul,
+.decision-context ol,
+.decision-question ul,
+.decision-question ol {
+  padding-left: 20px;
 }
 
 .decision-value,

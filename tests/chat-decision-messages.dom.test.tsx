@@ -414,6 +414,26 @@ describe('assistant message tone rendering', () => {
     expect(within(panel).getByRole('status')).toHaveTextContent('Ready to submit')
   })
 
+  test('a single question its message only repeats is shown once, with its Markdown links rendered', () => {
+    // Claude's adapter sends one AskUserQuestion with the question's own text as the message.
+    const gate =
+      'Screenshot gate:\n\n- [layer_step_hint.png](file:///D:/Shots/layer_step_hint.png)\n\nDo you OK these shots?'
+    renderChatView({
+      decisionRequest: {
+        id: 'gate',
+        message: gate,
+        questions: [{ id: 'gate', question: gate, input: 'boolean', multiSelect: false, options: [] }]
+      },
+      resolveElicitation: vi.fn()
+    })
+
+    const panel = screen.getByRole('region', { name: 'Decision questions' })
+    expect(within(panel).getAllByText('Screenshot gate:')).toHaveLength(1)
+    expect(panel).not.toHaveAttribute('aria-describedby')
+    expect(panel).not.toHaveTextContent('file:///')
+    expect(within(panel).getByText('layer_step_hint.png')).toBeInTheDocument()
+  })
+
   test('final submission resolves the structured request exactly once', () => {
     const resolveElicitation = vi.fn()
     renderChatView({
