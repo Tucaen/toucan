@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import type {
   AgentDecisionQuestion,
@@ -860,8 +860,7 @@ function ApprovalCard({
  * what the elicitation is: one form, not a question per turn.
  *
  * The message and the question are Markdown like the transcript, so a screenshot gate's file links
- * open the shot from the desktop here too; the message is left out when it only repeats the one
- * question (`decisionContext`), which Claude's adapter does for every single AskUserQuestion.
+ * open the shot from the desktop here too; `decisionContext` drops a message that only repeats them.
  */
 function DecisionCard({
   request,
@@ -876,6 +875,8 @@ function DecisionCard({
 }): JSX.Element {
   const [active, setActive] = useState(0)
   const [answers, setAnswers] = useState<AgentDecisionResponseContent>(initialDecisionAnswers)
+  // The controls are named by the rendered question, not its Markdown source with link targets.
+  const questionId = useId()
   const question = request.questions[Math.min(active, request.questions.length - 1)]
   const problem = submitDecisionProblem(request, answers)
   const last = request.questions.length - 1
@@ -903,12 +904,12 @@ function DecisionCard({
         Question {active + 1} of {request.questions.length} · {answeredCount(request, answers)} answered
         {question.required && <span className="decision-required">Required</span>}
       </p>
-      <div className="decision-question">
+      <div id={questionId} className="decision-question">
         <ChatMarkdown host={host} text={question.question} />
       </div>
 
       {question.input === 'select' && (
-        <div className="pending-request-options" role="group" aria-label={question.question}>
+        <div className="pending-request-options" role="group" aria-labelledby={questionId}>
           {question.options.map((option) => (
             <button
               type="button"
@@ -927,7 +928,7 @@ function DecisionCard({
         </div>
       )}
       {question.input === 'boolean' && (
-        <div className="pending-request-options" role="group" aria-label={question.question}>
+        <div className="pending-request-options" role="group" aria-labelledby={questionId}>
           {[true, false].map((value) => (
             <button
               type="button"
@@ -948,7 +949,7 @@ function DecisionCard({
         <input
           className="decision-value"
           type="text"
-          aria-label={question.question}
+          aria-labelledby={questionId}
           disabled={busy}
           value={answerFieldText(answers, question)}
           onChange={(event) => setAnswers((current) => setTextAnswer(current, question, event.target.value))}
@@ -958,7 +959,7 @@ function DecisionCard({
         <input
           className="decision-value"
           type="number"
-          aria-label={question.question}
+          aria-labelledby={questionId}
           disabled={busy}
           value={answerFieldText(answers, question)}
           onChange={(event) => setAnswers((current) => setNumberAnswer(current, question, event.target.value))}

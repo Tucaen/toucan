@@ -33,6 +33,10 @@ test('a message the only question already contains is not context', () => {
   assert.equal(decisionContext(request('Do you OK these shots?', GATE)), undefined)
 })
 
+test('a message that only shares a word with the question is kept', () => {
+  assert.equal(decisionContext(request('Theme', 'Which theme do you want?')), 'Theme')
+})
+
 test('a message that adds to the question is kept as written', () => {
   const message = 'Gate for ticket 08, see the shots above.'
   assert.equal(decisionContext(request(message, 'Do you OK these shots?')), message)
