@@ -24,7 +24,7 @@ const USAGE = [
   '| outcome --ticket <id> [--full]',
   '| followup --ticket <id> --text <text>',
   '| question add [--ticket <id>] (--text <markdown> | --file <markdown file>) [--options <json> | --options-file <json file> [--multi] | --options-from-session | --answer]',
-  '| question resolve --id <Q<n>> [--note <text>]',
+  '| question resolve --id <Q<n>|A<n>> [--note <text>]',
   '| question list [--all]'
 ].join(' ')
 
@@ -243,7 +243,7 @@ async function message(words) {
   if (first === 'question' && second === 'resolve') {
     const { flags, positionals } = parseFlags(rest, ['id', 'note'])
     if (positionals.length > 0 || flags.id === undefined)
-      usage('question resolve needs --id <Q<n>> [--note <text>] and nothing else')
+      usage('question resolve needs --id <Q<n>|A<n>> [--note <text>] and nothing else')
     return { command: 'question resolve', args: flags }
   }
   if (first === 'question' && second === 'list') {

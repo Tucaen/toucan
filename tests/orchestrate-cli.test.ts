@@ -542,6 +542,10 @@ test('question add, resolve and list reach the endpoint; add reads the markdown 
     )
     assert.equal(pinnedAnswer.code, 0)
     assert.equal((pinnedAnswer.output.question as { kind: string }).kind, 'answer')
+    // A pinned answer has its own A<n> id, and resolve takes it.
+    const answerId = (pinnedAnswer.output.question as { id: string }).id
+    assert.equal(answerId, 'A1')
+    assert.equal((await run(['question', 'resolve', '--id', answerId], environment)).code, 0)
     for (const extra of [
       ['--options', '["A"]'],
       ['--options-file', optionsFile],

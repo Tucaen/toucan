@@ -51,7 +51,7 @@ const CHOICE = {
 }
 const WITH_CHOICE: RemoteChatSummary = { ...ORCHESTRATOR, openQuestions: [CHOICE, QUESTIONS[0]] }
 const WITH_QUESTIONS: RemoteChatSummary = { ...ORCHESTRATOR, openQuestions: QUESTIONS }
-const ANSWER = { id: 'Q6', ticketId: '7', markdown: 'It is the **left** one.', kind: 'answer' as const, createdAt: 6 }
+const ANSWER = { id: 'A1', ticketId: '7', markdown: 'It is the **left** one.', kind: 'answer' as const, createdAt: 6 }
 const WITH_ANSWER: RemoteChatSummary = { ...ORCHESTRATOR, openQuestions: [ANSWER] }
 
 /** The chat screen with the view switching App does, so a test can walk between the two. */
@@ -261,13 +261,13 @@ describe('a pinned answer', () => {
   test('is read in the view and acknowledged with Read, with no Answer shortcut', async () => {
     open(WITH_ANSWER, 'questions')
     expect(screen.getByRole('heading', { name: 'Answers' })).toBeInTheDocument()
-    expect(screen.getByRole('tab')).toHaveTextContent('Q6 · #7 · Answer')
+    expect(screen.getByRole('tab')).toHaveTextContent('A1 · #7 · Answer')
     expect(screen.getByRole('tabpanel')).toHaveTextContent('It is the left one.')
     expect(screen.queryByRole('button', { name: 'Answer' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Done' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Read' }))
     await waitFor(() => {
-      expect(posted(fetchStub)).toEqual(['http://work-pc:1789/api/chats/orch-1/questions/Q6/resolve'])
+      expect(posted(fetchStub)).toEqual(['http://work-pc:1789/api/chats/orch-1/questions/A1/resolve'])
     })
     expect(await screen.findByText('No open questions.')).toBeInTheDocument()
   })

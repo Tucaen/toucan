@@ -4,6 +4,7 @@ import {
   addOrchestrationQuestion,
   applyPlan,
   applyTicketUpdate,
+  isOrchestrationQuestionId,
   isOrchestrationRecord,
   isPinnedAnswer,
   openOrchestrationQuestions,
@@ -210,7 +211,11 @@ test('question inputs are validated; the markdown travels unchanged', () => {
 
   assert.deepEqual(parseQuestionResolveInput({ id: 'q3' }), { resolve: { id: 'Q3' } })
   assert.deepEqual(parseQuestionResolveInput({ id: '3', note: 'done' }), { resolve: { id: 'Q3', note: 'done' } })
-  assert.match(parseQuestionResolveInput({ id: 'Q' }).error ?? '', /--id <Q<n>>/)
+  assert.deepEqual(parseQuestionResolveInput({ id: 'A3' }), { resolve: { id: 'A3' } })
+  assert.deepEqual(parseQuestionResolveInput({ id: 'a12', note: 'ok' }), { resolve: { id: 'A12', note: 'ok' } })
+  assert.match(parseQuestionResolveInput({ id: 'Q' }).error ?? '', /--id <Q<n>|A<n>>/)
+  assert.match(parseQuestionResolveInput({ id: 'A' }).error ?? '', /--id <Q<n>|A<n>>/)
+  assert.match(parseQuestionResolveInput({ id: 'X3' }).error ?? '', /--id <Q<n>|A<n>>/)
   assert.match(parseQuestionResolveInput({ id: 'Q1', note: '  ' }).error ?? '', /--note needs/)
 
   assert.deepEqual(parseQuestionListInput(undefined), { list: { all: false } })
@@ -247,7 +252,7 @@ test('a pinned answer carries its kind, shares the id counter and is pinnable fo
   assert.match(addOrchestrationQuestion(answered, { ticketId: '3', markdown }, 't3').error ?? '', /already answered/)
   const pinned = addOrchestrationQuestion(answered, { ticketId: '3', markdown, kind: 'answer' }, 't3')
   assert.equal(pinned.error, undefined)
-  assert.deepEqual(pinned.question, { id: 'Q2', ticketId: '3', markdown, kind: 'answer', createdAt: 't3' })
+  assert.deepEqual(pinned.question, { id: 'A1', ticketId: '3', markdown, kind: 'answer', createdAt: 't3' })
   assert.ok(isOrchestrationRecord(JSON.parse(JSON.stringify(pinned.record))))
   assert.equal('kind' in addOrchestrationQuestion(planned(), { markdown }, 't').question!, false)
   assert.equal(isPinnedAnswer(pinned.question!), true)
@@ -255,7 +260,7 @@ test('a pinned answer carries its kind, shares the id counter and is pinnable fo
 
   // The control state the UI renders marks it; a plain question carries no kind.
   assert.deepEqual(orchestrationControlState(pinned.record!).openQuestions, [
-    { id: 'Q2', ticketId: '3', markdown, kind: 'answer', createdAt: 't3' }
+    { id: 'A1', ticketId: '3', markdown, kind: 'answer', createdAt: 't3' }
   ])
   // An answer never carries options, and only `answer` is a kind.
   const withOptions = [{ ...pinned.question, options: [{ label: 'A' }] }]
@@ -272,15 +277,15 @@ test('settling its ticket never resolves a pinned answer; only an acknowledgemen
   const answered = applyTicketUpdate(record, '3', { mergeStatus: 'answered' }, 't2').record!
   assert.deepEqual(
     openOrchestrationQuestions(answered).map((question) => question.id),
-    ['Q2']
+    ['A1']
   )
   // The pin survives a re-plan too.
   const replanned = applyPlan(answered, plan, identity, 't3').record!
   assert.deepEqual(
     openOrchestrationQuestions(replanned).map((question) => question.id),
-    ['Q2']
+    ['A1']
   )
-  const acknowledged = resolveOrchestrationQuestion(replanned, 'Q2', 't4')
+  const acknowledged = resolveOrchestrationQuestion(replanned, 'A1', 't4')
   assert.equal(acknowledged.changed, true)
   assert.deepEqual(openOrchestrationQuestions(acknowledged.record!), [])
 })
@@ -295,4 +300,37 @@ test('the pinned list is named for what it holds', () => {
   assert.equal(pinnedHeading([answer], 'plural'), 'Answers')
   assert.equal(pinnedHeading([question], 'plural'), 'Open questions')
   assert.equal(pinnedHeading([question, answer]), 'Open questions & answers')
+})
+
+test('pinned answers count A1, A2, ... apart from the Q ids of questions, and ids are never reused', () => {
+  let record = addOrchestrationQuestion(planned(), { ticketId: '3', markdown: 'q' }, 't1').record!
+  const first = addOrchestrationQuestion(record, { ticketId: '3', markdown: 'a1', kind: 'answer' }, 't2')
+  assert.equal(first.question?.id, 'A1')
+  record = first.record!
+  const second = addOrchestrationQuestion(record, { markdown: 'a2', kind: 'answer' }, 't3')
+  assert.equal(second.question?.id, 'A2')
+  record = second.record!
+  // A question after answers still continues the Q sequence.
+  const next = addOrchestrationQuestion(record, { markdown: 'q2' }, 't4')
+  assert.equal(next.question?.id, 'Q2')
+  record = next.record!
+  // Resolving the newest answer does not free its id.
+  record = resolveOrchestrationQuestion(record, 'A2', 't5').record!
+  assert.equal(addOrchestrationQuestion(record, { markdown: 'a3', kind: 'answer' }, 't6').question?.id, 'A3')
+  assert.ok(isOrchestrationRecord(JSON.parse(JSON.stringify(record))))
+  assert.equal(isOrchestrationQuestionId('A7'), true)
+  assert.equal(isOrchestrationQuestionId('A0'), false)
+  assert.equal(isOrchestrationQuestionId('X1'), false)
+})
+
+test('an answer pinned under a Q id by an older build still loads, resolves and keeps its id', () => {
+  const legacy = { id: 'Q2', ticketId: '3', markdown, kind: 'answer' as const, createdAt: 't1' }
+  let record = addOrchestrationQuestion(planned(), { markdown: 'q' }, 't0').record!
+  record = { ...record, openQuestions: [...record.openQuestions!, legacy] }
+  assert.ok(isOrchestrationRecord(JSON.parse(JSON.stringify(record))))
+  // The legacy Q2 neither collides with nor shifts the A sequence; the Q sequence skips past it.
+  assert.equal(addOrchestrationQuestion(record, { markdown: 'new', kind: 'answer' }, 't2').question?.id, 'A1')
+  assert.equal(addOrchestrationQuestion(record, { markdown: 'new' }, 't2').question?.id, 'Q3')
+  const resolved = resolveOrchestrationQuestion(record, 'Q2', 't3')
+  assert.equal(resolved.changed, true)
 })

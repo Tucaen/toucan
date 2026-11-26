@@ -278,7 +278,11 @@ export interface OrchestrationRecord {
  * so the human finds the screenshots in the pinned question rather than scrolling up for them.
  */
 export interface OrchestrationQuestion {
-  /** `Q1`, `Q2`, ...: unique within the orchestration and never reused. */
+  /**
+   * `Q1`, `Q2`, ... for a question and `A1`, `A2`, ... for a pinned answer (`kind: 'answer'`), two
+   * sequences: unique within the orchestration and never reused. An answer pinned before it had its
+   * own sequence keeps its `Q<n>` id.
+   */
   id: string
   /** The ticket it came from; settling that ticket resolves the question. */
   ticketId?: string
@@ -591,9 +595,13 @@ export function applyTicketUpdate(
  */
 export const ORCHESTRATION_QUESTION_LIMIT = 16_000
 
-const QUESTION_ID = /^Q([1-9][0-9]*)$/
+/**
+ * Questions are `Q<n>`, pinned answers `A<n>`, each with its own counter. A record written before
+ * answers had their own ids may hold an answer under a `Q<n>` id; that id stays valid and stable.
+ */
+const QUESTION_ID = /^([QA])([1-9][0-9]*)$/
 
-/** Whether `value` is a question id as `question add` issues them: `Q1`, `Q2`, ... */
+/** Whether `value` is a pinned id as `question add` issues them: `Q1`, `Q2`, ... or, for answers, `A1`, `A2`, ... */
 export function isOrchestrationQuestionId(value: string): boolean {
   return QUESTION_ID.test(value)
 }
@@ -717,14 +725,20 @@ export function parseQuestionAddInput(
   }
 }
 
-/** Validates `question resolve --id <Q<n>> [--note <text>]`; `3` and `q3` both read as `Q3`. */
+/**
+ * Validates `question resolve --id <Q<n>|A<n>> [--note <text>]`; `q3` and `a3` read as `Q3` and
+ * `A3`, and a bare `3` as `Q3` (a question).
+ */
 export function parseQuestionResolveInput(value: unknown): Outcome<'resolve', { id: string; note?: string }> {
   const args = isRecord(value) ? value : {}
   if (Object.keys(args).some((key) => key !== 'id' && key !== 'note')) {
-    return refuse('question resolve takes only --id <Q<n>> [--note <text>]')
+    return refuse('question resolve takes only --id <Q<n>|A<n>> [--note <text>]')
   }
-  const id = typeof args.id === 'string' ? `Q${args.id.trim().replace(/^q/i, '')}` : ''
-  if (!QUESTION_ID.test(id)) return refuse('question resolve needs --id <Q<n>>, the id question add returned')
+  const raw = typeof args.id === 'string' ? args.id.trim() : ''
+  const id = /^[qa]/i.test(raw) ? raw.toUpperCase() : `Q${raw}`
+  if (!QUESTION_ID.test(id)) {
+    return refuse('question resolve needs --id <Q<n>|A<n>>, the id question add returned')
+  }
   if (args.note !== undefined && !nonEmptyString(args.note)) return refuse('question resolve --note needs a text')
   return { resolve: { id, ...(nonEmptyString(args.note) ? { note: args.note.trim() } : {}) } }
 }
@@ -742,10 +756,19 @@ export function parseQuestionListInput(value: unknown): Outcome<'list', { all: b
   return { list: { all: value.all === true } }
 }
 
-/** The next free id: one past the highest ever issued, so a resolved question's id is never reused. */
-function nextQuestionId(questions: readonly OrchestrationQuestion[]): string {
-  const highest = Math.max(0, ...questions.map((question) => Number(QUESTION_ID.exec(question.id)?.[1] ?? 0)))
-  return `Q${highest + 1}`
+/**
+ * The next free id of its own sequence (`Q` for a question, `A` for a pinned answer): one past the
+ * highest ever issued with that prefix, so a resolved entry's id is never reused.
+ */
+function nextQuestionId(questions: readonly OrchestrationQuestion[], prefix: 'Q' | 'A'): string {
+  const highest = Math.max(
+    0,
+    ...questions.map((question) => {
+      const match = QUESTION_ID.exec(question.id)
+      return match?.[1] === prefix ? Number(match[2]) : 0
+    })
+  )
+  return `${prefix}${highest + 1}`
 }
 
 /**
@@ -767,7 +790,7 @@ export function addOrchestrationQuestion(
   }
   const questions = record.openQuestions ?? []
   const question: OrchestrationQuestion = {
-    id: nextQuestionId(questions),
+    id: nextQuestionId(questions, input.kind === 'answer' ? 'A' : 'Q'),
     ...(input.ticketId !== undefined ? { ticketId: input.ticketId } : {}),
     markdown: input.markdown,
     ...(input.kind === 'answer' ? { kind: 'answer' as const } : {}),

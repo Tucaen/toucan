@@ -473,7 +473,7 @@ test('acknowledging a pinned answer records it and wakes nobody', async () => {
     't1'
   )
   await records.update(key, () => ({ value: pinned.record!, result: undefined }))
-  await controller.resolveQuestion(key, 'orchestrator', 'Q1')
+  await controller.resolveQuestion(key, 'orchestrator', 'A1')
   assert.equal(openOrchestrationQuestions((await records.read(key))!).length, 0)
   assert.equal((await records.read(key))?.openQuestions?.[0]?.resolvedAt, new Date(RESET - 60_000).toISOString())
   assert.equal(changes.length, 1)

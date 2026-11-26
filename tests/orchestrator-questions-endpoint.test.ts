@@ -358,13 +358,13 @@ test('question add --answer pins an answer for a settled ticket, which survives 
     )
     assert.deepEqual(
       (await call(h.grant, 'question list')).body.questions?.map((question) => question.id),
-      ['Q1']
+      ['A1']
     )
     assert.deepEqual(
       (await call(h.grant, 'status')).body.openQuestions?.map((question) => question.kind),
       ['answer']
     )
-    const resolved = await call(h.grant, 'question resolve', { id: 'Q1' })
+    const resolved = await call(h.grant, 'question resolve', { id: 'A1' })
     assert.equal(resolved.body.changed, true)
     assert.deepEqual((await call(h.grant, 'question list')).body.questions, [])
     assert.equal((await call(h.grant, 'question list', { all: true })).body.questions?.length, 1)

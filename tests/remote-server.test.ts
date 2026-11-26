@@ -2416,9 +2416,12 @@ describe('pinned open questions over HTTP', () => {
     )
     assert.equal(withNote.status, 200)
     assert.equal((await created.post('/api/chats/orch-1/questions/Q3/resolve', '', token)).status, 200)
+    // A pinned answer's A<n> id is accepted like a question's Q<n>.
+    assert.equal((await created.post('/api/chats/orch-1/questions/A1/resolve', '', token)).status, 200)
     assert.deepEqual(resolved, [
       { chatId: 'orch-1', questionId: 'Q3', note: 'left' },
-      { chatId: 'orch-1', questionId: 'Q3' }
+      { chatId: 'orch-1', questionId: 'Q3' },
+      { chatId: 'orch-1', questionId: 'A1' }
     ])
   })
 
