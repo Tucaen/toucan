@@ -1628,11 +1628,13 @@ export const TICKET_CONTRACT_HEADING = '## Ticket contract'
  * How a session writes down a file in chat (#3). A bare path in backticks is text the human has to
  * copy into Explorer; a Markdown link is one click, and both the desktop transcript and the phone
  * companion open the `file:` URL form (`classifyMarkdownLink`). The path stays absolute because the
- * phone fetches a linked image from the desktop by it and cannot resolve a relative one.
+ * phone fetches a linked image from the desktop by it and cannot resolve a relative one. A question
+ * panel renders its text as Markdown too, so a gate asked there links each shot: one that named a
+ * folder and `layer_miner_*` left the human on the phone nothing to open.
  * @internal exported for tests
  */
 export const FILE_REFERENCE_RULE =
-  'Write every file you reference in chat, above all screenshots and other images, as a Markdown link to its absolute path as a file URL, for example [before.png](file:///C:/Users/me/shots/before.png), with spaces written as %20; never as a bare path or a path in backticks. The link must be absolute: the phone companion fetches the file from the desktop by that path and cannot resolve a relative one.'
+  'Write every file you reference in chat, above all screenshots and other images, as a Markdown link to its absolute path as a file URL, for example [before.png](file:///C:/Users/me/shots/before.png), with spaces written as %20; never as a bare path or a path in backticks. The link must be absolute: the phone companion fetches the file from the desktop by that path and cannot resolve a relative one. That includes a question you ask the human in a question panel (AskUserQuestion), above all a screenshot gate: link every shot there on its own, one link per file, never a folder path with wildcard or abbreviated names - the panel opens only what is linked.'
 
 /**
  * `FILE_REFERENCE_RULE` plus, when the project has one, where those files go: the scratch folder in

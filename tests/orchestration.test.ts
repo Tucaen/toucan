@@ -298,6 +298,9 @@ test('orchestrator and ticket sessions are told to link files as absolute file U
   assert.match(FILE_REFERENCE_RULE, /Markdown link/)
   assert.match(FILE_REFERENCE_RULE, /absolute/)
   assert.match(FILE_REFERENCE_RULE, /never as a bare path or a path in backticks/)
+  // A screenshot gate asked in a question panel once named a folder and wildcards: nothing to tap.
+  assert.match(FILE_REFERENCE_RULE, /question panel/)
+  assert.match(FILE_REFERENCE_RULE, /one link per file, never a folder path with wildcard/)
 })
 
 test('the example link the rule teaches is one both chat surfaces classify as that file', () => {
